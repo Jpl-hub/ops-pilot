@@ -135,6 +135,14 @@ RISK_AUDIT_PATTERNS = (
     "带强调事项段的无保留意见",
     "带持续经营重大不确定性段落的无保留意见",
 )
+AUDIT_PAGE_HINTS = (
+    "审计情况",
+    "是否经过审计",
+    "未经审计",
+    "审计报告",
+    "标准无保留意见",
+    "非标准审计",
+)
 ABNORMAL_RELATED_PARTY_PATTERNS = (
     "非经营性资金占用",
     "违规关联交易",
@@ -602,7 +610,8 @@ def extract_audit_signal(
     report_id: str,
     report_period: str,
 ) -> dict[str, Any] | None:
-    for page in pages[: min(len(pages), 12)]:
+    search_pages = audit_candidate_pages(pages)
+    for page in search_pages:
         compact = compact_text(normalize_page_text(page))
         for pattern in RISK_AUDIT_PATTERNS:
             if pattern not in compact:
@@ -619,7 +628,7 @@ def extract_audit_signal(
                 value=1.0,
                 source_type="official_event_page",
             )
-    for page in pages[: min(len(pages), 60 if report_period.endswith("FY") else 40)]:
+    for page in search_pages:
         compact = compact_text(normalize_page_text(page))
         if any(pattern in compact for pattern in STANDARD_AUDIT_PATTERNS):
             return build_event_evidence(
@@ -631,6 +640,15 @@ def extract_audit_signal(
                 source_type="official_event_page",
             )
     return None
+
+
+def audit_candidate_pages(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidates = [
+        page
+        for page in pages
+        if any(hint in compact_text(normalize_page_text(page)) for hint in AUDIT_PAGE_HINTS)
+    ]
+    return candidates or pages
 
 
 def extract_litigation_penalty_signal(

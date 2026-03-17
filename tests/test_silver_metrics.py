@@ -353,6 +353,32 @@ class SilverMetricsTestCase(unittest.TestCase):
         self.assertEqual(metric_evidence["I3"], ["risk-report-event-i3-page-018"])
         self.assertEqual(evidence_rows[0]["metric_code"], "I3")
 
+    def test_extract_event_metrics_detects_audit_signal_beyond_page_40(self) -> None:
+        pages = [
+            {"page": 1, "blocks": [{"text": "封面"}]},
+            {
+                "page": 45,
+                "blocks": [
+                    {
+                        "text": (
+                            "四、聘任、解聘会计师事务所情况 "
+                            "半年度财务报告是否已经审计 □是否 "
+                            "公司半年度报告未经审计。"
+                        )
+                    }
+                ],
+            },
+        ]
+        metrics, metric_evidence, evidence_rows = extract_event_metrics(
+            pages,
+            {},
+            report_id="late-audit-report",
+            report_period="2025H1",
+        )
+        self.assertEqual(metrics["I2"], 0.0)
+        self.assertEqual(metric_evidence["I2"], ["late-audit-report-event-i2-page-045"])
+        self.assertEqual(evidence_rows[0]["page"], 45)
+
     def test_enrich_comparable_metrics_builds_c3_with_prior_year_same_period(self) -> None:
         silver_rows = [
             {

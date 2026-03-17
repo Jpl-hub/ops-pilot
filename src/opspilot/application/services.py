@@ -80,6 +80,8 @@ class OpsPilotService:
             min_evidence=self.settings.audit_min_evidence,
         )
         return {
+            "company_name": company["company_name"],
+            "report_period": company["report_period"],
             "answer_markdown": _render_score_answer(company, score_result, risks, opportunities),
             "query_type": "company_scoring",
             "key_numbers": key_numbers,
@@ -215,6 +217,8 @@ class OpsPilotService:
             min_evidence=self.settings.audit_min_evidence,
         )
         return {
+            "company_name": company["company_name"],
+            "report_period": company["report_period"],
             "answer_markdown": f"**{company_name}** 在 **{company['report_period']}** 的 **{metric_def.name}** 为 **{value}**。",
             "query_type": "metric_query",
             "key_numbers": [{"label": metric_def.name, "value": value, "unit": ""}],
