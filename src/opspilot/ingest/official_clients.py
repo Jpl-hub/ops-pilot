@@ -12,7 +12,7 @@ import requests
 
 
 PERIODIC_REPORT_PATTERN = re.compile(
-    r"(?:^|：)\s*\d{4}年(年度报告|半年度报告|一季度报告|第一季度报告|三季度报告|第三季度报告)(?:（[^）]*）)?(?:摘要)?$"
+    r"\d{4}年(年度报告|半年度报告|一季度报告|第一季度报告|三季度报告|第三季度报告)(?:（[^）]*）)?(?:摘要)?$"
 )
 SSE_ARG1_PATTERN = re.compile(r"arg1='([0-9A-F]+)'")
 SSE_UNSBOX = [
@@ -122,6 +122,7 @@ class SSEAnnouncementClient:
 
     def __init__(self, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
+        self.session.trust_env = False
         self.session.headers.update(
             {
                 "User-Agent": "Mozilla/5.0",
@@ -139,7 +140,7 @@ class SSEAnnouncementClient:
     ) -> list[ReportRecord]:
         reports: list[ReportRecord] = []
         page_no = 1
-        while page_no <= 6:
+        while page_no <= 20:
             params = {
                 "productId": company.security_code,
                 "securityType": "0101,120100,020100,020200",
@@ -151,7 +152,6 @@ class SSEAnnouncementClient:
                 "pageHelp.beginPage": str(page_no),
                 "pageHelp.endPage": str(page_no + 4),
             }
-            response = self.session.get(self.endpoint, params=params, timeout=30)
             payload = _request_json_with_retry(
                 self.session,
                 "GET",
@@ -182,6 +182,8 @@ class SSEAnnouncementClient:
                         source_url=f"https://www.sse.com.cn{row['URL']}",
                     )
                 )
+            if len(select_periodic_reports(reports, max_items=max_items)) >= max_items:
+                break
             page_no += 1
         return select_periodic_reports(reports, max_items=max_items)
 
@@ -191,6 +193,7 @@ class SZSEAnnouncementClient:
 
     def __init__(self, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
+        self.session.trust_env = False
         self.session.headers.update(
             {
                 "User-Agent": "Mozilla/5.0",
@@ -256,6 +259,7 @@ class EastmoneyResearchClient:
 
     def __init__(self, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
+        self.session.trust_env = False
         self.session.headers.update(
             {
                 "User-Agent": "Mozilla/5.0",
@@ -316,6 +320,56 @@ class EastmoneyResearchClient:
         return reports
 
 
+class CNInfoSnapshotClient:
+    base_url = "https://www.cninfo.com.cn/data/yellowpages"
+
+    def __init__(self, session: requests.Session | None = None) -> None:
+        self.session = session or requests.Session()
+        self.session.trust_env = False
+        self.session.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://www.cninfo.com.cn/new/snapshot/companyDetailCn",
+            }
+        )
+
+    def detail_url(self, security_code: str) -> str:
+        return f"https://www.cninfo.com.cn/new/snapshot/companyDetailCn?code={security_code}"
+
+    def fetch_snapshot(self, company: CompanyProfile) -> dict[str, Any]:
+        common_params = {"jsonpCallback": "cb", "scode": company.security_code, "type": 1}
+        index_data = _request_jsonp_with_retry(
+            self.session,
+            "GET",
+            f"{self.base_url}/getIndexData",
+            params=common_params,
+        )
+        income_data = _request_jsonp_with_retry(
+            self.session,
+            "GET",
+            f"{self.base_url}/singleStockData",
+            params={**common_params, "sign": 1, "mergerMark": "incomeData"},
+        )
+        finance_data = _request_jsonp_with_retry(
+            self.session,
+            "GET",
+            f"{self.base_url}/singleStockData",
+            params={**common_params, "sign": 1, "mergerMark": "financeData"},
+        )
+        return {
+            "source": "CNINFO_SNAPSHOT",
+            "company_name": company.company_name,
+            "security_code": company.security_code,
+            "exchange": company.exchange,
+            "subindustry": company.subindustry,
+            "source_url": self.detail_url(company.security_code),
+            "snapshot_date": datetime.now().date().isoformat(),
+            "index_data": index_data,
+            "income_data": income_data,
+            "finance_data": finance_data,
+        }
+
+
 def download_binary(
     url: str,
     target_path: Path,
@@ -327,6 +381,7 @@ def download_binary(
     if target_path.exists() and not force:
         return target_path
     client = session or requests.Session()
+    client.trust_env = False
     client.headers.setdefault("User-Agent", "Mozilla/5.0")
     if "sse.com.cn" in url:
         client.headers.setdefault("Referer", "https://www.sse.com.cn/disclosure/listedinfo/regular/")
@@ -361,6 +416,7 @@ def download_text(
     if target_path.exists() and not force:
         return target_path
     client = session or requests.Session()
+    client.trust_env = False
     response = client.get(url, timeout=60)
     response.raise_for_status()
     target_path.write_text(response.text, encoding="utf-8")
@@ -453,6 +509,34 @@ def _request_json_with_retry(
             response = session.request(method, url, timeout=30, **kwargs)
             response.raise_for_status()
             return response.json()
+        except (requests.RequestException, json.JSONDecodeError) as exc:
+            last_error = exc
+            if attempt == retries:
+                break
+            time.sleep(1.0 * attempt)
+    assert last_error is not None
+    raise last_error
+
+
+def _request_jsonp_with_retry(
+    session: requests.Session,
+    method: str,
+    url: str,
+    *,
+    retries: int = 3,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            response = session.request(method, url, timeout=30, **kwargs)
+            response.raise_for_status()
+            body = response.text.strip()
+            start = body.find("(")
+            end = body.rfind(")")
+            if start < 0 or end <= start:
+                raise json.JSONDecodeError("invalid jsonp", body, 0)
+            return json.loads(body[start + 1 : end])
         except (requests.RequestException, json.JSONDecodeError) as exc:
             last_error = exc
             if attempt == retries:

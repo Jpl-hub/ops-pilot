@@ -3,8 +3,10 @@ from __future__ import annotations
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any
+import json
 
 from opspilot.ingest.official_clients import (
+    CNInfoSnapshotClient,
     EastmoneyResearchClient,
     SSEAnnouncementClient,
     SZSEAnnouncementClient,
@@ -15,6 +17,7 @@ from opspilot.ingest.official_clients import (
     load_company_pool,
     write_manifest,
 )
+from opspilot.ingest.manifest_utils import load_manifest_records, merge_manifest_records
 
 
 def build_parser() -> ArgumentParser:
@@ -74,58 +77,169 @@ def main() -> None:
     output_root = Path(args.output_root)
     periodic_root = output_root / "periodic_reports"
     research_root = output_root / "research_reports"
+    snapshot_root = output_root / "company_snapshots"
     manifests_root = output_root / "manifests"
 
     sse_client = SSEAnnouncementClient()
     szse_client = SZSEAnnouncementClient()
     eastmoney_client = EastmoneyResearchClient()
+    snapshot_client = CNInfoSnapshotClient()
 
     periodic_manifest: list[dict[str, Any]] = []
     research_manifest: list[dict[str, Any]] = []
+    snapshot_manifest: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
 
     for company in company_pool:
-        if company.exchange == "SSE":
-            periodic_reports = sse_client.list_reports(
-                company,
-                since_date=args.since_date,
-                max_items=args.max_periodic,
+        try:
+            if company.exchange == "SSE":
+                periodic_reports = sse_client.list_reports(
+                    company,
+                    since_date=args.since_date,
+                    max_items=args.max_periodic,
+                )
+            elif company.exchange == "SZSE":
+                periodic_reports = szse_client.list_reports(
+                    company,
+                    since_date=args.since_date,
+                    max_items=args.max_periodic,
+                )
+            else:
+                periodic_reports = []
+        except Exception as exc:
+            failures.append(
+                {
+                    "security_code": company.security_code,
+                    "company_name": company.company_name,
+                    "stage": "periodic_reports",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
             )
-        elif company.exchange == "SZSE":
-            periodic_reports = szse_client.list_reports(
-                company,
-                since_date=args.since_date,
-                max_items=args.max_periodic,
-            )
-        else:
+            print(f"[warn] periodic fetch failed for {company.security_code} {company.company_name}: {exc}")
             periodic_reports = []
 
         for report in periodic_reports:
             local_path = periodic_root / report.exchange / report.security_code / build_periodic_filename(report)
-            if not args.skip_download:
-                download_binary(report.source_url, local_path, force=args.refresh)
+            try:
+                if not args.skip_download:
+                    download_binary(report.source_url, local_path, force=args.refresh)
+            except Exception as exc:
+                failures.append(
+                    {
+                        "security_code": report.security_code,
+                        "company_name": report.company_name,
+                        "stage": "periodic_download",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                print(f"[warn] periodic download failed for {report.security_code} {report.title}: {exc}")
+                continue
             record = report.to_dict()
             record["local_path"] = str(local_path)
             periodic_manifest.append(record)
 
-        research_reports = eastmoney_client.list_reports(
-            company,
-            since_date=args.since_date,
-            max_items=args.max_research,
-        )
+        try:
+            research_reports = eastmoney_client.list_reports(
+                company,
+                since_date=args.since_date,
+                max_items=args.max_research,
+            )
+        except Exception as exc:
+            failures.append(
+                {
+                    "security_code": company.security_code,
+                    "company_name": company.company_name,
+                    "stage": "research_reports",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            print(f"[warn] research fetch failed for {company.security_code} {company.company_name}: {exc}")
+            research_reports = []
         for report in research_reports:
             local_path = research_root / company.security_code / build_research_filename(report)
-            if not args.skip_download and report.detail_url:
-                download_text(report.detail_url, local_path, force=args.refresh)
+            try:
+                if not args.skip_download and report.detail_url:
+                    download_text(report.detail_url, local_path, force=args.refresh)
+            except Exception as exc:
+                failures.append(
+                    {
+                        "security_code": report.security_code,
+                        "company_name": report.company_name,
+                        "stage": "research_download",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                print(f"[warn] research download failed for {report.security_code} {report.title}: {exc}")
+                continue
             record = report.to_dict()
             record["local_path"] = str(local_path)
             research_manifest.append(record)
 
+        try:
+            snapshot_payload = snapshot_client.fetch_snapshot(company)
+        except Exception as exc:
+            failures.append(
+                {
+                    "security_code": company.security_code,
+                    "company_name": company.company_name,
+                    "stage": "company_snapshot",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            print(f"[warn] snapshot fetch failed for {company.security_code} {company.company_name}: {exc}")
+        else:
+            local_path = snapshot_root / company.exchange / company.security_code / "company_snapshot.json"
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            local_path.write_text(
+                json.dumps(snapshot_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            snapshot_manifest.append(
+                {
+                    "source": "CNINFO_SNAPSHOT",
+                    "company_name": company.company_name,
+                    "security_code": company.security_code,
+                    "exchange": company.exchange,
+                    "subindustry": company.subindustry,
+                    "title": "巨潮资讯公司快照",
+                    "publish_date": snapshot_payload["snapshot_date"],
+                    "report_type": "公司快照",
+                    "is_summary": False,
+                    "source_url": snapshot_payload["source_url"],
+                    "detail_url": snapshot_payload["source_url"],
+                    "local_path": str(local_path),
+                }
+            )
+
+    selected_company_codes = [company.security_code for company in company_pool]
+    periodic_manifest = merge_manifest_records(
+        load_manifest_records(manifests_root / "periodic_reports_manifest.json"),
+        periodic_manifest,
+        company_codes=selected_company_codes,
+        key_fields=("source", "security_code", "publish_date", "title"),
+    )
+    research_manifest = merge_manifest_records(
+        load_manifest_records(manifests_root / "research_reports_manifest.json"),
+        research_manifest,
+        company_codes=selected_company_codes,
+        key_fields=("source", "security_code", "publish_date", "title"),
+    )
+    snapshot_manifest = merge_manifest_records(
+        load_manifest_records(manifests_root / "company_snapshots_manifest.json"),
+        snapshot_manifest,
+        company_codes=selected_company_codes,
+        key_fields=("source", "security_code"),
+    )
+
     write_manifest(manifests_root / "periodic_reports_manifest.json", periodic_manifest)
     write_manifest(manifests_root / "research_reports_manifest.json", research_manifest)
+    write_manifest(manifests_root / "company_snapshots_manifest.json", snapshot_manifest)
 
     print(f"companies={len(company_pool)}")
     print(f"periodic_reports={len(periodic_manifest)}")
     print(f"research_reports={len(research_manifest)}")
+    print(f"company_snapshots={len(snapshot_manifest)}")
+    print(f"failures={len(failures)}")
 
 
 if __name__ == "__main__":

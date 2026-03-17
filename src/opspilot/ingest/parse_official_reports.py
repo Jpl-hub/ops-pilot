@@ -14,6 +14,7 @@ from opspilot.ingest.pdf_bronze import (
     write_page_json,
 )
 from opspilot.ingest.official_clients import sanitize_filename
+from opspilot.ingest.manifest_utils import load_manifest_records, merge_manifest_records
 
 
 def build_parser() -> ArgumentParser:
@@ -94,19 +95,26 @@ def main() -> None:
         print(f"[{index}/{len(records)}] parsed {record['security_code']} {record['title']}")
 
     manifests_root.mkdir(parents=True, exist_ok=True)
+    merged_rows = merge_manifest_records(
+        load_manifest_records(manifests_root / "parsed_periodic_reports_manifest.json"),
+        parse_rows,
+        company_codes={record["security_code"] for record in records},
+        key_fields=("security_code", "report_id"),
+    )
+
     (manifests_root / "parsed_periodic_reports_manifest.json").write_text(
         json.dumps(
             {
                 "generated_at": datetime.now().isoformat(timespec="seconds"),
-                "record_count": len(parse_rows),
-                "records": parse_rows,
+                "record_count": len(merged_rows),
+                "records": merged_rows,
             },
             ensure_ascii=False,
             indent=2,
         ),
         encoding="utf-8",
     )
-    print(f"parsed_reports={len(parse_rows)}")
+    print(f"parsed_reports={len(merged_rows)}")
 
 
 if __name__ == "__main__":

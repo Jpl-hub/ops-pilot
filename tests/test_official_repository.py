@@ -404,6 +404,118 @@ class OfficialRepositoryTestCase(unittest.TestCase):
             self.assertIsNotNone(c3_evidence)
             self.assertEqual(c3_evidence["page"], 16)
 
+    def test_repository_preferred_period_skips_sparse_future_period(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            silver_root = root / "silver" / "official" / "manifests"
+            silver_root.mkdir(parents=True, exist_ok=True)
+            universe_path = root / "universe.json"
+
+            universe_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "company_name": "甲公司",
+                            "security_code": "000001",
+                            "ticker": "000001.SZ",
+                            "exchange": "SZSE",
+                            "subindustry": "储能",
+                        },
+                        {
+                            "company_name": "乙公司",
+                            "security_code": "000002",
+                            "ticker": "000002.SZ",
+                            "exchange": "SZSE",
+                            "subindustry": "储能",
+                        },
+                        {
+                            "company_name": "丙公司",
+                            "security_code": "000003",
+                            "ticker": "000003.SZ",
+                            "exchange": "SZSE",
+                            "subindustry": "储能",
+                        },
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            records = [
+                {
+                    "company_name": "甲公司",
+                    "security_code": "000001",
+                    "exchange": "SZSE",
+                    "subindustry": "储能",
+                    "title": "甲公司：2025年年度报告",
+                    "publish_date": "2026-03-01",
+                    "report_period": "2025FY",
+                    "report_id": "r1",
+                    "summary_page": 1,
+                    "summary_chunk_id": "r1-summary-page-001",
+                    "summary_excerpt": "摘要",
+                    "source_url": "https://example.com/r1.pdf",
+                    "local_path": "data/raw/r1.pdf",
+                    "derived_metrics": {"G1": 10.0, "RAW_REVENUE": 10.0, "RAW_NET_PROFIT": 1.0},
+                },
+                {
+                    "company_name": "甲公司",
+                    "security_code": "000001",
+                    "exchange": "SZSE",
+                    "subindustry": "储能",
+                    "title": "甲公司：2025年三季度报告",
+                    "publish_date": "2025-10-20",
+                    "report_period": "2025Q3",
+                    "report_id": "r2",
+                    "summary_page": 1,
+                    "summary_chunk_id": "r2-summary-page-001",
+                    "summary_excerpt": "摘要",
+                    "source_url": "https://example.com/r2.pdf",
+                    "local_path": "data/raw/r2.pdf",
+                    "derived_metrics": {"G1": 10.0, "RAW_REVENUE": 10.0, "RAW_NET_PROFIT": 1.0},
+                },
+                {
+                    "company_name": "乙公司",
+                    "security_code": "000002",
+                    "exchange": "SZSE",
+                    "subindustry": "储能",
+                    "title": "乙公司：2025年三季度报告",
+                    "publish_date": "2025-10-20",
+                    "report_period": "2025Q3",
+                    "report_id": "r3",
+                    "summary_page": 1,
+                    "summary_chunk_id": "r3-summary-page-001",
+                    "summary_excerpt": "摘要",
+                    "source_url": "https://example.com/r3.pdf",
+                    "local_path": "data/raw/r3.pdf",
+                    "derived_metrics": {"G1": 12.0, "RAW_REVENUE": 12.0, "RAW_NET_PROFIT": 1.2},
+                },
+                {
+                    "company_name": "丙公司",
+                    "security_code": "000003",
+                    "exchange": "SZSE",
+                    "subindustry": "储能",
+                    "title": "丙公司：2025年三季度报告",
+                    "publish_date": "2025-10-20",
+                    "report_period": "2025Q3",
+                    "report_id": "r4",
+                    "summary_page": 1,
+                    "summary_chunk_id": "r4-summary-page-001",
+                    "summary_excerpt": "摘要",
+                    "source_url": "https://example.com/r4.pdf",
+                    "local_path": "data/raw/r4.pdf",
+                    "derived_metrics": {"G1": 14.0, "RAW_REVENUE": 14.0, "RAW_NET_PROFIT": 1.4},
+                },
+            ]
+
+            (silver_root / "financial_metrics_manifest.json").write_text(
+                json.dumps({"record_count": len(records), "records": records}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            repository = OfficialMetricsRepository(silver_root.parent, universe_path)
+            self.assertEqual(repository.preferred_period(), "2025Q3")
+
 
 if __name__ == "__main__":
     unittest.main()

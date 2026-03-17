@@ -60,7 +60,8 @@ class OpsPilotService:
             "env": self.settings.env,
             "default_period": self.settings.default_period,
             "preferred_period": preferred_period,
-            "companies": len(self.repository.list_companies(preferred_period)),
+            "companies": len(self.repository.list_companies()),
+            "preferred_period_companies": len(self.repository.list_companies(preferred_period)),
         }
 
     def official_data_status(self) -> dict[str, Any]:
@@ -75,12 +76,14 @@ class OpsPilotService:
         silver_metrics_manifest = _read_manifest(
             silver_manifests_root / "financial_metrics_manifest.json"
         )
+        snapshot_manifest = _read_manifest(manifests_root / "company_snapshots_manifest.json")
         return {
             "official_data_root": str(self.settings.official_data_path),
             "bronze_data_root": str(self.settings.bronze_data_path),
             "silver_data_root": str(self.settings.silver_data_path),
             "periodic_reports": periodic_manifest,
             "research_reports": research_manifest,
+            "company_snapshots": snapshot_manifest,
             "bronze_periodic_reports": bronze_periodic_manifest,
             "silver_financial_metrics": silver_metrics_manifest,
         }
@@ -90,7 +93,7 @@ class OpsPilotService:
 
     def score_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
         period = report_period or self._preferred_period()
-        company = self.repository.get_company(company_name, period)
+        company = self._resolve_company(company_name, period)
         if company is None:
             raise ValueError(f"未找到公司：{company_name}")
 
@@ -133,7 +136,7 @@ class OpsPilotService:
 
     def benchmark_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
         period = report_period or self._preferred_period()
-        company = self.repository.get_company(company_name, period)
+        company = self._resolve_company(company_name, period)
         if company is None:
             raise ValueError(f"未找到公司：{company_name}")
         peers = self.repository.list_companies(company["report_period"])
@@ -168,8 +171,11 @@ class OpsPilotService:
         }
 
     def risk_scan(self, report_period: str | None = None) -> dict[str, Any]:
-        period = report_period or self._preferred_period()
-        companies = self.repository.list_companies(period)
+        companies = (
+            self.repository.list_companies(report_period)
+            if report_period is not None
+            else self.repository.list_companies()
+        )
         board = []
         for company in companies:
             risks = evaluate_risk_labels(company)
@@ -219,7 +225,11 @@ class OpsPilotService:
 
     def chat_turn(self, *, query: str, company_name: str | None = None, report_period: str | None = None) -> dict[str, Any]:
         period = report_period or self._preferred_period()
-        detected_company = company_name or self.repository.find_company_from_query(query, period)
+        detected_company = (
+            company_name
+            or self.repository.find_company_from_query(query, period)
+            or self.repository.find_company_from_query(query, None)
+        )
         query_type = detect_query_type(query)
         if query_type == "company_scoring" and detected_company:
             return self.score_company(detected_company, period)
@@ -236,7 +246,7 @@ class OpsPilotService:
     ) -> dict[str, Any]:
         if not company_name:
             raise ValueError("当前样本问答需要显式包含公司名。")
-        company = self.repository.get_company(company_name, report_period)
+        company = self._resolve_company(company_name, report_period)
         if company is None:
             raise ValueError(f"未找到公司：{company_name}")
         metric_code = _guess_metric_code(query)
@@ -279,6 +289,14 @@ class OpsPilotService:
             if preferred_period:
                 return preferred_period
         return self.settings.default_period
+
+    def _resolve_company(
+        self, company_name: str, report_period: str | None
+    ) -> dict[str, Any] | None:
+        company = self.repository.get_company(company_name, report_period)
+        if company is not None:
+            return company
+        return self.repository.get_company(company_name, None)
 
 
 def _collect_evidence_ids(company: dict[str, Any], score_result: dict[str, Any], risks: list[dict[str, Any]], opportunities: list[dict[str, Any]]) -> list[str]:
@@ -556,12 +574,19 @@ def _guess_metric_code(query: str) -> str:
 
 def _read_manifest(path: Path) -> dict[str, Any]:
     if not path.exists():
-        return {"available": False, "record_count": 0, "manifest_path": str(path)}
+        return {
+            "available": False,
+            "record_count": 0,
+            "company_count": 0,
+            "manifest_path": str(path),
+        }
     with path.open("r", encoding="utf-8") as file:
         payload = json.load(file)
+    records = payload.get("records", [])
     return {
         "available": True,
-        "record_count": payload.get("record_count", 0),
+        "record_count": payload.get("record_count", len(records)),
+        "company_count": len({record.get("security_code") for record in records if record.get("security_code")}),
         "generated_at": payload.get("generated_at"),
         "manifest_path": str(path),
     }

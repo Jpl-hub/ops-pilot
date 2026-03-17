@@ -8,6 +8,7 @@ from typing import Any
 import json
 import re
 
+from opspilot.ingest.manifest_utils import load_manifest_records, merge_manifest_records
 
 NUMBER_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?%?")
 WHITESPACE_RE = re.compile(r"\s+")
@@ -235,17 +236,24 @@ def main() -> None:
     manifests_root = output_root / "manifests"
     manifests_root.mkdir(parents=True, exist_ok=True)
 
+    merged_rows = merge_manifest_records(
+        load_manifest_records(manifests_root / "financial_metrics_manifest.json"),
+        silver_rows,
+        company_codes={row["security_code"] for row in records},
+        key_fields=("security_code", "report_id"),
+    )
+
     manifest_payload = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "record_count": len(silver_rows),
-        "period_counts": dict(Counter(row["report_period"] for row in silver_rows)),
-        "records": silver_rows,
+        "record_count": len(merged_rows),
+        "period_counts": dict(Counter(row["report_period"] for row in merged_rows)),
+        "records": merged_rows,
     }
     (manifests_root / "financial_metrics_manifest.json").write_text(
         json.dumps(manifest_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(f"silver_reports={len(silver_rows)}")
+    print(f"silver_reports={len(merged_rows)}")
 
 
 def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, Any]:

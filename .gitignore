@@ -18,6 +18,7 @@ htmlcov/
 data/raw/**/*.pdf
 data/raw/**/*.PDF
 data/raw/**/*.html
+data/raw/official/company_snapshots/**/*.json
 data/raw/**/*.jsonl
 data/bronze/**/*.json
 data/bronze/**/*.jsonl

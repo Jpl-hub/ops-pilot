@@ -24,6 +24,7 @@ class OfficialClientHelpersTestCase(unittest.TestCase):
         self.assertTrue(is_periodic_report_title("宁德时代：2025年年度报告"))
         self.assertTrue(is_periodic_report_title("阳光电源：2025年三季度报告摘要"))
         self.assertTrue(is_periodic_report_title("隆基绿能：2025年第三季度报告"))
+        self.assertTrue(is_periodic_report_title("通威股份有限公司2025年第三季度报告"))
         self.assertFalse(is_periodic_report_title("关于提供担保的进展公告"))
         self.assertFalse(is_periodic_report_title("阳光电源：关于2024年年度报告（英文简版）的自愿性披露公告"))
         self.assertFalse(is_periodic_report_title("中国国际金融股份有限公司关于隆基绿能科技股份有限公司2023年度持续督导年度报告书"))
@@ -31,6 +32,7 @@ class OfficialClientHelpersTestCase(unittest.TestCase):
     def test_periodic_report_type_detection(self) -> None:
         self.assertEqual(detect_periodic_report_type("2025年年度报告"), "年度报告")
         self.assertEqual(detect_periodic_report_type("2025年半年度报告摘要"), "半年度报告")
+        self.assertEqual(detect_periodic_report_type("通威股份有限公司2025年第三季度报告"), "第三季度报告")
         self.assertEqual(extract_report_year("宁德时代：2025年年度报告", "2026-03-10"), 2025)
 
     def test_filename_sanitizer(self) -> None:

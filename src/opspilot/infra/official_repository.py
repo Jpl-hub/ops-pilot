@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from math import ceil
 from pathlib import Path
 from typing import Any
 import json
@@ -99,11 +100,16 @@ class OfficialMetricsRepository:
 
     def preferred_period(self) -> str | None:
         period_counts = Counter(company["report_period"] for company in self._companies)
-        eligible_periods = [period for period, count in period_counts.items() if count >= 2]
+        if not period_counts:
+            return None
+        coverage_threshold = max(2, ceil(max(period_counts.values()) * 0.6))
+        eligible_periods = [
+            period for period, count in period_counts.items() if count >= coverage_threshold
+        ]
         if eligible_periods:
             return max(eligible_periods, key=_period_sort_key)
         if period_counts:
-            return max(period_counts, key=_period_sort_key)
+            return max(period_counts, key=lambda period: (period_counts[period], _period_sort_key(period)))
         return None
 
     def get_evidence(self, chunk_id: str) -> dict[str, Any] | None:
