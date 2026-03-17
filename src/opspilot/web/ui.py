@@ -519,6 +519,17 @@ def run_ui_app() -> None:
                         with ui.card().classes("op-panel w-full"):
                             ui.label("同公司研报横向对比").classes("op-section-title")
                             ui.label("横向比较不同机构的评级、目标价和首年利润预测，帮助快速识别观点分歧。").classes("op-note")
+                            if compare_payload.get("insights"):
+                                with ui.row().classes("w-full gap-4 wrap items-stretch"):
+                                    for insight in compare_payload["insights"]:
+                                        with ui.card().classes("op-mini-card"):
+                                            _render_pill(
+                                                ui,
+                                                "一致信号" if insight["kind"] == "consensus" else "分歧信号",
+                                                tone="opportunity" if insight["kind"] == "consensus" else "risk",
+                                            )
+                                            ui.label(insight["title"]).classes("text-lg font-semibold")
+                                            ui.label(insight["detail"]).classes("op-evidence-excerpt")
                             with ui.row().classes("w-full gap-4 wrap"):
                                 for item in compare_payload.get("key_numbers", []):
                                     _render_stat_card(

@@ -644,6 +644,8 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(compare["rows"][0]["headline_forecast_value"], 11.0)
             self.assertEqual(compare["rows"][0]["headline_forecast_pe"], 20.0)
             self.assertEqual(compare["key_numbers"][0]["value"], 2)
+            self.assertTrue(compare["insights"])
+            self.assertEqual(compare["insights"][0]["kind"], "consensus")
 
 
 if __name__ == "__main__":

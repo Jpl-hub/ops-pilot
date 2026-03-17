@@ -302,6 +302,7 @@ class OpsPilotService:
             "charts": [
                 _build_research_compare_chart(rows),
             ],
+            "insights": _build_research_compare_insights(rows),
         }
 
     def verify_claim(
@@ -1115,11 +1116,77 @@ def _build_research_compare_chart(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _build_research_compare_insights(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    insights: list[dict[str, Any]] = []
+    rated_rows = [row for row in rows if row.get("rating_text") and row["rating_text"] != "未披露"]
+    rating_values = sorted({row["rating_text"] for row in rated_rows})
+    if len(rating_values) == 1 and rating_values:
+        insights.append(
+            {
+                "kind": "consensus",
+                "title": "评级观点一致",
+                "detail": f"{len(rated_rows)} 篇研报均给出 {rating_values[0]}。",
+            }
+        )
+    elif len(rating_values) > 1:
+        insights.append(
+            {
+                "kind": "divergence",
+                "title": "评级存在分歧",
+                "detail": f"当前覆盖研报出现 {', '.join(rating_values)} 等不同评级。",
+            }
+        )
+
+    target_price_rows = [row for row in rows if row.get("target_price") is not None]
+    if len(target_price_rows) >= 2:
+        high = max(target_price_rows, key=lambda row: row["target_price"])
+        low = min(target_price_rows, key=lambda row: row["target_price"])
+        spread = round(high["target_price"] - low["target_price"], 2)
+        kind = "divergence" if spread >= 10 else "consensus"
+        title = "目标价分歧明显" if spread >= 10 else "目标价较为集中"
+        insights.append(
+            {
+                "kind": kind,
+                "title": title,
+                "detail": (
+                    f"最高为 {high['source_name'] or high['title']} 的 {_format_target_price(high['target_price'])}，"
+                    f"最低为 {low['source_name'] or low['title']} 的 {_format_target_price(low['target_price'])}，"
+                    f"差值 {spread:.2f} 元。"
+                ),
+            }
+        )
+
+    forecast_rows = [row for row in rows if row.get("headline_forecast_value") is not None]
+    if len(forecast_rows) >= 2:
+        high = max(forecast_rows, key=lambda row: row["headline_forecast_value"])
+        low = min(forecast_rows, key=lambda row: row["headline_forecast_value"])
+        spread = round(high["headline_forecast_value"] - low["headline_forecast_value"], 2)
+        kind = "divergence" if spread >= 3 else "consensus"
+        title = "首年利润预测差异较大" if spread >= 3 else "首年利润预测接近"
+        insights.append(
+            {
+                "kind": kind,
+                "title": title,
+                "detail": (
+                    f"最高预测来自 {high['source_name'] or high['title']}，为 {high['headline_forecast_value']:.2f} 亿元；"
+                    f"最低预测为 {low['headline_forecast_value']:.2f} 亿元，区间 {spread:.2f} 亿元。"
+                ),
+            }
+        )
+
+    return insights
+
+
 def _format_rating_text(report_meta: dict[str, Any]) -> str:
     rating_parts = [
         part for part in (report_meta.get("rating_action"), report_meta.get("rating_label")) if part
     ]
-    return "".join(rating_parts) or report_meta.get("rating_code") or "未披露"
+    if rating_parts:
+        return "".join(rating_parts)
+    rating_code = report_meta.get("rating_code")
+    if isinstance(rating_code, str) and re.fullmatch(r"[A-Z]", rating_code):
+        return "未披露"
+    return rating_code or "未披露"
 
 
 def _format_target_price(value: float | None) -> str:
@@ -1190,6 +1257,8 @@ def _extract_research_rating(report_body: str, payload: dict[str, Any]) -> dict[
             "label": match.group(2).strip(),
         }
     rating_code = payload.get("rating")
+    if isinstance(rating_code, str) and re.fullmatch(r"[A-Z]", rating_code):
+        return {}
     if rating_code:
         return {"action": "", "label": str(rating_code)}
     return {}
