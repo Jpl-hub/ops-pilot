@@ -1,4 +1,6 @@
 .venv/
+venv/
+venv311/
 __pycache__/
 .pytest_cache/
 .mypy_cache/
@@ -9,6 +11,7 @@ __pycache__/
 .env
 dist/
 build/
+*.egg-info/
 .DS_Store
 coverage.xml
 htmlcov/

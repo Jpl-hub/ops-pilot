@@ -83,6 +83,16 @@ HEAD_HTML = """
     padding: 18px;
   }
 
+  .op-label-card {
+    min-width: 280px;
+    flex: 1 1 320px;
+    padding: 18px;
+    border: 1px solid rgba(31, 41, 51, 0.08);
+    border-radius: 24px;
+    background: linear-gradient(180deg, rgba(255, 251, 244, 0.96), rgba(250, 245, 236, 0.92));
+    box-shadow: var(--op-shadow);
+  }
+
   .op-kicker {
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -264,6 +274,7 @@ def run_ui_app() -> None:
                     ui.button("刷新评分", on_click=lambda: refresh()).props("unelevated color=teal-7")
 
             summary_section = ui.column().classes("w-full gap-4")
+            label_section = ui.column().classes("w-full gap-4")
             charts_section = ui.row().classes("w-full gap-4 wrap items-stretch")
             formula_section = ui.column().classes("w-full gap-4")
             evidence_section = ui.column().classes("w-full gap-4")
@@ -271,6 +282,7 @@ def run_ui_app() -> None:
             def refresh() -> None:
                 payload = service.score_company(company_select.value)
                 _render_score_summary(ui, summary_section, payload)
+                _render_label_section(ui, label_section, payload)
                 _render_charts(ui, charts_section, payload)
                 _render_formula_section(ui, formula_section, payload)
                 _render_evidence_section(ui, evidence_section, payload["evidence"])
@@ -374,6 +386,49 @@ def _render_charts(ui: Any, container: Any, payload: dict[str, Any]) -> None:
                 ui.echart(chart["options"]).classes("w-full").style("height: 340px;")
 
 
+def _render_label_section(ui: Any, container: Any, payload: dict[str, Any]) -> None:
+    container.clear()
+    with container:
+        with ui.card().classes("op-panel w-full"):
+            ui.label("标签拆解").classes("op-section-title")
+            ui.label("把风险/机会标签、触发信号、关联指标和证据链接放在同一层查看。").classes("op-subtitle")
+            label_cards = payload.get("label_cards", [])
+            if not label_cards:
+                ui.label("当前公司暂无标签拆解数据。").classes("op-note")
+                return
+            with ui.row().classes("w-full gap-4 wrap items-stretch"):
+                for card in label_cards:
+                    _render_label_card(ui, card)
+
+
+def _render_label_card(ui: Any, card: dict[str, Any]) -> None:
+    tone = "risk" if card["kind"] == "risk" else "opportunity"
+    with ui.card().classes("op-label-card"):
+        with ui.row().classes("w-full items-start justify-between gap-3"):
+            with ui.column().classes("gap-1"):
+                ui.label(f"{card['code']} {card['name']}").classes("text-lg font-semibold")
+                _render_pill(ui, "风险标签" if tone == "risk" else "机会标签", tone=tone)
+            if card.get("signal_values"):
+                ui.label(" / ".join(_format_signal_value(value) for value in card["signal_values"])).classes("op-stat-hint")
+        if card["metrics"]:
+            ui.label("关联指标").classes("op-note")
+            with ui.column().classes("w-full gap-0"):
+                for metric in card["metrics"]:
+                    metric_value = _format_signal_value(metric["value"])
+                    with ui.row().classes("op-detail-row w-full items-center justify-between gap-3"):
+                        ui.label(f"{metric['metric_code']} {metric['metric_name']}").classes("text-sm")
+                        ui.label(metric_value).classes("text-sm font-medium")
+        if card.get("formula_metric_codes"):
+            ui.label(
+                "关联公式回放：" + " / ".join(card["formula_metric_codes"])
+            ).classes("op-note")
+        if card.get("evidence_refs"):
+            ui.label("证据入口").classes("op-note")
+            with ui.row().classes("gap-2 wrap"):
+                for chunk_id in card["evidence_refs"]:
+                    ui.link(chunk_id, f"/evidence/{chunk_id}").classes("op-evidence-link")
+
+
 def _render_formula_section(ui: Any, container: Any, payload: dict[str, Any]) -> None:
     container.clear()
     with container:
@@ -453,4 +508,14 @@ def _format_formula_value(card: dict[str, Any]) -> str:
         return "N/A"
     if card["metric_code"] == "C3":
         return f"{value:.2f}%"
+    return f"{value:.4f}"
+
+
+def _format_signal_value(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    if abs(value) >= 1e8:
+        return f"{value / 1e8:.2f} 亿元"
+    if abs(value) >= 1:
+        return f"{value:.2f}"
     return f"{value:.4f}"

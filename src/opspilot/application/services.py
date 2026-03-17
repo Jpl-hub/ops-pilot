@@ -13,6 +13,23 @@ from opspilot.domain.scoring import score_company
 from opspilot.infra.sample_repository import SampleRepository
 
 
+LABEL_METRIC_CODES = {
+    "R1": ("C1", "G2"),
+    "R2": ("C3",),
+    "R3": ("P4",),
+    "R4": ("S4", "S1"),
+    "R5": ("I1",),
+    "R6": ("I2",),
+    "R7": ("I3",),
+    "R8": ("I4",),
+    "O1": ("P1",),
+    "O2": ("C1",),
+    "O3": ("P4",),
+    "O4": ("S4",),
+    "O5": ("G3",),
+}
+
+
 class OpsPilotService:
     def __init__(self, repository: SampleRepository, settings: Settings) -> None:
         self.repository = repository
@@ -65,6 +82,7 @@ class OpsPilotService:
         risks = evaluate_risk_labels(company)
         opportunities = evaluate_opportunity_labels(company)
         formula_cards = _build_formula_cards(company)
+        label_cards = _build_label_cards(company, risks, opportunities, formula_cards)
         evidence_ids = _collect_evidence_ids(company, score_result, risks, opportunities)
         evidence = self.repository.resolve_evidence(evidence_ids)
         key_numbers = [
@@ -89,6 +107,7 @@ class OpsPilotService:
             "evidence": evidence,
             "calculations": calculations,
             "formula_cards": formula_cards,
+            "label_cards": label_cards,
             "audit": audit,
             "scorecard": {**score_result, "risk_labels": risks, "opportunity_labels": opportunities},
         }
@@ -359,6 +378,41 @@ def _build_formula_calculations(formula_cards: list[dict[str, Any]]) -> list[dic
             }
         )
     return calculations
+
+
+def _build_label_cards(
+    company: dict[str, Any],
+    risks: list[dict[str, Any]],
+    opportunities: list[dict[str, Any]],
+    formula_cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    formula_card_by_metric = {card["metric_code"]: card for card in formula_cards}
+    label_cards = []
+    for label in risks + opportunities:
+        metric_rows = []
+        linked_formula_cards = []
+        for metric_code in LABEL_METRIC_CODES.get(label["code"], ()):
+            metric_rows.append(
+                {
+                    "metric_code": metric_code,
+                    "metric_name": METRIC_BY_CODE[metric_code].name,
+                    "value": company["metrics"].get(metric_code),
+                }
+            )
+            if metric_code in formula_card_by_metric:
+                linked_formula_cards.append(metric_code)
+        label_cards.append(
+            {
+                "code": label["code"],
+                "name": label["name"],
+                "kind": "risk" if label["code"].startswith("R") else "opportunity",
+                "signal_values": label["signal_values"],
+                "evidence_refs": label["evidence_refs"],
+                "metrics": metric_rows,
+                "formula_metric_codes": linked_formula_cards,
+            }
+        )
+    return label_cards
 
 
 def _format_number(value: float | None) -> str:
