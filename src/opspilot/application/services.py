@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from html import unescape
 import json
 import re
 
@@ -238,11 +239,15 @@ class OpsPilotService:
             company_name=company_name,
             report_period=report_period,
             report_title=report_title,
+            available_periods=_get_company_periods(self.repository, company_name),
         )
         if report is None:
             raise ValueError(f"未找到研报：{company_name}")
 
-        inferred_period = report_period or _infer_report_period_from_text(report["title"])
+        report_html = Path(report["local_path"]).read_text(encoding="utf-8")
+        research_payload = _extract_research_payload(report_html)
+        research_meta = _build_research_meta(report, research_payload)
+        inferred_period = report_period or _infer_report_period_from_text(research_meta["title"])
         if inferred_period:
             company = self.repository.get_company(company_name, inferred_period)
             if company is None:
@@ -252,16 +257,17 @@ class OpsPilotService:
         if company is None:
             raise ValueError(f"未找到公司：{company_name}")
 
-        report_html = Path(report["local_path"]).read_text(encoding="utf-8")
-        report_body = _extract_research_body(report_html)
+        report_body = _extract_research_body(report_html, research_payload)
         claim_cards = _build_claim_cards(company, report, report_body)
-        evidence = _build_claim_evidence(self.repository, report, claim_cards)
+        forecast_cards = _build_forecast_cards(report, report_body, research_meta)
+        evidence = _build_claim_evidence(self.repository, report, research_meta, claim_cards, forecast_cards)
         calculations = [
             {
                 "step": "研报观点核验",
                 "detail": {
-                    "report_title": report["title"],
+                    "report_title": research_meta["title"],
                     "claim_count": len(claim_cards),
+                    "forecast_count": len(forecast_cards),
                     "matches": sum(1 for item in claim_cards if item["status"] == "match"),
                     "mismatches": sum(1 for item in claim_cards if item["status"] == "mismatch"),
                     "insufficient": sum(
@@ -288,7 +294,12 @@ class OpsPilotService:
         return {
             "company_name": company["company_name"],
             "report_period": company["report_period"],
-            "answer_markdown": _render_claim_answer(report["title"], company["report_period"], claim_cards),
+            "answer_markdown": _render_claim_answer(
+                research_meta,
+                company["report_period"],
+                claim_cards,
+                forecast_cards,
+            ),
             "query_type": "claim_verification",
             "key_numbers": key_numbers,
             "charts": [_build_claim_chart(claim_cards)],
@@ -296,11 +307,8 @@ class OpsPilotService:
             "calculations": calculations,
             "audit": audit,
             "claim_cards": claim_cards,
-            "report_meta": {
-                "title": report["title"],
-                "publish_date": report["publish_date"],
-                "source_url": report.get("detail_url") or report["source_url"],
-            },
+            "forecast_cards": forecast_cards,
+            "report_meta": research_meta,
         }
 
     def chat_turn(self, *, query: str, company_name: str | None = None, report_period: str | None = None) -> dict[str, Any]:
@@ -633,6 +641,7 @@ def _select_research_report(
     company_name: str,
     report_period: str | None,
     report_title: str | None,
+    available_periods: set[str] | None = None,
 ) -> dict[str, Any] | None:
     matches = [report for report in reports if report.get("company_name") == company_name]
     if report_title:
@@ -643,9 +652,12 @@ def _select_research_report(
             for report in matches
             if _infer_report_period_from_text(report.get("title", "")) == report_period
         ]
-        if period_matches:
-            matches = period_matches
+        if not period_matches:
+            return None
+        matches = period_matches
     matches.sort(key=lambda item: item.get("publish_date", ""), reverse=True)
+    if report_period is None:
+        matches.sort(key=lambda item: _research_report_bucket(item, available_periods))
     return matches[0] if matches else None
 
 
@@ -665,14 +677,43 @@ def _infer_report_period_from_text(text: str) -> str | None:
     return None
 
 
-def _extract_research_body(report_html: str) -> str:
+def _extract_research_payload(report_html: str) -> dict[str, Any]:
+    match = re.search(r"var\s+zwinfo\s*=\s*(\{.*?\});", report_html, re.S)
+    if match is None:
+        return {}
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _build_research_meta(report: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    report_body = payload.get("notice_content", "")
+    rating_info = _extract_research_rating(report_body, payload)
+    publish_date = payload.get("notice_date") or report.get("publish_date", "")
+    return {
+        "title": payload.get("notice_title") or report["title"],
+        "publish_date": publish_date.split(" ")[0] if publish_date else "",
+        "source_url": report.get("detail_url") or report["source_url"],
+        "attachment_url": payload.get("attach_url"),
+        "source_name": payload.get("source_sample_name"),
+        "researcher": payload.get("researcher"),
+        "rating_code": payload.get("rating"),
+        "rating_label": rating_info.get("label"),
+        "rating_action": rating_info.get("action"),
+    }
+
+
+def _extract_research_body(report_html: str, payload: dict[str, Any] | None = None) -> str:
+    if payload and payload.get("notice_content"):
+        return _normalize_research_text(str(payload["notice_content"]))
     match = re.search(r'<div id="ctx-content"[^>]*>(.*?)</div>', report_html, re.S)
     body = match.group(1) if match else report_html
     cleaned = re.sub(r"<br\s*/?>", "\n", body)
     cleaned = re.sub(r"</p>", "\n", cleaned)
     cleaned = re.sub(r"<[^>]+>", "", cleaned)
-    cleaned = cleaned.replace("&nbsp;", " ").replace("\u3000", " ")
-    return re.sub(r"\s+", " ", cleaned).strip()
+    return _normalize_research_text(cleaned)
 
 
 def _build_claim_cards(
@@ -745,6 +786,56 @@ def _build_claim_cards(
     return cards
 
 
+def _build_forecast_cards(
+    report: dict[str, Any],
+    report_body: str,
+    report_meta: dict[str, Any],
+) -> list[dict[str, Any]]:
+    sentence_match = re.search(
+        r"(预计公司(?:\d{4}[~\-—至]\d{4}年|\d{4}(?:/\d{4})+年).*?(?:PE|市盈率)[^。]*评级。?)",
+        report_body,
+    )
+    if sentence_match is None:
+        return []
+    sentence = sentence_match.group(1)
+    years = _extract_forecast_years(sentence)
+    profit_match = re.search(r"归母净利(?:润)?(?:分别为)?(\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)+)亿元", sentence)
+    yoy_match = re.search(
+        r"同比([+-]?\d+(?:\.\d+)?%(?:/[+-]?\d+(?:\.\d+)?%)*)",
+        sentence,
+    )
+    pe_match = re.search(
+        r"(?:PE(?:为)?|市盈率(?:为)?)(\d+(?:\.\d+)?(?:x|倍)?(?:/\d+(?:\.\d+)?(?:x|倍)?)+)",
+        sentence,
+    )
+    if not years or profit_match is None:
+        return []
+
+    profit_values = [float(item) for item in profit_match.group(1).split("/")]
+    yoy_values = _split_forecast_metric_values(yoy_match.group(1), suffix="%") if yoy_match else []
+    pe_values = _split_forecast_metric_values(pe_match.group(1), suffix="x") if pe_match else []
+    if len(years) != len(profit_values):
+        return []
+
+    cards: list[dict[str, Any]] = []
+    for index, (year, profit_value) in enumerate(zip(years, profit_values), start=1):
+        cards.append(
+            {
+                "forecast_id": f"{report['security_code']}-forecast-{year}",
+                "label": f"{year}年归母净利润预测",
+                "report_period": f"{year}FY",
+                "forecast_value": profit_value,
+                "yoy_value": yoy_values[index - 1] if index <= len(yoy_values) else None,
+                "pe_value": pe_values[index - 1] if index <= len(pe_values) else None,
+                "rating_label": report_meta.get("rating_label"),
+                "rating_action": report_meta.get("rating_action"),
+                "excerpt": _clip_claim_excerpt(report_body, sentence, radius=240),
+                "research_chunk_id": f"research-{report['security_code']}-forecast-{year}",
+            }
+        )
+    return cards
+
+
 def _resolve_claim_actual_value(company: dict[str, Any], metric_key: str) -> float | None:
     if metric_key in company.get("metrics", {}):
         return company["metrics"][metric_key]
@@ -799,7 +890,9 @@ def _clip_claim_excerpt(text: str, anchor: str, *, radius: int = 180) -> str:
 def _build_claim_evidence(
     repository: Any,
     report: dict[str, Any],
+    report_meta: dict[str, Any],
     claim_cards: list[dict[str, Any]],
+    forecast_cards: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     evidence: list[dict[str, Any]] = []
     for card in claim_cards:
@@ -807,17 +900,32 @@ def _build_claim_evidence(
             {
                 "chunk_id": card["research_chunk_id"],
                 "company_name": report["company_name"],
-                "report_period": _infer_report_period_from_text(report["title"]) or report["publish_date"],
-                "source_title": report["title"],
+                "report_period": _infer_report_period_from_text(report_meta["title"]) or report_meta["publish_date"],
+                "source_title": report_meta["title"],
                 "source_type": "research_report_excerpt",
                 "page": 1,
                 "excerpt": card["excerpt"],
                 "fingerprint": f"{report['security_code']}-{card['claim_id']}",
-                "source_url": report.get("detail_url") or report["source_url"],
+                "source_url": report_meta["source_url"],
                 "local_path": report["local_path"],
             }
         )
         evidence.extend(repository.resolve_evidence(card["evidence_refs"]))
+    for card in forecast_cards or []:
+        evidence.append(
+            {
+                "chunk_id": card["research_chunk_id"],
+                "company_name": report["company_name"],
+                "report_period": card["report_period"],
+                "source_title": report_meta["title"],
+                "source_type": "research_forecast_excerpt",
+                "page": 1,
+                "excerpt": card["excerpt"],
+                "fingerprint": f"{report['security_code']}-{card['forecast_id']}",
+                "source_url": report_meta["source_url"],
+                "local_path": report["local_path"],
+            }
+        )
 
     deduped: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
@@ -829,17 +937,28 @@ def _build_claim_evidence(
     return deduped
 
 
-def _render_claim_answer(report_title: str, report_period: str, claim_cards: list[dict[str, Any]]) -> str:
+def _render_claim_answer(
+    report_meta: dict[str, Any],
+    report_period: str,
+    claim_cards: list[dict[str, Any]],
+    forecast_cards: list[dict[str, Any]],
+) -> str:
     matched = sum(1 for item in claim_cards if item["status"] == "match")
     mismatched = sum(1 for item in claim_cards if item["status"] == "mismatch")
     insufficient = sum(1 for item in claim_cards if item["status"] == "insufficient_data")
+    rating_parts = [
+        part for part in (report_meta.get("rating_action"), report_meta.get("rating_label")) if part
+    ]
+    rating_text = "".join(rating_parts) or report_meta.get("rating_code") or "未披露"
     return (
         f"### 研报观点核验\n"
-        f"- 研报：**{report_title}**\n"
+        f"- 研报：**{report_meta['title']}**\n"
         f"- 核验报期：**{report_period}**\n"
+        f"- 投资评级：**{rating_text}**\n"
         f"- 匹配：**{matched}** 条\n"
         f"- 偏差：**{mismatched}** 条\n"
-        f"- 待补充：**{insufficient}** 条"
+        f"- 待补充：**{insufficient}** 条\n"
+        f"- 盈利预测：**{len(forecast_cards)}** 个年度"
     )
 
 
@@ -859,6 +978,63 @@ def _build_claim_chart(claim_cards: list[dict[str, Any]]) -> dict[str, Any]:
             ],
         },
     }
+
+
+def _get_company_periods(repository: Any, company_name: str) -> set[str]:
+    return {
+        company.get("report_period")
+        for company in repository.list_companies()
+        if company.get("company_name") == company_name and company.get("report_period")
+    }
+
+
+def _research_report_bucket(report: dict[str, Any], available_periods: set[str] | None) -> int:
+    inferred_period = _infer_report_period_from_text(report.get("title", ""))
+    if inferred_period and (not available_periods or inferred_period in available_periods):
+        return 0
+    if inferred_period is None:
+        return 1
+    return 2
+
+
+def _extract_research_rating(report_body: str, payload: dict[str, Any]) -> dict[str, str]:
+    match = re.search(
+        r"(维持|上调至|上调为|下调至|下调为|首次覆盖给予|首次给予|给予)?[“\"]([^”\"，。]{2,8})[”\"]?评级",
+        report_body,
+    )
+    if match and "投资" not in match.group(2):
+        return {
+            "action": (match.group(1) or "").strip(),
+            "label": match.group(2).strip(),
+        }
+    rating_code = payload.get("rating")
+    if rating_code:
+        return {"action": "", "label": str(rating_code)}
+    return {}
+
+
+def _extract_forecast_years(sentence: str) -> list[str]:
+    list_match = re.search(r"预计公司(\d{4}(?:/\d{4})+)年", sentence)
+    if list_match:
+        return [item for item in list_match.group(1).split("/") if item]
+    range_match = re.search(r"预计公司(\d{4})[~\-—至](\d{4})年", sentence)
+    if range_match:
+        start_year = int(range_match.group(1))
+        end_year = int(range_match.group(2))
+        return [str(year) for year in range(start_year, end_year + 1)]
+    return []
+
+
+def _split_forecast_metric_values(values_text: str, *, suffix: str) -> list[float]:
+    cleaned = values_text.replace(suffix, "")
+    if suffix == "x":
+        cleaned = cleaned.replace("倍", "")
+    return [float(item) for item in cleaned.split("/") if item]
+
+
+def _normalize_research_text(text: str) -> str:
+    cleaned = unescape(text).replace("&nbsp;", " ").replace("\u3000", " ")
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def _guess_metric_code(query: str) -> str:

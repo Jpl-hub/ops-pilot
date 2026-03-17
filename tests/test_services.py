@@ -12,8 +12,11 @@ from opspilot.application.services import (
     OpsPilotService,
     _build_claim_cards,
     _build_evidence_groups,
+    _build_forecast_cards,
     _build_label_cards,
     _extract_research_body,
+    _extract_research_payload,
+    _select_research_report,
 )
 
 
@@ -211,6 +214,82 @@ class ServicesTestCase(unittest.TestCase):
         self.assertEqual(cards[3]["label"], "归母净利润规模")
         self.assertEqual(cards[4]["label"], "毛利率")
 
+    def test_extract_research_payload_and_forecast_cards(self) -> None:
+        html = """
+        <script>
+        var zwinfo= {
+            "notice_content":"预计公司2025~2027年有望分别实现归母净利33.82/25.39/32.98亿元，同比+180%/-25%/+30%，当前股价对应PE24x/31x/24x，维持\\"强烈推荐\\"评级。",
+            "notice_title":"2025年三季度报告点评",
+            "notice_date":"2025-11-04 00:00:00",
+            "attach_url":"https://example.com/report.pdf",
+            "source_sample_name":"东兴证券",
+            "researcher":"分析师甲",
+            "rating":"A"
+        };
+        </script>
+        """
+        report = {
+            "security_code": "002074",
+            "company_name": "国轩高科",
+            "title": "2025年三季度报告点评",
+            "publish_date": "2025-11-04",
+            "source_url": "https://example.com/research",
+            "detail_url": "https://example.com/research",
+            "local_path": "x.html",
+        }
+
+        payload = _extract_research_payload(html)
+        body = _extract_research_body(html, payload)
+        forecast_cards = _build_forecast_cards(
+            report,
+            body,
+            {
+                "title": payload["notice_title"],
+                "publish_date": "2025-11-04",
+                "source_url": report["detail_url"],
+                "attachment_url": payload["attach_url"],
+                "source_name": payload["source_sample_name"],
+                "researcher": payload["researcher"],
+                "rating_code": payload["rating"],
+                "rating_label": "强烈推荐",
+                "rating_action": "维持",
+            },
+        )
+
+        self.assertEqual(payload["notice_title"], "2025年三季度报告点评")
+        self.assertIn("维持", body)
+        self.assertEqual(len(forecast_cards), 3)
+        self.assertEqual(forecast_cards[0]["report_period"], "2025FY")
+        self.assertEqual(forecast_cards[0]["forecast_value"], 33.82)
+        self.assertEqual(forecast_cards[0]["yoy_value"], 180.0)
+        self.assertEqual(forecast_cards[1]["pe_value"], 31.0)
+        self.assertEqual(forecast_cards[2]["rating_label"], "强烈推荐")
+
+    def test_select_research_report_prefers_available_explicit_period(self) -> None:
+        reports = [
+            {
+                "company_name": "测试公司",
+                "title": "行业景气向上，订单持续放量",
+                "publish_date": "2026-01-10",
+            },
+            {
+                "company_name": "测试公司",
+                "title": "2025年三季度报告点评：盈利改善",
+                "publish_date": "2025-11-04",
+            },
+        ]
+
+        selected = _select_research_report(
+            reports,
+            company_name="测试公司",
+            report_period=None,
+            report_title=None,
+            available_periods={"2025Q3"},
+        )
+
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected["title"], "2025年三季度报告点评：盈利改善")
+
     def test_verify_claim_uses_latest_research_report_for_company(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
@@ -280,7 +359,17 @@ class ServicesTestCase(unittest.TestCase):
             report_path = root / "report.html"
             report_path.write_text(
                 """
-                <div id="ctx-content"><p>测试公司实现营收100亿元，同比+10%；毛利率15.0%。</p></div>
+                <script>
+                var zwinfo= {
+                    "notice_content":"测试公司实现营收100亿元，同比+10%；毛利率15.0%。预计公司2025/2026/2027年归母净利润分别为11/12/13亿元，对应PE20x/18x/16x，维持\\"买入\\"评级。",
+                    "notice_title":"测试公司2024年年度点评",
+                    "notice_date":"2025-01-10 00:00:00",
+                    "attach_url":"https://example.com/report.pdf",
+                    "source_sample_name":"测试证券",
+                    "researcher":"分析师甲",
+                    "rating":"A"
+                };
+                </script>
                 """,
                 encoding="utf-8",
             )
@@ -310,6 +399,9 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(payload["report_period"], "2024FY")
             self.assertEqual(payload["key_numbers"][0]["value"], 3)
             self.assertEqual(payload["claim_cards"][0]["status"], "match")
+            self.assertEqual(payload["report_meta"]["source_name"], "测试证券")
+            self.assertEqual(payload["report_meta"]["rating_label"], "买入")
+            self.assertEqual(len(payload["forecast_cards"]), 3)
 
 
 if __name__ == "__main__":

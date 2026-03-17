@@ -397,8 +397,35 @@ def run_ui_app() -> None:
                             value=str(next(item["value"] for item in payload["key_numbers"] if item["label"] == "偏差观点")),
                             hint=payload["report_meta"]["publish_date"],
                         )
+                        _render_stat_card(
+                            ui,
+                            label="投资评级",
+                            value=_format_rating_text(payload["report_meta"]),
+                            hint=payload["report_meta"].get("source_name") or "研报来源",
+                        )
                     with ui.card().classes("op-panel w-full"):
                         ui.markdown(payload["answer_markdown"])
+                    with ui.card().classes("op-panel w-full"):
+                        ui.label("研报元信息").classes("op-section-title")
+                        with ui.row().classes("w-full gap-4 wrap"):
+                            _render_stat_card(
+                                ui,
+                                label="研究机构",
+                                value=payload["report_meta"].get("source_name") or "未披露",
+                                hint=payload["report_meta"].get("researcher") or "分析师未披露",
+                            )
+                            _render_stat_card(
+                                ui,
+                                label="原文附件",
+                                value="已挂接" if payload["report_meta"].get("attachment_url") else "未挂接",
+                                hint="支持跳转原始 PDF",
+                            )
+                        if payload["report_meta"].get("attachment_url"):
+                            ui.link(
+                                "打开研报附件 PDF",
+                                payload["report_meta"]["attachment_url"],
+                                new_tab=True,
+                            ).classes("op-evidence-link")
                     with ui.card().classes("op-panel w-full"):
                         ui.label("观点对照").classes("op-section-title")
                         ui.echart(payload["charts"][0]["options"]).classes("w-full").style("height: 320px;")
@@ -430,6 +457,34 @@ def run_ui_app() -> None:
                                                 ui.label(label).classes("text-sm")
                                                 ui.label(value).classes("text-sm font-medium")
                                     ui.label(card["excerpt"]).classes("op-evidence-excerpt")
+                    if payload.get("forecast_cards"):
+                        with ui.card().classes("op-panel w-full"):
+                            ui.label("盈利预测与评级").classes("op-section-title")
+                            ui.label("研报中的未来年度利润预测会单独展开，和历史实际值核验分开展示。").classes("op-note")
+                            with ui.row().classes("w-full gap-4 wrap items-stretch"):
+                                for card in payload["forecast_cards"]:
+                                    with ui.card().classes("op-mini-card"):
+                                        ui.label(card["label"]).classes("text-lg font-semibold")
+                                        _render_pill(
+                                            ui,
+                                            _format_rating_text(
+                                                {
+                                                    "rating_action": card.get("rating_action"),
+                                                    "rating_label": card.get("rating_label"),
+                                                }
+                                            ),
+                                            tone="neutral",
+                                        )
+                                        with ui.column().classes("w-full gap-0"):
+                                            for label, value in (
+                                                ("预测利润", _format_forecast_value(card["forecast_value"], unit="亿元")),
+                                                ("同比预测", _format_forecast_value(card.get("yoy_value"), unit="%")),
+                                                ("对应 PE", _format_forecast_value(card.get("pe_value"), unit="x")),
+                                            ):
+                                                with ui.row().classes("op-detail-row w-full items-center justify-between gap-3"):
+                                                    ui.label(label).classes("text-sm")
+                                                    ui.label(value).classes("text-sm font-medium")
+                                        ui.label(card["excerpt"]).classes("op-evidence-excerpt")
                 _render_evidence_section(ui, evidence_section, payload)
 
             refresh()
@@ -673,6 +728,23 @@ def _format_signal_value(value: float | None) -> str:
     if abs(value) >= 1:
         return f"{value:.2f}"
     return f"{value:.4f}"
+
+
+def _format_forecast_value(value: float | None, *, unit: str) -> str:
+    if value is None:
+        return "N/A"
+    if unit == "%":
+        return f"{value:.2f}%"
+    if unit == "x":
+        return f"{value:.2f}x"
+    return f"{value:.2f} {unit}"
+
+
+def _format_rating_text(report_meta: dict[str, Any]) -> str:
+    rating_parts = [
+        part for part in (report_meta.get("rating_action"), report_meta.get("rating_label")) if part
+    ]
+    return "".join(rating_parts) or report_meta.get("rating_code") or "未披露"
 
 
 def _build_evidence_href(chunk_id: str, context: str, anchor_terms: list[str]) -> str:
