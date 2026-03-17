@@ -16,6 +16,7 @@ from opspilot.application.services import (
     _build_label_cards,
     _extract_research_body,
     _extract_research_payload,
+    _infer_report_period_from_text,
     _select_research_report,
 )
 
@@ -359,6 +360,11 @@ class ServicesTestCase(unittest.TestCase):
         self.assertIsNotNone(selected)
         self.assertEqual(selected["title"], "2025年三季度报告点评：盈利改善")
 
+    def test_infer_report_period_supports_short_report_names(self) -> None:
+        self.assertEqual(_infer_report_period_from_text("2025年三季报点评：盈利改善"), "2025Q3")
+        self.assertEqual(_infer_report_period_from_text("2025年中报点评：需求修复"), "2025H1")
+        self.assertEqual(_infer_report_period_from_text("2025年年报点评：业绩反转"), "2025FY")
+
     def test_select_research_report_prefers_richer_content_with_same_bucket(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -518,6 +524,113 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(payload["report_meta"]["source_name"], "测试证券")
             self.assertEqual(payload["report_meta"]["rating_label"], "买入")
             self.assertEqual(len(payload["forecast_cards"]), 3)
+
+    def test_list_research_reports_returns_ranked_catalog(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                if report_period in (None, "2025Q3"):
+                    return {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 10.0, "P1": 15.0},
+                        "raw_metrics": {"RAW_REVENUE": 10_000_000_000.0, "RAW_NET_PROFIT": 800_000_000.0},
+                        "facts": {"net_profit": {"change_pct": 12.0}},
+                        "history": [],
+                        "metric_evidence": {"G1": ["g1"], "G2": ["g2"], "P1": ["p1"]},
+                        "formula_context": {},
+                        "label_evidence": {},
+                        "summary_chunk_id": "summary",
+                    }
+                return None
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [self.get_company("测试公司", "2025Q3")]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def find_company_from_query(self, query: str, report_period: str | None = None) -> str | None:
+                return "测试公司" if "测试公司" in query else None
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+
+            def __init__(self, official_data_path: Path) -> None:
+                self.official_data_path = official_data_path
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifests_root = root / "manifests"
+            manifests_root.mkdir(parents=True, exist_ok=True)
+            sparse_path = root / "sparse.html"
+            rich_path = root / "rich.html"
+            sparse_path.write_text(
+                """
+                <script>
+                var zwinfo= {"notice_content":"公司经营平稳，维持\\"买入\\"评级。","notice_title":"简版点评","notice_date":"2025-11-01 00:00:00","source_sample_name":"甲证券","rating":"A"};
+                </script>
+                """,
+                encoding="utf-8",
+            )
+            rich_path.write_text(
+                """
+                <script>
+                var zwinfo= {"notice_content":"预计公司2025/2026/2027年归母净利润分别为11/12/13亿元，对应PE20x/18x/16x，维持\\"买入\\"评级。","notice_title":"深度点评","notice_date":"2025-11-05 00:00:00","source_sample_name":"乙证券","rating":"A"};
+                </script>
+                """,
+                encoding="utf-8",
+            )
+            (manifests_root / "research_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "简版点评",
+                                "publish_date": "2025-11-01",
+                                "source_url": "https://example.com/sparse",
+                                "detail_url": "https://example.com/sparse",
+                                "local_path": str(sparse_path),
+                            },
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "深度点评",
+                                "publish_date": "2025-11-05",
+                                "source_url": "https://example.com/rich",
+                                "detail_url": "https://example.com/rich",
+                                "local_path": str(rich_path),
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+            reports = service.list_research_reports("测试公司")
+
+            self.assertEqual(len(reports), 2)
+            self.assertEqual(reports[0]["title"], "深度点评")
+            self.assertEqual(reports[0]["forecast_count"], 3)
+            self.assertEqual(reports[0]["rating_text"], "维持买入")
 
 
 if __name__ == "__main__":

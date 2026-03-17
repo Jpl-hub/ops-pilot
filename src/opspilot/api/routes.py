@@ -74,6 +74,14 @@ def claim_verify(request: ClaimVerifyRequest) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/company/research-reports")
+def company_research_reports(company_name: str) -> dict:
+    reports = get_service().list_research_reports(company_name)
+    if not reports:
+        raise HTTPException(status_code=404, detail=f"未找到研报：{company_name}")
+    return {"company_name": company_name, "reports": reports}
+
+
 @router.get("/industry/risk-scan")
 def industry_risk_scan(report_period: str | None = None) -> dict:
     return get_service().risk_scan(report_period)

@@ -234,11 +234,13 @@ def run_ui_app() -> None:
     initial_score = service.score_company(default_company)
     initial_risk = service.risk_scan()
     initial_claim_company = default_company
+    initial_claim_reports: list[dict[str, Any]] = []
     initial_claim = None
     for company_name in service.list_company_names():
         try:
             initial_claim = service.verify_claim(company_name)
             initial_claim_company = company_name
+            initial_claim_reports = service.list_research_reports(company_name)
             break
         except ValueError:
             continue
@@ -246,6 +248,7 @@ def run_ui_app() -> None:
         initial_claim = {
             "claim_cards": [],
             "report_period": initial_score["report_period"],
+            "available_reports": [],
         }
 
     @ui.page("/")
@@ -360,14 +363,28 @@ def run_ui_app() -> None:
                         value=initial_claim_company,
                         label="选择公司",
                     ).classes("op-select")
+                    report_select = ui.select(
+                        options=_build_report_options(initial_claim_reports),
+                        value=initial_claim.get("report_meta", {}).get("title"),
+                        label="选择研报",
+                    ).classes("op-select")
                     ui.button("刷新核验", on_click=lambda: refresh()).props("unelevated color=teal-7")
 
             summary_section = ui.column().classes("w-full gap-4")
             evidence_section = ui.column().classes("w-full gap-4")
 
+            def sync_report_options() -> None:
+                reports = service.list_research_reports(company_select.value)
+                report_select.options = _build_report_options(reports)
+                report_select.value = reports[0]["title"] if reports else None
+                report_select.update()
+
             def refresh() -> None:
                 try:
-                    payload = service.verify_claim(company_select.value)
+                    payload = service.verify_claim(
+                        company_select.value,
+                        report_title=report_select.value,
+                    )
                 except ValueError as exc:
                     summary_section.clear()
                     evidence_section.clear()
@@ -487,6 +504,7 @@ def run_ui_app() -> None:
                                         ui.label(card["excerpt"]).classes("op-evidence-excerpt")
                 _render_evidence_section(ui, evidence_section, payload)
 
+            company_select.on_value_change(lambda _: sync_report_options())
             refresh()
 
     @ui.page("/evidence/{chunk_id}")
@@ -738,6 +756,20 @@ def _format_forecast_value(value: float | None, *, unit: str) -> str:
     if unit == "x":
         return f"{value:.2f}x"
     return f"{value:.2f} {unit}"
+
+
+def _build_report_options(reports: list[dict[str, Any]]) -> dict[str, str]:
+    options: dict[str, str] = {}
+    for report in reports:
+        suffix_parts = [report.get("publish_date") or "日期未知"]
+        if report.get("report_period"):
+            suffix_parts.append(report["report_period"])
+        if report.get("forecast_count"):
+            suffix_parts.append(f"预测{report['forecast_count']}项")
+        if report.get("rating_text") and report["rating_text"] != "未披露":
+            suffix_parts.append(report["rating_text"])
+        options[report["title"]] = f"{report['title']} | {' | '.join(suffix_parts)}"
+    return options
 
 
 def _format_rating_text(report_meta: dict[str, Any]) -> str:

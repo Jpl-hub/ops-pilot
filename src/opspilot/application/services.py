@@ -225,6 +225,39 @@ class OpsPilotService:
             "audit": score_payload["audit"],
         }
 
+    def list_research_reports(self, company_name: str) -> list[dict[str, Any]]:
+        research_reports = _load_research_reports(
+            self.settings.official_data_path / "manifests" / "research_reports_manifest.json"
+        )
+        available_periods = _get_company_periods(self.repository, company_name)
+        matches = [report for report in research_reports if report.get("company_name") == company_name]
+        if not matches:
+            return []
+        matches.sort(key=lambda item: item.get("publish_date", ""), reverse=True)
+        matches.sort(key=lambda item: _research_report_content_score(item), reverse=True)
+        matches.sort(key=lambda item: _research_report_bucket(item, available_periods))
+        catalog: list[dict[str, Any]] = []
+        for report in matches:
+            insight = _build_research_report_insight(report)
+            if insight is None:
+                continue
+            inferred_period = _infer_report_period_from_text(insight["report_meta"]["title"])
+            catalog.append(
+                {
+                    "title": insight["report_meta"]["title"],
+                    "publish_date": insight["report_meta"]["publish_date"],
+                    "report_period": inferred_period,
+                    "rating_text": _format_rating_text(insight["report_meta"]),
+                    "forecast_count": len(insight["forecast_cards"]),
+                    "claim_signal_count": insight["claim_signal_count"],
+                    "source_name": insight["report_meta"].get("source_name"),
+                    "is_period_supported": (
+                        inferred_period in available_periods if inferred_period is not None else True
+                    ),
+                }
+            )
+        return catalog
+
     def verify_claim(
         self,
         company_name: str,
@@ -244,9 +277,10 @@ class OpsPilotService:
         if report is None:
             raise ValueError(f"未找到研报：{company_name}")
 
-        report_html = Path(report["local_path"]).read_text(encoding="utf-8")
-        research_payload = _extract_research_payload(report_html)
-        research_meta = _build_research_meta(report, research_payload)
+        insight = _build_research_report_insight(report)
+        if insight is None:
+            raise ValueError(f"研报文件不可用：{company_name}")
+        research_meta = insight["report_meta"]
         inferred_period = report_period or _infer_report_period_from_text(research_meta["title"])
         if inferred_period:
             company = self.repository.get_company(company_name, inferred_period)
@@ -257,9 +291,9 @@ class OpsPilotService:
         if company is None:
             raise ValueError(f"未找到公司：{company_name}")
 
-        report_body = _extract_research_body(report_html, research_payload)
+        report_body = insight["report_body"]
         claim_cards = _build_claim_cards(company, report, report_body)
-        forecast_cards = _build_forecast_cards(report, report_body, research_meta)
+        forecast_cards = insight["forecast_cards"]
         evidence = _build_claim_evidence(self.repository, report, research_meta, claim_cards, forecast_cards)
         calculations = [
             {
@@ -309,6 +343,7 @@ class OpsPilotService:
             "claim_cards": claim_cards,
             "forecast_cards": forecast_cards,
             "report_meta": research_meta,
+            "available_reports": self.list_research_reports(company_name),
         }
 
     def chat_turn(self, *, query: str, company_name: str | None = None, report_period: str | None = None) -> dict[str, Any]:
@@ -667,13 +702,13 @@ def _infer_report_period_from_text(text: str) -> str | None:
     if not year_match:
         return None
     year = year_match.group(1)
-    if "半年度" in text:
+    if "半年度" in text or "半年报" in text or "中报" in text:
         return f"{year}H1"
-    if "三季度" in text or "第三季度" in text:
+    if "三季度" in text or "第三季度" in text or "三季报" in text:
         return f"{year}Q3"
-    if "一季度" in text or "第一季度" in text:
+    if "一季度" in text or "第一季度" in text or "一季报" in text:
         return f"{year}Q1"
-    if "年度" in text:
+    if "年度" in text or "年报" in text:
         return f"{year}FY"
     return None
 
@@ -951,10 +986,7 @@ def _render_claim_answer(
     matched = sum(1 for item in claim_cards if item["status"] == "match")
     mismatched = sum(1 for item in claim_cards if item["status"] == "mismatch")
     insufficient = sum(1 for item in claim_cards if item["status"] == "insufficient_data")
-    rating_parts = [
-        part for part in (report_meta.get("rating_action"), report_meta.get("rating_label")) if part
-    ]
-    rating_text = "".join(rating_parts) or report_meta.get("rating_code") or "未披露"
+    rating_text = _format_rating_text(report_meta)
     return (
         f"### 研报观点核验\n"
         f"- 研报：**{report_meta['title']}**\n"
@@ -985,6 +1017,13 @@ def _build_claim_chart(claim_cards: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _format_rating_text(report_meta: dict[str, Any]) -> str:
+    rating_parts = [
+        part for part in (report_meta.get("rating_action"), report_meta.get("rating_label")) if part
+    ]
+    return "".join(rating_parts) or report_meta.get("rating_code") or "未披露"
+
+
 def _get_company_periods(repository: Any, company_name: str) -> set[str]:
     return {
         company.get("report_period")
@@ -1002,15 +1041,15 @@ def _research_report_bucket(report: dict[str, Any], available_periods: set[str] 
     return 2
 
 
-def _research_report_content_score(report: dict[str, Any]) -> tuple[int, int]:
+def _build_research_report_insight(report: dict[str, Any]) -> dict[str, Any] | None:
     local_path = report.get("local_path")
     if not local_path or not Path(local_path).exists():
-        return (0, 0)
+        return None
     report_html = Path(local_path).read_text(encoding="utf-8", errors="ignore")
     payload = _extract_research_payload(report_html)
     report_meta = _build_research_meta(report, payload)
     report_body = _extract_research_body(report_html, payload)
-    forecast_count = len(_build_forecast_cards(report, report_body, report_meta))
+    forecast_cards = _build_forecast_cards(report, report_body, report_meta)
     claim_signal_count = sum(
         1
         for pattern in (
@@ -1021,7 +1060,19 @@ def _research_report_content_score(report: dict[str, Any]) -> tuple[int, int]:
         )
         if re.search(pattern, report_body)
     )
-    return (forecast_count, claim_signal_count)
+    return {
+        "report_meta": report_meta,
+        "report_body": report_body,
+        "forecast_cards": forecast_cards,
+        "claim_signal_count": claim_signal_count,
+    }
+
+
+def _research_report_content_score(report: dict[str, Any]) -> tuple[int, int]:
+    insight = _build_research_report_insight(report)
+    if insight is None:
+        return (0, 0)
+    return (len(insight["forecast_cards"]), insight["claim_signal_count"])
 
 
 def _extract_research_rating(report_body: str, payload: dict[str, Any]) -> dict[str, str]:
