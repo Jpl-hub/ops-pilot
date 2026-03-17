@@ -29,12 +29,18 @@ class OpsPilotService:
 
     def official_data_status(self) -> dict[str, Any]:
         manifests_root = self.settings.official_data_path / "manifests"
+        bronze_manifests_root = self.settings.bronze_data_path / "manifests"
         periodic_manifest = _read_manifest(manifests_root / "periodic_reports_manifest.json")
         research_manifest = _read_manifest(manifests_root / "research_reports_manifest.json")
+        bronze_periodic_manifest = _read_manifest(
+            bronze_manifests_root / "parsed_periodic_reports_manifest.json"
+        )
         return {
             "official_data_root": str(self.settings.official_data_path),
+            "bronze_data_root": str(self.settings.bronze_data_path),
             "periodic_reports": periodic_manifest,
             "research_reports": research_manifest,
+            "bronze_periodic_reports": bronze_periodic_manifest,
         }
 
     def list_company_names(self) -> list[str]:

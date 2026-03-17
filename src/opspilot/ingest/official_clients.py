@@ -6,11 +6,56 @@ from pathlib import Path
 from typing import Any
 import json
 import re
+import time
 
 import requests
 
 
 PERIODIC_REPORT_PATTERN = re.compile(r"(年度报告|半年度报告|一季度报告|三季度报告)")
+SSE_ARG1_PATTERN = re.compile(r"arg1='([0-9A-F]+)'")
+SSE_UNSBOX = [
+    0xF,
+    0x23,
+    0x1D,
+    0x18,
+    0x21,
+    0x10,
+    0x1,
+    0x26,
+    0xA,
+    0x9,
+    0x13,
+    0x1F,
+    0x28,
+    0x1B,
+    0x16,
+    0x17,
+    0x19,
+    0xD,
+    0x6,
+    0xB,
+    0x27,
+    0x12,
+    0x14,
+    0x8,
+    0xE,
+    0x15,
+    0x20,
+    0x1A,
+    0x2,
+    0x1E,
+    0x7,
+    0x4,
+    0x11,
+    0x5,
+    0x3,
+    0x1C,
+    0x22,
+    0x25,
+    0xC,
+    0x24,
+]
+SSE_XOR_KEY = "3000176000856006061501533003690027800375"
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,8 +141,12 @@ class SSEAnnouncementClient:
                 "pageHelp.endPage": str(page_no + 4),
             }
             response = self.session.get(self.endpoint, params=params, timeout=30)
-            response.raise_for_status()
-            payload = response.json()
+            payload = _request_json_with_retry(
+                self.session,
+                "GET",
+                self.endpoint,
+                params=params,
+            )
             rows = payload.get("pageHelp", {}).get("data", [])
             if not rows:
                 break
@@ -159,9 +208,12 @@ class SZSEAnnouncementClient:
                 "stock": [company.security_code],
                 "seDate": [since_date, date.today().isoformat()],
             }
-            response = self.session.post(self.endpoint, json=payload, timeout=30)
-            response.raise_for_status()
-            rows = response.json().get("data", [])
+            rows = _request_json_with_retry(
+                self.session,
+                "POST",
+                self.endpoint,
+                json=payload,
+            ).get("data", [])
             if not rows:
                 break
             for row in rows:
@@ -227,9 +279,12 @@ class EastmoneyResearchClient:
                 "fields": "",
                 "qType": 0,
             }
-            response = self.session.get(self.endpoint, params=params, timeout=30)
-            response.raise_for_status()
-            rows = response.json().get("data", [])
+            rows = _request_json_with_retry(
+                self.session,
+                "GET",
+                self.endpoint,
+                params=params,
+            ).get("data", [])
             if not rows:
                 break
             for row in rows:
@@ -254,13 +309,33 @@ class EastmoneyResearchClient:
         return reports
 
 
-def download_binary(url: str, target_path: Path, session: requests.Session | None = None) -> Path:
+def download_binary(
+    url: str,
+    target_path: Path,
+    session: requests.Session | None = None,
+    *,
+    force: bool = False,
+) -> Path:
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    if target_path.exists():
+    if target_path.exists() and not force:
         return target_path
     client = session or requests.Session()
+    client.headers.setdefault("User-Agent", "Mozilla/5.0")
+    if "sse.com.cn" in url:
+        client.headers.setdefault("Referer", "https://www.sse.com.cn/disclosure/listedinfo/regular/")
     with client.get(url, stream=True, timeout=60) as response:
         response.raise_for_status()
+        content_type = response.headers.get("Content-Type", "")
+        if "text/html" in content_type and "sse.com.cn" in url:
+            html = response.text
+            _solve_sse_cookie(client, html)
+            with client.get(url, stream=True, timeout=60) as retried:
+                retried.raise_for_status()
+                with target_path.open("wb") as file:
+                    for chunk in retried.iter_content(chunk_size=1024 * 128):
+                        if chunk:
+                            file.write(chunk)
+            return target_path
         with target_path.open("wb") as file:
             for chunk in response.iter_content(chunk_size=1024 * 128):
                 if chunk:
@@ -268,9 +343,15 @@ def download_binary(url: str, target_path: Path, session: requests.Session | Non
     return target_path
 
 
-def download_text(url: str, target_path: Path, session: requests.Session | None = None) -> Path:
+def download_text(
+    url: str,
+    target_path: Path,
+    session: requests.Session | None = None,
+    *,
+    force: bool = False,
+) -> Path:
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    if target_path.exists():
+    if target_path.exists() and not force:
         return target_path
     client = session or requests.Session()
     response = client.get(url, timeout=60)
@@ -301,3 +382,46 @@ def write_manifest(path: Path, records: list[dict[str, Any]]) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _solve_sse_cookie(session: requests.Session, html: str) -> None:
+    match = SSE_ARG1_PATTERN.search(html)
+    if not match:
+        raise RuntimeError("SSE anti-bot page detected, but arg1 token was not found.")
+    arg1 = match.group(1)
+    cookie_value = _hex_xor(_unsbox(arg1), SSE_XOR_KEY)
+    session.cookies.set("acw_sc__v2", cookie_value)
+
+
+def _unsbox(value: str) -> str:
+    return "".join(value[index - 1] for index in SSE_UNSBOX)
+
+
+def _hex_xor(left: str, right: str) -> str:
+    return "".join(
+        f"{int(left[index:index + 2], 16) ^ int(right[index:index + 2], 16):02x}"
+        for index in range(0, min(len(left), len(right)), 2)
+    )
+
+
+def _request_json_with_retry(
+    session: requests.Session,
+    method: str,
+    url: str,
+    *,
+    retries: int = 3,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            response = session.request(method, url, timeout=30, **kwargs)
+            response.raise_for_status()
+            return response.json()
+        except (requests.RequestException, json.JSONDecodeError) as exc:
+            last_error = exc
+            if attempt == retries:
+                break
+            time.sleep(1.0 * attempt)
+    assert last_error is not None
+    raise last_error

@@ -56,6 +56,11 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Only produce manifests and URLs without downloading raw files.",
     )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Re-download files even if they already exist locally.",
+    )
     return parser
 
 
@@ -97,7 +102,7 @@ def main() -> None:
         for report in periodic_reports:
             local_path = periodic_root / report.exchange / report.security_code / build_periodic_filename(report)
             if not args.skip_download:
-                download_binary(report.source_url, local_path)
+                download_binary(report.source_url, local_path, force=args.refresh)
             record = report.to_dict()
             record["local_path"] = str(local_path)
             periodic_manifest.append(record)
@@ -110,7 +115,7 @@ def main() -> None:
         for report in research_reports:
             local_path = research_root / company.security_code / build_research_filename(report)
             if not args.skip_download and report.detail_url:
-                download_text(report.detail_url, local_path)
+                download_text(report.detail_url, local_path, force=args.refresh)
             record = report.to_dict()
             record["local_path"] = str(local_path)
             research_manifest.append(record)

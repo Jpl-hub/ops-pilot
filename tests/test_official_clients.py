@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 
 from opspilot.ingest.official_clients import (
+    _hex_xor,
+    _unsbox,
     build_periodic_filename,
     detect_periodic_report_type,
     is_periodic_report_title,
@@ -40,6 +42,13 @@ class OfficialClientHelpersTestCase(unittest.TestCase):
         filename = build_periodic_filename(report)
         self.assertTrue(filename.endswith(".pdf"))
         self.assertIn("300750", filename)
+
+    def test_sse_cookie_helpers(self) -> None:
+        arg1 = "FC174F8B2279BD57C009CF29104BBA521B956FC4"
+        unsboxed = _unsbox(arg1)
+        cookie = _hex_xor(unsboxed, "3000176000856006061501533003690027800375")
+        self.assertEqual(len(cookie), 40)
+        self.assertTrue(all(ch in "0123456789abcdef" for ch in cookie))
 
 
 if __name__ == "__main__":

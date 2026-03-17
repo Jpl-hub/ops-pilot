@@ -16,3 +16,5 @@ data/raw/**/*.pdf
 data/raw/**/*.PDF
 data/raw/**/*.html
 data/raw/**/*.jsonl
+data/bronze/**/*.json
+data/bronze/**/*.jsonl

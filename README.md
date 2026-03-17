@@ -47,12 +47,21 @@ OpsPilot_需求与设计文档.md  项目母版文档
 ops-pilot-fetch-real-data --codes 601012,002129,300750,300014,300274,002202
 ```
 
+执行 bronze 解析：
+
+```bash
+ops-pilot-parse-official-reports --codes 601012,002129,300750,300014,300274,002202
+```
+
 输出目录：
 
 - `data/universe/formal_company_pool.json`：正式公司池
 - `data/raw/official/manifests/`：抓取结果清单
 - `data/raw/official/periodic_reports/`：交易所 PDF
 - `data/raw/official/research_reports/`：东财研报详情页 HTML
+- `data/bronze/official/manifests/`：页级抽取与 chunk 清单
+- `data/bronze/official/page_text/`：页级文本 JSON
+- `data/bronze/official/chunks/`：chunk JSONL
 
 二进制原始文件默认不纳入 Git，仓库只保留脚本、公司池和 manifest 结构。
 
