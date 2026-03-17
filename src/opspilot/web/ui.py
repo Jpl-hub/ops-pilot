@@ -420,6 +420,12 @@ def run_ui_app() -> None:
                             value=_format_rating_text(payload["report_meta"]),
                             hint=payload["report_meta"].get("source_name") or "研报来源",
                         )
+                        _render_stat_card(
+                            ui,
+                            label="目标价",
+                            value=_format_target_price(payload["report_meta"].get("target_price")),
+                            hint=payload["report_meta"].get("rating_change") or "评级动作未披露",
+                        )
                     with ui.card().classes("op-panel w-full"):
                         ui.markdown(payload["answer_markdown"])
                     with ui.card().classes("op-panel w-full"):
@@ -436,6 +442,12 @@ def run_ui_app() -> None:
                                 label="原文附件",
                                 value="已挂接" if payload["report_meta"].get("attachment_url") else "未挂接",
                                 hint="支持跳转原始 PDF",
+                            )
+                            _render_stat_card(
+                                ui,
+                                label="评级动作",
+                                value=payload["report_meta"].get("rating_change") or "未披露",
+                                hint=_format_target_price(payload["report_meta"].get("target_price")),
                             )
                         if payload["report_meta"].get("attachment_url"):
                             ui.link(
@@ -758,6 +770,12 @@ def _format_forecast_value(value: float | None, *, unit: str) -> str:
     return f"{value:.2f} {unit}"
 
 
+def _format_target_price(value: float | None) -> str:
+    if value is None:
+        return "未披露"
+    return f"{value:.2f} 元"
+
+
 def _build_report_options(reports: list[dict[str, Any]]) -> dict[str, str]:
     options: dict[str, str] = {}
     for report in reports:
@@ -766,6 +784,8 @@ def _build_report_options(reports: list[dict[str, Any]]) -> dict[str, str]:
             suffix_parts.append(report["report_period"])
         if report.get("forecast_count"):
             suffix_parts.append(f"预测{report['forecast_count']}项")
+        if report.get("target_price") is not None:
+            suffix_parts.append(_format_target_price(report["target_price"]))
         if report.get("rating_text") and report["rating_text"] != "未披露":
             suffix_parts.append(report["rating_text"])
         options[report["title"]] = f"{report['title']} | {' | '.join(suffix_parts)}"

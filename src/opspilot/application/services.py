@@ -248,6 +248,8 @@ class OpsPilotService:
                     "publish_date": insight["report_meta"]["publish_date"],
                     "report_period": inferred_period,
                     "rating_text": _format_rating_text(insight["report_meta"]),
+                    "rating_change": insight["report_meta"].get("rating_change"),
+                    "target_price": insight["report_meta"].get("target_price"),
                     "forecast_count": len(insight["forecast_cards"]),
                     "claim_signal_count": insight["claim_signal_count"],
                     "source_name": insight["report_meta"].get("source_name"),
@@ -727,6 +729,7 @@ def _extract_research_payload(report_html: str) -> dict[str, Any]:
 def _build_research_meta(report: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     report_body = payload.get("notice_content", "")
     rating_info = _extract_research_rating(report_body, payload)
+    target_price_info = _extract_target_price(report_body)
     publish_date = payload.get("notice_date") or report.get("publish_date", "")
     return {
         "title": payload.get("notice_title") or report["title"],
@@ -738,6 +741,9 @@ def _build_research_meta(report: dict[str, Any], payload: dict[str, Any]) -> dic
         "rating_code": payload.get("rating"),
         "rating_label": rating_info.get("label"),
         "rating_action": rating_info.get("action"),
+        "rating_change": _classify_rating_action(rating_info.get("action")),
+        "target_price": target_price_info.get("value"),
+        "target_price_excerpt": target_price_info.get("excerpt"),
     }
 
 
@@ -992,6 +998,8 @@ def _render_claim_answer(
         f"- 研报：**{report_meta['title']}**\n"
         f"- 核验报期：**{report_period}**\n"
         f"- 投资评级：**{rating_text}**\n"
+        f"- 评级动作：**{report_meta.get('rating_change') or '未披露'}**\n"
+        f"- 目标价：**{_format_target_price(report_meta.get('target_price'))}**\n"
         f"- 匹配：**{matched}** 条\n"
         f"- 偏差：**{mismatched}** 条\n"
         f"- 待补充：**{insufficient}** 条\n"
@@ -1022,6 +1030,12 @@ def _format_rating_text(report_meta: dict[str, Any]) -> str:
         part for part in (report_meta.get("rating_action"), report_meta.get("rating_label")) if part
     ]
     return "".join(rating_parts) or report_meta.get("rating_code") or "未披露"
+
+
+def _format_target_price(value: float | None) -> str:
+    if value is None:
+        return "未披露"
+    return f"{value:.2f} 元"
 
 
 def _get_company_periods(repository: Any, company_name: str) -> set[str]:
@@ -1089,6 +1103,32 @@ def _extract_research_rating(report_body: str, payload: dict[str, Any]) -> dict[
     if rating_code:
         return {"action": "", "label": str(rating_code)}
     return {}
+
+
+def _classify_rating_action(action: str | None) -> str | None:
+    if not action:
+        return None
+    if action.startswith("上调"):
+        return "上调"
+    if action.startswith("下调"):
+        return "下调"
+    if action.startswith("首次"):
+        return "首次覆盖"
+    if action.startswith("给予"):
+        return "首次给出"
+    if action.startswith("维持"):
+        return "维持"
+    return action
+
+
+def _extract_target_price(report_body: str) -> dict[str, Any]:
+    match = re.search(r"目标价(?:为|至)?\s*([0-9]+(?:\.[0-9]+)?)元", report_body)
+    if match is None:
+        return {}
+    return {
+        "value": float(match.group(1)),
+        "excerpt": _clip_claim_excerpt(report_body, match.group(0), radius=180),
+    }
 
 
 def _find_forecast_sentence(report_body: str) -> str | None:

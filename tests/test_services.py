@@ -219,7 +219,7 @@ class ServicesTestCase(unittest.TestCase):
         html = """
         <script>
         var zwinfo= {
-            "notice_content":"预计公司2025~2027年有望分别实现归母净利33.82/25.39/32.98亿元，同比+180%/-25%/+30%，当前股价对应PE24x/31x/24x，维持\\"强烈推荐\\"评级。",
+            "notice_content":"预计公司2025~2027年有望分别实现归母净利33.82/25.39/32.98亿元，同比+180%/-25%/+30%，当前股价对应PE24x/31x/24x，维持\\"强烈推荐\\"评级，目标价69.2元。",
             "notice_title":"2025年三季度报告点评",
             "notice_date":"2025-11-04 00:00:00",
             "attach_url":"https://example.com/report.pdf",
@@ -483,7 +483,7 @@ class ServicesTestCase(unittest.TestCase):
                 """
                 <script>
                 var zwinfo= {
-                    "notice_content":"测试公司实现营收100亿元，同比+10%；毛利率15.0%。预计公司2025/2026/2027年归母净利润分别为11/12/13亿元，对应PE20x/18x/16x，维持\\"买入\\"评级。",
+                    "notice_content":"测试公司实现营收100亿元，同比+10%；毛利率15.0%。预计公司2025/2026/2027年归母净利润分别为11/12/13亿元，对应PE20x/18x/16x，维持\\"买入\\"评级，目标价41元。",
                     "notice_title":"测试公司2024年年度点评",
                     "notice_date":"2025-01-10 00:00:00",
                     "attach_url":"https://example.com/report.pdf",
@@ -523,6 +523,8 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(payload["claim_cards"][0]["status"], "match")
             self.assertEqual(payload["report_meta"]["source_name"], "测试证券")
             self.assertEqual(payload["report_meta"]["rating_label"], "买入")
+            self.assertEqual(payload["report_meta"]["rating_change"], "维持")
+            self.assertEqual(payload["report_meta"]["target_price"], 41.0)
             self.assertEqual(len(payload["forecast_cards"]), 3)
 
     def test_list_research_reports_returns_ranked_catalog(self) -> None:
@@ -590,7 +592,7 @@ class ServicesTestCase(unittest.TestCase):
             rich_path.write_text(
                 """
                 <script>
-                var zwinfo= {"notice_content":"预计公司2025/2026/2027年归母净利润分别为11/12/13亿元，对应PE20x/18x/16x，维持\\"买入\\"评级。","notice_title":"深度点评","notice_date":"2025-11-05 00:00:00","source_sample_name":"乙证券","rating":"A"};
+                var zwinfo= {"notice_content":"预计公司2025/2026/2027年归母净利润分别为11/12/13亿元，对应PE20x/18x/16x，维持\\"买入\\"评级，目标价43.5元。","notice_title":"深度点评","notice_date":"2025-11-05 00:00:00","source_sample_name":"乙证券","rating":"A"};
                 </script>
                 """,
                 encoding="utf-8",
@@ -631,6 +633,8 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(reports[0]["title"], "深度点评")
             self.assertEqual(reports[0]["forecast_count"], 3)
             self.assertEqual(reports[0]["rating_text"], "维持买入")
+            self.assertEqual(reports[0]["rating_change"], "维持")
+            self.assertEqual(reports[0]["target_price"], 43.5)
 
 
 if __name__ == "__main__":
