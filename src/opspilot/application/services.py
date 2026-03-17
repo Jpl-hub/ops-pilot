@@ -657,6 +657,7 @@ def _select_research_report(
         matches = period_matches
     matches.sort(key=lambda item: item.get("publish_date", ""), reverse=True)
     if report_period is None:
+        matches.sort(key=lambda item: _research_report_content_score(item), reverse=True)
         matches.sort(key=lambda item: _research_report_bucket(item, available_periods))
     return matches[0] if matches else None
 
@@ -695,7 +696,7 @@ def _build_research_meta(report: dict[str, Any], payload: dict[str, Any]) -> dic
     return {
         "title": payload.get("notice_title") or report["title"],
         "publish_date": publish_date.split(" ")[0] if publish_date else "",
-        "source_url": report.get("detail_url") or report["source_url"],
+        "source_url": report.get("detail_url") or report.get("source_url") or "",
         "attachment_url": payload.get("attach_url"),
         "source_name": payload.get("source_sample_name"),
         "researcher": payload.get("researcher"),
@@ -791,46 +792,50 @@ def _build_forecast_cards(
     report_body: str,
     report_meta: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    sentence_match = re.search(
-        r"(预计公司(?:\d{4}[~\-—至]\d{4}年|\d{4}(?:/\d{4})+年).*?(?:PE|市盈率)[^。]*评级。?)",
-        report_body,
-    )
-    if sentence_match is None:
+    sentence = _find_forecast_sentence(report_body)
+    if sentence is None:
         return []
-    sentence = sentence_match.group(1)
-    years = _extract_forecast_years(sentence)
-    profit_match = re.search(r"归母净利(?:润)?(?:分别为)?(\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)+)亿元", sentence)
-    yoy_match = re.search(
-        r"同比([+-]?\d+(?:\.\d+)?%(?:/[+-]?\d+(?:\.\d+)?%)*)",
+    anchor_year = _infer_anchor_year(report_meta)
+    profit_map = _extract_forecast_profit_map(sentence, anchor_year=anchor_year)
+    if not profit_map:
+        return []
+    years = sorted(profit_map.keys())
+    yoy_map = _extract_forecast_metric_map(
         sentence,
+        pattern=re.compile(
+            r"(\d{2,4}(?:[/、,，~\-—至]\d{2,4})*)年归母净利(?:润)?(?:同增|同比增长|同比)([+\-]?\d+(?:\.\d+)?%(?:[/、,，][+\-]?\d+(?:\.\d+)?%)*)"
+        ),
+        default_years=years,
+        anchor_year=anchor_year,
+        fallback_pattern=re.compile(r"同比([+\-]?\d+(?:\.\d+)?%(?:[/、,，][+\-]?\d+(?:\.\d+)?%)*)"),
+        suffix="%",
     )
-    pe_match = re.search(
-        r"(?:PE(?:为)?|市盈率(?:为)?)(\d+(?:\.\d+)?(?:x|倍)?(?:/\d+(?:\.\d+)?(?:x|倍)?)+)",
+    pe_map = _extract_forecast_metric_map(
         sentence,
+        pattern=re.compile(
+            r"(?:对应)?(\d{2,4}(?:[/、,，~\-—至]\d{2,4})*)年(?:PE|市盈率)(?:为)?([0-9.xX倍、/,，]+)"
+        ),
+        default_years=years,
+        anchor_year=anchor_year,
+        fallback_pattern=re.compile(r"(?:对应)?(?:PE|市盈率)(?:为)?([0-9.xX倍、/,，]+)"),
+        suffix="x",
     )
-    if not years or profit_match is None:
-        return []
-
-    profit_values = [float(item) for item in profit_match.group(1).split("/")]
-    yoy_values = _split_forecast_metric_values(yoy_match.group(1), suffix="%") if yoy_match else []
-    pe_values = _split_forecast_metric_values(pe_match.group(1), suffix="x") if pe_match else []
-    if len(years) != len(profit_values):
-        return []
 
     cards: list[dict[str, Any]] = []
-    for index, (year, profit_value) in enumerate(zip(years, profit_values), start=1):
+    security_code = report.get("security_code") or report.get("company_name") or "research"
+    for year in years:
         cards.append(
             {
-                "forecast_id": f"{report['security_code']}-forecast-{year}",
+                "forecast_id": f"{security_code}-forecast-{year}",
                 "label": f"{year}年归母净利润预测",
                 "report_period": f"{year}FY",
-                "forecast_value": profit_value,
-                "yoy_value": yoy_values[index - 1] if index <= len(yoy_values) else None,
-                "pe_value": pe_values[index - 1] if index <= len(pe_values) else None,
+                "forecast_value": profit_map.get(year),
+                "yoy_value": yoy_map.get(year),
+                "pe_value": pe_map.get(year),
                 "rating_label": report_meta.get("rating_label"),
                 "rating_action": report_meta.get("rating_action"),
                 "excerpt": _clip_claim_excerpt(report_body, sentence, radius=240),
-                "research_chunk_id": f"research-{report['security_code']}-forecast-{year}",
+                "research_chunk_id": f"research-{security_code}-forecast-{year}",
             }
         )
     return cards
@@ -997,6 +1002,28 @@ def _research_report_bucket(report: dict[str, Any], available_periods: set[str] 
     return 2
 
 
+def _research_report_content_score(report: dict[str, Any]) -> tuple[int, int]:
+    local_path = report.get("local_path")
+    if not local_path or not Path(local_path).exists():
+        return (0, 0)
+    report_html = Path(local_path).read_text(encoding="utf-8", errors="ignore")
+    payload = _extract_research_payload(report_html)
+    report_meta = _build_research_meta(report, payload)
+    report_body = _extract_research_body(report_html, payload)
+    forecast_count = len(_build_forecast_cards(report, report_body, report_meta))
+    claim_signal_count = sum(
+        1
+        for pattern in (
+            r"营收(?:同比|\d)",
+            r"归母净利润(?:同比|\d)",
+            r"扣非归母净利润(?:同比|\d)",
+            r"毛利率\d",
+        )
+        if re.search(pattern, report_body)
+    )
+    return (forecast_count, claim_signal_count)
+
+
 def _extract_research_rating(report_body: str, payload: dict[str, Any]) -> dict[str, str]:
     match = re.search(
         r"(维持|上调至|上调为|下调至|下调为|首次覆盖给予|首次给予|给予)?[“\"]([^”\"，。]{2,8})[”\"]?评级",
@@ -1013,23 +1040,128 @@ def _extract_research_rating(report_body: str, payload: dict[str, Any]) -> dict[
     return {}
 
 
-def _extract_forecast_years(sentence: str) -> list[str]:
-    list_match = re.search(r"预计公司(\d{4}(?:/\d{4})+)年", sentence)
-    if list_match:
-        return [item for item in list_match.group(1).split("/") if item]
-    range_match = re.search(r"预计公司(\d{4})[~\-—至](\d{4})年", sentence)
-    if range_match:
-        start_year = int(range_match.group(1))
-        end_year = int(range_match.group(2))
+def _find_forecast_sentence(report_body: str) -> str | None:
+    sentences = [
+        item.strip()
+        for item in re.split(r"[。\n]", report_body)
+        if item.strip()
+    ]
+    for sentence in sentences:
+        if "归母净利" not in sentence and "归母净利润" not in sentence:
+            continue
+        if "评级" not in sentence:
+            continue
+        if "预计" not in sentence and "盈利预测" not in sentence:
+            continue
+        return sentence
+    return None
+
+
+def _infer_anchor_year(report_meta: dict[str, Any]) -> int | None:
+    text = f"{report_meta.get('title', '')} {report_meta.get('publish_date', '')}"
+    match = re.search(r"(20\d{2})", text)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _extract_forecast_profit_map(sentence: str, *, anchor_year: int | None) -> dict[str, float]:
+    profit_map: dict[str, float] = {}
+    patterns = [
+        re.compile(
+            r"(\d{2,4}(?:[/、,，~\-—至]\d{2,4})*)年(?:(?!\d{2,4}(?:[/、,，~\-—至]\d{2,4})*年)[^。；]){0,40}?归母净利(?:润)?(?:分别)?(?:同增)?(?:为|至)?([+\-]?\d+(?:\.\d+)?(?:[/、,，][+\-]?\d+(?:\.\d+)?)*?)亿元"
+        ),
+        re.compile(
+            r"归母净利(?:润)?(?:分别)?(?:为|至)([+\-]?\d+(?:\.\d+)?(?:[/、,，][+\-]?\d+(?:\.\d+)?)+)亿元"
+        ),
+    ]
+    for pattern in patterns:
+        for match in pattern.finditer(sentence):
+            year_text = match.group(1) if match.lastindex and match.lastindex > 1 else ""
+            values_text = match.group(match.lastindex)
+            years = (
+                _expand_forecast_year_group(year_text, anchor_year=anchor_year)
+                if year_text
+                else []
+            )
+            values = _split_forecast_metric_values(values_text, suffix="")
+            if not years:
+                continue
+            if len(years) != len(values):
+                continue
+            for year, value in zip(years, values):
+                profit_map[year] = value
+        if profit_map:
+            break
+    return profit_map
+
+
+def _extract_forecast_metric_map(
+    sentence: str,
+    *,
+    pattern: re.Pattern[str],
+    default_years: list[str],
+    anchor_year: int | None,
+    fallback_pattern: re.Pattern[str] | None,
+    suffix: str,
+) -> dict[str, float]:
+    for match in pattern.finditer(sentence):
+        years = _expand_forecast_year_group(match.group(1), anchor_year=anchor_year)
+        values = _split_forecast_metric_values(match.group(2), suffix=suffix)
+        if len(years) != len(values):
+            continue
+        return dict(zip(years, values))
+    if fallback_pattern is None:
+        return {}
+    fallback = fallback_pattern.search(sentence)
+    if fallback is None:
+        return {}
+    values = _split_forecast_metric_values(fallback.group(1), suffix=suffix)
+    if len(values) != len(default_years):
+        return {}
+    return dict(zip(default_years, values))
+
+
+def _expand_forecast_year_group(year_text: str, *, anchor_year: int | None) -> list[str]:
+    normalized = year_text.replace("—", "-").replace("至", "-").replace("~", "-")
+    if "-" in normalized and normalized.count("-") == 1 and "/" not in normalized:
+        start_text, end_text = normalized.split("-", 1)
+        start_year = _normalize_forecast_year(start_text, anchor_year=anchor_year)
+        end_year = _normalize_forecast_year(end_text, anchor_year=anchor_year)
+        if start_year is None or end_year is None or end_year < start_year:
+            return []
         return [str(year) for year in range(start_year, end_year + 1)]
-    return []
+    years: list[str] = []
+    for token in re.split(r"[/、,，]", normalized):
+        year = _normalize_forecast_year(token, anchor_year=anchor_year)
+        if year is not None:
+            years.append(str(year))
+    return years
+
+
+def _normalize_forecast_year(year_text: str, *, anchor_year: int | None) -> int | None:
+    token = year_text.strip()
+    if not token.isdigit():
+        return None
+    if len(token) == 4:
+        return int(token)
+    if len(token) == 2:
+        base_year = anchor_year or 2000
+        century = base_year // 100 * 100
+        return century + int(token)
+    return None
 
 
 def _split_forecast_metric_values(values_text: str, *, suffix: str) -> list[float]:
     cleaned = values_text.replace(suffix, "")
     if suffix == "x":
-        cleaned = cleaned.replace("倍", "")
-    return [float(item) for item in cleaned.split("/") if item]
+        cleaned = cleaned.replace("倍", "").replace("X", "x").replace("x", "")
+    cleaned = cleaned.replace("%", "").replace(" ", "")
+    return [
+        float(item)
+        for item in re.split(r"[/、,，]", cleaned)
+        if item
+    ]
 
 
 def _normalize_research_text(text: str) -> str:

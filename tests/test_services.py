@@ -265,6 +265,75 @@ class ServicesTestCase(unittest.TestCase):
         self.assertEqual(forecast_cards[1]["pe_value"], 31.0)
         self.assertEqual(forecast_cards[2]["rating_label"], "强烈推荐")
 
+    def test_build_forecast_cards_supports_two_digit_year_ranges(self) -> None:
+        report = {
+            "security_code": "002202",
+            "company_name": "金风科技",
+            "title": "2025年三季报点评：主业经营稳健，海外积极拓展",
+            "publish_date": "2025-10-30",
+            "source_url": "https://example.com/research",
+            "detail_url": "https://example.com/research",
+            "local_path": "x.html",
+        }
+        report_meta = {
+            "title": report["title"],
+            "publish_date": report["publish_date"],
+            "source_url": report["detail_url"],
+            "attachment_url": None,
+            "source_name": "测试证券",
+            "researcher": "分析师甲",
+            "rating_code": "A",
+            "rating_label": "推荐",
+            "rating_action": "维持",
+        }
+        body = (
+            "投资建议：我们预计公司2025-2027年营收分别为778.1、881.4、959.1亿元，"
+            "归母净利润分别为33.6、42.8、49.8亿元，增速为81%/27%/16%，"
+            "对应25-27年PE为20x/16x/13x，维持“推荐”评级。"
+        )
+
+        cards = _build_forecast_cards(report, body, report_meta)
+
+        self.assertEqual(len(cards), 3)
+        self.assertEqual(cards[0]["report_period"], "2025FY")
+        self.assertEqual(cards[0]["forecast_value"], 33.6)
+        self.assertEqual(cards[1]["pe_value"], 16.0)
+        self.assertEqual(cards[2]["rating_label"], "推荐")
+
+    def test_build_forecast_cards_supports_split_year_blocks(self) -> None:
+        report = {
+            "security_code": "002202",
+            "company_name": "金风科技",
+            "title": "2025年三季报点评：风机出货景气度高，在手订单同比提升",
+            "publish_date": "2025-10-31",
+            "source_url": "https://example.com/research",
+            "detail_url": "https://example.com/research",
+            "local_path": "x.html",
+        }
+        report_meta = {
+            "title": report["title"],
+            "publish_date": report["publish_date"],
+            "source_url": report["detail_url"],
+            "attachment_url": None,
+            "source_name": "测试证券",
+            "researcher": "分析师甲",
+            "rating_code": "A",
+            "rating_label": "增持",
+            "rating_action": "维持",
+        }
+        body = (
+            "盈利预测与投资评级：我们维持25年盈利预测，预计25年归母净利润33.5亿元；"
+            "考虑25年风机中标价小幅上涨，我们上调26~27年盈利预测，预计26~27年归母净利润为45.6/55.5亿元，"
+            "25~27年归母净利润同增80%/36%/22%，对应PE19.6/14.4/11.9x，维持“增持”评级。"
+        )
+
+        cards = _build_forecast_cards(report, body, report_meta)
+
+        self.assertEqual(len(cards), 3)
+        self.assertEqual(cards[0]["forecast_value"], 33.5)
+        self.assertEqual(cards[1]["yoy_value"], 36.0)
+        self.assertEqual(cards[2]["pe_value"], 11.9)
+
     def test_select_research_report_prefers_available_explicit_period(self) -> None:
         reports = [
             {
@@ -289,6 +358,53 @@ class ServicesTestCase(unittest.TestCase):
 
         self.assertIsNotNone(selected)
         self.assertEqual(selected["title"], "2025年三季度报告点评：盈利改善")
+
+    def test_select_research_report_prefers_richer_content_with_same_bucket(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sparse_path = root / "sparse.html"
+            rich_path = root / "rich.html"
+            sparse_path.write_text(
+                """
+                <script>
+                var zwinfo= {"notice_content":"公司经营平稳，维持“买入”评级。","notice_title":"一般点评","notice_date":"2025-11-01 00:00:00","rating":"A"};
+                </script>
+                """,
+                encoding="utf-8",
+            )
+            rich_path.write_text(
+                """
+                <script>
+                var zwinfo= {"notice_content":"我们预计公司2025/2026/2027年归母净利润分别为11/12/13亿元，对应PE20x/18x/16x，维持\\"买入\\"评级。","notice_title":"深度点评","notice_date":"2025-11-05 00:00:00","rating":"A"};
+                </script>
+                """,
+                encoding="utf-8",
+            )
+            reports = [
+                {
+                    "company_name": "测试公司",
+                    "title": "一般点评",
+                    "publish_date": "2025-11-01",
+                    "local_path": str(sparse_path),
+                },
+                {
+                    "company_name": "测试公司",
+                    "title": "深度点评",
+                    "publish_date": "2025-11-05",
+                    "local_path": str(rich_path),
+                },
+            ]
+
+            selected = _select_research_report(
+                reports,
+                company_name="测试公司",
+                report_period=None,
+                report_title=None,
+                available_periods={"2024FY"},
+            )
+
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected["title"], "深度点评")
 
     def test_verify_claim_uses_latest_research_report_for_company(self) -> None:
         class StubRepository:
