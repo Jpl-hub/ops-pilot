@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+import json
 
 from opspilot.config import Settings
 from opspilot.domain.audit import build_audit
@@ -23,6 +25,16 @@ class OpsPilotService:
             "env": self.settings.env,
             "default_period": self.settings.default_period,
             "companies": len(self.repository.list_companies(self.settings.default_period)),
+        }
+
+    def official_data_status(self) -> dict[str, Any]:
+        manifests_root = self.settings.official_data_path / "manifests"
+        periodic_manifest = _read_manifest(manifests_root / "periodic_reports_manifest.json")
+        research_manifest = _read_manifest(manifests_root / "research_reports_manifest.json")
+        return {
+            "official_data_root": str(self.settings.official_data_path),
+            "periodic_reports": periodic_manifest,
+            "research_reports": research_manifest,
         }
 
     def list_company_names(self) -> list[str]:
@@ -258,3 +270,16 @@ def _guess_metric_code(query: str) -> str:
         if keyword in query:
             return metric_code
     return "G1"
+
+
+def _read_manifest(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"available": False, "record_count": 0, "manifest_path": str(path)}
+    with path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return {
+        "available": True,
+        "record_count": payload.get("record_count", 0),
+        "generated_at": payload.get("generated_at"),
+        "manifest_path": str(path),
+    }

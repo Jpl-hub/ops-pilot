@@ -12,3 +12,7 @@ build/
 .DS_Store
 coverage.xml
 htmlcov/
+data/raw/**/*.pdf
+data/raw/**/*.PDF
+data/raw/**/*.html
+data/raw/**/*.jsonl

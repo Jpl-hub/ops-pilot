@@ -25,6 +25,11 @@ def healthz() -> dict:
     return get_service().health()
 
 
+@router.get("/admin/official-data/status")
+def official_data_status() -> dict:
+    return get_service().official_data_status()
+
+
 @router.post("/chat/turn")
 def chat_turn(request: ChatTurnRequest) -> dict:
     try:

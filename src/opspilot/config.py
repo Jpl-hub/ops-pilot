@@ -14,6 +14,7 @@ class Settings:
     port: int
     default_period: str
     sample_data_path: Path
+    official_data_path: Path
     postgres_dsn: str
     audit_min_evidence: int = 2
 
@@ -29,6 +30,7 @@ def get_settings() -> Settings:
         port=int(os.getenv("OPS_PILOT_PORT", "8000")),
         default_period=os.getenv("OPS_PILOT_DEFAULT_PERIOD", "2024Q3"),
         sample_data_path=(root / sample_path).resolve(),
+        official_data_path=(root / os.getenv("OPS_PILOT_OFFICIAL_DATA_PATH", "data/raw/official")).resolve(),
         postgres_dsn=os.getenv(
             "OPS_PILOT_POSTGRES_DSN",
             "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot",

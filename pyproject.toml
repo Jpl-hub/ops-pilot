@@ -12,6 +12,7 @@ dependencies = [
   "fastapi>=0.115,<1.0",
   "uvicorn[standard]>=0.30,<1.0",
   "pydantic>=2.8,<3.0",
+  "requests>=2.32,<3.0",
   "sqlalchemy>=2.0,<3.0",
   "psycopg[binary]>=3.2,<4.0",
   "nicegui>=2.0,<3.0",
@@ -26,6 +27,7 @@ dev = [
 [project.scripts]
 ops-pilot-api = "opspilot.main:run_api"
 ops-pilot-ui = "opspilot.main:run_ui"
+ops-pilot-fetch-real-data = "opspilot.ingest.fetch_real_data:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

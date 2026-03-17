@@ -1,0 +1,12 @@
+[
+  {"company_name": "隆基绿能", "security_code": "601012", "ticker": "601012.SH", "exchange": "SSE", "subindustry": "光伏"},
+  {"company_name": "通威股份", "security_code": "600438", "ticker": "600438.SH", "exchange": "SSE", "subindustry": "光伏"},
+  {"company_name": "TCL中环", "security_code": "002129", "ticker": "002129.SZ", "exchange": "SZSE", "subindustry": "光伏"},
+  {"company_name": "阳光电源", "security_code": "300274", "ticker": "300274.SZ", "exchange": "SZSE", "subindustry": "储能"},
+  {"company_name": "锦浪科技", "security_code": "300763", "ticker": "300763.SZ", "exchange": "SZSE", "subindustry": "储能"},
+  {"company_name": "宁德时代", "security_code": "300750", "ticker": "300750.SZ", "exchange": "SZSE", "subindustry": "锂电池与电池材料"},
+  {"company_name": "亿纬锂能", "security_code": "300014", "ticker": "300014.SZ", "exchange": "SZSE", "subindustry": "锂电池与电池材料"},
+  {"company_name": "天赐材料", "security_code": "002709", "ticker": "002709.SZ", "exchange": "SZSE", "subindustry": "锂电池与电池材料"},
+  {"company_name": "金风科技", "security_code": "002202", "ticker": "002202.SZ", "exchange": "SZSE", "subindustry": "风电设备与新能源装备"},
+  {"company_name": "天顺风能", "security_code": "002531", "ticker": "002531.SZ", "exchange": "SZSE", "subindustry": "风电设备与新能源装备"}
+]

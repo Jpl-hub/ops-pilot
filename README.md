@@ -33,6 +33,29 @@ OpsPilot_需求与设计文档.md  项目母版文档
 
 当前环境若未安装 `nicegui`，API 仍可运行，UI 启动会给出明确提示。
 
+## 官方真实数据抓取
+
+当前仓库已经接入三类官方源：
+
+- 上交所定期报告
+- 深交所定期报告
+- 东方财富个股研报详情页
+
+执行抓取：
+
+```bash
+ops-pilot-fetch-real-data --codes 601012,002129,300750,300014,300274,002202
+```
+
+输出目录：
+
+- `data/universe/formal_company_pool.json`：正式公司池
+- `data/raw/official/manifests/`：抓取结果清单
+- `data/raw/official/periodic_reports/`：交易所 PDF
+- `data/raw/official/research_reports/`：东财研报详情页 HTML
+
+二进制原始文件默认不纳入 Git，仓库只保留脚本、公司池和 manifest 结构。
+
 ## Docker
 
 ```bash
