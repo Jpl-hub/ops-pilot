@@ -37,8 +37,8 @@ def build_parser() -> ArgumentParser:
     parser.add_argument(
         "--max-periodic",
         type=int,
-        default=2,
-        help="Max periodic reports to download per company.",
+        default=7,
+        help="Max periodic reports to download per company after de-duplication.",
     )
     parser.add_argument(
         "--max-research",

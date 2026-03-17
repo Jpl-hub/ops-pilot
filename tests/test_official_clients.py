@@ -11,8 +11,10 @@ from opspilot.ingest.official_clients import (
     _unsbox,
     build_periodic_filename,
     detect_periodic_report_type,
+    extract_report_year,
     is_periodic_report_title,
     sanitize_filename,
+    select_periodic_reports,
     ReportRecord,
 )
 
@@ -21,11 +23,15 @@ class OfficialClientHelpersTestCase(unittest.TestCase):
     def test_periodic_report_title_detection(self) -> None:
         self.assertTrue(is_periodic_report_title("宁德时代：2025年年度报告"))
         self.assertTrue(is_periodic_report_title("阳光电源：2025年三季度报告摘要"))
+        self.assertTrue(is_periodic_report_title("隆基绿能：2025年第三季度报告"))
         self.assertFalse(is_periodic_report_title("关于提供担保的进展公告"))
+        self.assertFalse(is_periodic_report_title("阳光电源：关于2024年年度报告（英文简版）的自愿性披露公告"))
+        self.assertFalse(is_periodic_report_title("中国国际金融股份有限公司关于隆基绿能科技股份有限公司2023年度持续督导年度报告书"))
 
     def test_periodic_report_type_detection(self) -> None:
         self.assertEqual(detect_periodic_report_type("2025年年度报告"), "年度报告")
         self.assertEqual(detect_periodic_report_type("2025年半年度报告摘要"), "半年度报告")
+        self.assertEqual(extract_report_year("宁德时代：2025年年度报告", "2026-03-10"), 2025)
 
     def test_filename_sanitizer(self) -> None:
         self.assertEqual(sanitize_filename('2025/03/10:宁德时代"年报"'), "2025_03_10_宁德时代_年报")
@@ -53,6 +59,49 @@ class OfficialClientHelpersTestCase(unittest.TestCase):
         cookie = _hex_xor(unsboxed, "3000176000856006061501533003690027800375")
         self.assertEqual(len(cookie), 40)
         self.assertTrue(all(ch in "0123456789abcdef" for ch in cookie))
+
+    def test_select_periodic_reports_prefers_revision_and_deduplicates_period(self) -> None:
+        reports = [
+            ReportRecord(
+                source="SSE",
+                company_name="隆基绿能",
+                security_code="601012",
+                exchange="SSE",
+                subindustry="光伏",
+                title="2024年年度报告",
+                publish_date="2025-04-29",
+                report_type="年度报告",
+                is_summary=False,
+                source_url="https://example.com/base.pdf",
+            ),
+            ReportRecord(
+                source="SSE",
+                company_name="隆基绿能",
+                security_code="601012",
+                exchange="SSE",
+                subindustry="光伏",
+                title="2024年年度报告（修订版）",
+                publish_date="2025-05-07",
+                report_type="年度报告",
+                is_summary=False,
+                source_url="https://example.com/revised.pdf",
+            ),
+            ReportRecord(
+                source="SZSE",
+                company_name="阳光电源",
+                security_code="300274",
+                exchange="SZSE",
+                subindustry="光伏",
+                title="阳光电源：关于2024年年度报告（英文简版）的自愿性披露公告",
+                publish_date="2025-06-13",
+                report_type="年度报告",
+                is_summary=False,
+                source_url="https://example.com/notice.pdf",
+            ),
+        ]
+        selected = select_periodic_reports(reports, max_items=7)
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0].title, "2024年年度报告（修订版）")
 
 
 if __name__ == "__main__":

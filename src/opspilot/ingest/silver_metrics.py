@@ -35,6 +35,7 @@ BALANCE_FIELD_LABELS = {
     "due_within_one_year_noncurrent_liabilities": ("一年内到期的非流动负债",),
 }
 PROFIT_FIELD_LABELS = {
+    "profit_total": ("利润总额",),
     "operating_total_revenue": ("营业总收入",),
     "operating_revenue": ("营业收入",),
     "operating_total_cost": ("营业总成本",),
@@ -219,6 +220,8 @@ def main() -> None:
             f"[{index}/{len(records)}] silver {record['security_code']} "
             f"{row['report_period']} metrics={len(row['derived_metrics'])}"
         )
+
+    enrich_comparable_metrics(silver_rows)
 
     output_root = Path(args.output_root)
     manifests_root = output_root / "manifests"
@@ -816,6 +819,8 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
     admin_expense = current_value(row_values, "admin_expense")
     rd_expense = current_value(row_values, "rd_expense")
     finance_expense = current_value(row_values, "finance_expense")
+    profit_total = current_value(row_values, "profit_total")
+    interest_expense = current_value(row_values, "interest_expense")
     credit_impairment_loss = current_value(row_values, "credit_impairment_loss")
     asset_impairment_loss = current_value(row_values, "asset_impairment_loss")
 
@@ -871,6 +876,8 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
         derived["RAW_RD_EXPENSE"] = round(rd_expense, 2)
     if finance_expense is not None:
         derived["RAW_FINANCE_EXPENSE"] = round(finance_expense, 2)
+    if profit_total is not None:
+        derived["RAW_PROFIT_TOTAL"] = round(profit_total, 2)
     if credit_impairment_loss is not None:
         derived["RAW_CREDIT_IMPAIRMENT_LOSS"] = round(credit_impairment_loss, 2)
     if asset_impairment_loss is not None:
@@ -896,6 +903,8 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
     short_debt = short_term_borrowings + due_within_one_year
     if cash_funds is not None and short_debt > 0:
         derived["S4"] = round(cash_funds / short_debt, 4)
+    if profit_total is not None and interest_expense not in (None, 0):
+        derived["S3"] = round((profit_total + interest_expense) / interest_expense, 4)
 
     period_days = report_period_days(row_values)
     if operating_cost not in (None, 0) and inventory is not None:
@@ -956,6 +965,46 @@ def report_period_days(row_values: dict[str, dict[str, Any]]) -> int:
     if report_period.endswith("FY"):
         return 365
     return 365
+
+
+def enrich_comparable_metrics(silver_rows: list[dict[str, Any]]) -> None:
+    grouped_rows: dict[str, list[dict[str, Any]]] = {}
+    for row in silver_rows:
+        grouped_rows.setdefault(row["company_name"], []).append(row)
+
+    for rows in grouped_rows.values():
+        comparable_index = {
+            comparable_period_key(row["report_period"]): row
+            for row in rows
+        }
+        for row in rows:
+            metrics = row.get("derived_metrics", {})
+            current_receivables = metrics.get("RAW_ACCOUNTS_RECEIVABLE")
+            revenue_yoy = metrics.get("G1")
+            if current_receivables in (None, 0) or revenue_yoy is None:
+                continue
+            prior_key = prior_year_comparable_key(row["report_period"])
+            prior_row = comparable_index.get(prior_key)
+            if prior_row is None:
+                continue
+            prior_receivables = prior_row.get("derived_metrics", {}).get("RAW_ACCOUNTS_RECEIVABLE")
+            if prior_receivables in (None, 0):
+                continue
+            receivables_yoy = (current_receivables - prior_receivables) / abs(prior_receivables) * 100.0
+            metrics["C3"] = round(receivables_yoy - revenue_yoy, 2)
+            metrics["RAW_ACCOUNTS_RECEIVABLE_YOY"] = round(receivables_yoy, 2)
+
+
+def comparable_period_key(report_period: str) -> tuple[int, str]:
+    match = re.fullmatch(r"(\d{4})(Q1|H1|Q3|FY)", report_period)
+    if not match:
+        return (0, report_period)
+    return (int(match.group(1)), match.group(2))
+
+
+def prior_year_comparable_key(report_period: str) -> tuple[int, str]:
+    year, suffix = comparable_period_key(report_period)
+    return (year - 1, suffix)
 
 
 def current_value(row_values: dict[str, dict[str, Any]], field: str) -> float | None:

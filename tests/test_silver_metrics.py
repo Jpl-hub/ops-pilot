@@ -11,6 +11,7 @@ from opspilot.ingest.silver_metrics import (
     apply_unit_scale,
     detect_unit_scale,
     derive_metric_codes,
+    enrich_comparable_metrics,
     extract_balance_field,
     extract_event_metrics,
     extract_profit_statement_values,
@@ -31,6 +32,7 @@ class SilverMetricsTestCase(unittest.TestCase):
     def test_derive_metric_codes_builds_core_scoring_metrics(self) -> None:
         row_values = {
             "revenue": {"current": 100.0, "previous": 80.0, "change_pct": 25.0, "tokens": []},
+            "profit_total": {"current": 25.0, "previous": 20.0, "change_pct": 25.0, "tokens": []},
             "net_profit": {"current": 12.0, "previous": 8.0, "change_pct": 50.0, "tokens": []},
             "deducted_net_profit": {
                 "current": 10.0,
@@ -50,6 +52,12 @@ class SilverMetricsTestCase(unittest.TestCase):
             "admin_expense": {"current": 3.0, "previous": 2.0, "change_pct": None, "tokens": []},
             "rd_expense": {"current": 4.0, "previous": 3.0, "change_pct": None, "tokens": []},
             "finance_expense": {"current": 1.0, "previous": 0.5, "change_pct": None, "tokens": []},
+            "interest_expense": {
+                "current": 5.0,
+                "previous": 4.0,
+                "change_pct": None,
+                "tokens": [],
+            },
             "accounts_receivable": {
                 "current": 30.0,
                 "previous": 20.0,
@@ -70,6 +78,7 @@ class SilverMetricsTestCase(unittest.TestCase):
         self.assertEqual(derived["P5"], 45.25)
         self.assertEqual(derived["C1"], 1.25)
         self.assertEqual(derived["C2"], 0.15)
+        self.assertEqual(derived["S3"], 6.0)
 
     def test_select_summary_page_prefers_financial_summary(self) -> None:
         pages = [
@@ -297,6 +306,29 @@ class SilverMetricsTestCase(unittest.TestCase):
         self.assertEqual(metrics["I3"], 1.0)
         self.assertEqual(metric_evidence["I3"], ["risk-report-event-i3-page-018"])
         self.assertEqual(evidence_rows[0]["metric_code"], "I3")
+
+    def test_enrich_comparable_metrics_builds_c3_with_prior_year_same_period(self) -> None:
+        silver_rows = [
+            {
+                "company_name": "测试公司",
+                "report_period": "2024Q3",
+                "derived_metrics": {
+                    "RAW_ACCOUNTS_RECEIVABLE": 80.0,
+                    "G1": 10.0,
+                },
+            },
+            {
+                "company_name": "测试公司",
+                "report_period": "2025Q3",
+                "derived_metrics": {
+                    "RAW_ACCOUNTS_RECEIVABLE": 100.0,
+                    "G1": 15.0,
+                },
+            },
+        ]
+        enrich_comparable_metrics(silver_rows)
+        self.assertEqual(silver_rows[1]["derived_metrics"]["RAW_ACCOUNTS_RECEIVABLE_YOY"], 25.0)
+        self.assertEqual(silver_rows[1]["derived_metrics"]["C3"], 10.0)
 
     def test_infer_report_period_supports_standard_report_types(self) -> None:
         self.assertEqual(infer_report_period("2025年半年度报告", "2025-08-23"), "2025H1")

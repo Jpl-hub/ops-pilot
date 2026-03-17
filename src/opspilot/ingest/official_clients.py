@@ -11,7 +11,9 @@ import time
 import requests
 
 
-PERIODIC_REPORT_PATTERN = re.compile(r"(年度报告|半年度报告|一季度报告|三季度报告)")
+PERIODIC_REPORT_PATTERN = re.compile(
+    r"(?:^|：)\s*\d{4}年(年度报告|半年度报告|一季度报告|第一季度报告|三季度报告|第三季度报告)(?:（[^）]*）)?(?:摘要)?$"
+)
 SSE_ARG1_PATTERN = re.compile(r"arg1='([0-9A-F]+)'")
 SSE_UNSBOX = [
     0xF,
@@ -92,12 +94,21 @@ def load_company_pool(path: Path) -> list[CompanyProfile]:
 
 
 def is_periodic_report_title(title: str) -> bool:
+    if "英文" in title or "公告" in title:
+        return False
     return bool(PERIODIC_REPORT_PATTERN.search(title))
 
 
 def detect_periodic_report_type(title: str) -> str:
     match = PERIODIC_REPORT_PATTERN.search(title)
     return match.group(1) if match else "未知报告"
+
+
+def extract_report_year(title: str, publish_date: str) -> int:
+    match = re.search(r"(\d{4})年", title)
+    if match:
+        return int(match.group(1))
+    return int(publish_date[:4])
 
 
 def sanitize_filename(value: str) -> str:
@@ -128,7 +139,7 @@ class SSEAnnouncementClient:
     ) -> list[ReportRecord]:
         reports: list[ReportRecord] = []
         page_no = 1
-        while len(reports) < max_items and page_no <= 6:
+        while page_no <= 6:
             params = {
                 "productId": company.security_code,
                 "securityType": "0101,120100,020100,020200",
@@ -171,10 +182,8 @@ class SSEAnnouncementClient:
                         source_url=f"https://www.sse.com.cn{row['URL']}",
                     )
                 )
-                if len(reports) >= max_items:
-                    break
             page_no += 1
-        return reports
+        return select_periodic_reports(reports, max_items=max_items)
 
 
 class SZSEAnnouncementClient:
@@ -200,7 +209,7 @@ class SZSEAnnouncementClient:
     ) -> list[ReportRecord]:
         reports: list[ReportRecord] = []
         page_no = 1
-        while len(reports) < max_items and page_no <= 6:
+        while page_no <= 6:
             payload = {
                 "channelCode": ["fixed_disc"],
                 "pageSize": 50,
@@ -238,10 +247,8 @@ class SZSEAnnouncementClient:
                         source_url=f"https://disc.static.szse.cn/download{attach_path}",
                     )
                 )
-                if len(reports) >= max_items:
-                    break
             page_no += 1
-        return reports
+        return select_periodic_reports(reports, max_items=max_items)
 
 
 class EastmoneyResearchClient:
@@ -382,6 +389,34 @@ def write_manifest(path: Path, records: list[dict[str, Any]]) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def select_periodic_reports(reports: list[ReportRecord], *, max_items: int) -> list[ReportRecord]:
+    best_by_period: dict[tuple[str, int, str], ReportRecord] = {}
+    for report in reports:
+        if not is_periodic_report_title(report.title):
+            continue
+        period_key = (
+            report.security_code,
+            extract_report_year(report.title, report.publish_date),
+            report.report_type,
+        )
+        current = best_by_period.get(period_key)
+        if current is None or report_rank_key(report) > report_rank_key(current):
+            best_by_period[period_key] = report
+
+    selected = sorted(best_by_period.values(), key=report_rank_key, reverse=True)
+    return selected[:max_items]
+
+
+def report_rank_key(report: ReportRecord) -> tuple[str, int]:
+    return (report.publish_date, revision_priority(report.title))
+
+
+def revision_priority(title: str) -> int:
+    if "修订" in title or "更正" in title:
+        return 2
+    return 1
 
 
 def _solve_sse_cookie(session: requests.Session, html: str) -> None:
