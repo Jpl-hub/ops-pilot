@@ -50,7 +50,7 @@ def evaluate_risk_labels(company: dict[str, Any]) -> list[dict[str, Any]]:
         labels.append(_label(company, "R6", [i2]))
     if i3 is not None and i3 > 0:
         labels.append(_label(company, "R7", [i3]))
-    if i4 is not None and i4 > 0:
+    if i4 is not None and i4 > 0.03:
         labels.append(_label(company, "R8", [i4]))
     return labels
 

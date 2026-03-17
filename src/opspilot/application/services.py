@@ -288,7 +288,27 @@ def _build_company_charts(company: dict[str, Any], score_result: dict[str, Any])
 
 
 def _guess_metric_code(query: str) -> str:
-    mapping = {"营收": "G1", "收入": "G1", "利润": "G2", "研发": "G3", "毛利": "P1", "净利率": "P2", "费用": "P3", "存货": "P4", "应收": "P5", "现金流": "C1", "现金质量": "C2", "负债": "S2", "短债": "S4"}
+    mapping = {
+        "营收": "G1",
+        "收入": "G1",
+        "利润": "G2",
+        "研发": "G3",
+        "毛利": "P1",
+        "净利率": "P2",
+        "费用": "P3",
+        "存货": "P4",
+        "应收": "P5",
+        "现金流": "C1",
+        "现金质量": "C2",
+        "负债": "S2",
+        "短债": "S4",
+        "补助": "I1",
+        "审计": "I2",
+        "诉讼": "I3",
+        "处罚": "I3",
+        "减值": "I4",
+        "关联交易": "I4",
+    }
     for keyword, metric_code in mapping.items():
         if keyword in query:
             return metric_code

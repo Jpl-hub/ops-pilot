@@ -18,8 +18,12 @@ RAW_METRIC_CODES = {
     "RAW_ADMIN_EXPENSE",
     "RAW_RD_EXPENSE",
     "RAW_FINANCE_EXPENSE",
+    "RAW_CREDIT_IMPAIRMENT_LOSS",
+    "RAW_ASSET_IMPAIRMENT_LOSS",
     "RAW_TOTAL_ASSETS",
     "RAW_PARENT_EQUITY",
+    "RAW_GOVERNMENT_GRANTS",
+    "RAW_IMPAIRMENT_PRESSURE",
     "RAW_CASH_FUNDS",
     "RAW_CURRENT_ASSETS",
     "RAW_ACCOUNTS_RECEIVABLE",
@@ -28,6 +32,22 @@ RAW_METRIC_CODES = {
     "RAW_TOTAL_LIABILITIES",
     "RAW_SHORT_TERM_BORROWINGS",
     "RAW_DUE_WITHIN_ONE_YEAR_NONCURRENT_LIABILITIES",
+}
+EVENT_METRIC_CODES = {"I1", "I2", "I3", "I4"}
+LABEL_METRIC_MAP = {
+    "R1": ("C1", "G2"),
+    "R2": ("C3",),
+    "R3": ("P4",),
+    "R4": ("S4", "S1"),
+    "R5": ("I1",),
+    "R6": ("I2",),
+    "R7": ("I3",),
+    "R8": ("I4",),
+    "O1": ("P1",),
+    "O2": ("C1",),
+    "O3": ("P4",),
+    "O4": ("S4",),
+    "O5": ("G3",),
 }
 
 
@@ -113,12 +133,25 @@ class OfficialMetricsRepository:
         for company_name, records in grouped_records.items():
             company_meta = self._pool_by_name.get(company_name, {})
             history = build_history_rows(records)
-            for record in records:
+            sorted_records = sorted(records, key=lambda item: _period_sort_key(item["report_period"]))
+            for index, record in enumerate(sorted_records):
+                metrics = {
+                    key: value
+                    for key, value in record.get("derived_metrics", {}).items()
+                    if key not in RAW_METRIC_CODES
+                }
                 metric_evidence = {
                     metric_code: [record["summary_chunk_id"]]
-                    for metric_code in record.get("derived_metrics", {})
-                    if metric_code not in RAW_METRIC_CODES
+                    for metric_code in metrics
+                    if metric_code not in EVENT_METRIC_CODES
                 }
+                metric_evidence.update(record.get("event_metric_evidence", {}))
+                backfill_missing_event_metrics(
+                    metrics,
+                    metric_evidence,
+                    sorted_records[:index],
+                    report_period=record["report_period"],
+                )
                 companies.append(
                     {
                         "company_id": company_meta.get("security_code", record["security_code"]),
@@ -126,15 +159,11 @@ class OfficialMetricsRepository:
                         "ticker": company_meta.get("ticker", infer_ticker(record)),
                         "subindustry": record["subindustry"],
                         "report_period": record["report_period"],
-                        "metrics": {
-                            key: value
-                            for key, value in record.get("derived_metrics", {}).items()
-                            if key not in RAW_METRIC_CODES
-                        },
+                        "metrics": metrics,
                         "trends": {},
                         "history": history,
                         "metric_evidence": metric_evidence,
-                        "label_evidence": {},
+                        "label_evidence": build_label_evidence(metric_evidence),
                     }
                 )
         return companies
@@ -154,6 +183,19 @@ class OfficialMetricsRepository:
                 "source_url": record["source_url"],
                 "local_path": record["local_path"],
             }
+            for item in record.get("event_evidence", []):
+                index[item["chunk_id"]] = {
+                    "chunk_id": item["chunk_id"],
+                    "company_name": record["company_name"],
+                    "report_period": record["report_period"],
+                    "source_title": record["title"],
+                    "source_type": item.get("source_type", "official_event_page"),
+                    "page": item["page"],
+                    "excerpt": item["excerpt"],
+                    "fingerprint": f"{record['report_id']}-{item['metric_code']}-{item['page']}",
+                    "source_url": record["source_url"],
+                    "local_path": record["local_path"],
+                }
         return index
 
 
@@ -179,6 +221,68 @@ def build_history_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def infer_ticker(record: dict[str, Any]) -> str:
     suffix = ".SH" if record["exchange"] == "SSE" else ".SZ"
     return f"{record['security_code']}{suffix}"
+
+
+def backfill_missing_event_metrics(
+    metrics: dict[str, Any],
+    metric_evidence: dict[str, list[str]],
+    prior_records: list[dict[str, Any]],
+    *,
+    report_period: str,
+) -> None:
+    report_year = report_period[:4]
+    for metric_code in EVENT_METRIC_CODES:
+        if metrics.get(metric_code) is not None:
+            continue
+        fallback_record = find_prior_event_record(prior_records, metric_code, report_year=report_year)
+        if fallback_record is None:
+            continue
+        metrics[metric_code] = fallback_record["derived_metrics"][metric_code]
+        if evidence_ids := fallback_record.get("event_metric_evidence", {}).get(metric_code):
+            metric_evidence[metric_code] = evidence_ids
+
+
+def find_prior_event_record(
+    prior_records: list[dict[str, Any]],
+    metric_code: str,
+    *,
+    report_year: str,
+) -> dict[str, Any] | None:
+    same_year = [
+        record
+        for record in prior_records
+        if record["report_period"].startswith(report_year)
+        and record.get("derived_metrics", {}).get(metric_code) is not None
+    ]
+    if same_year:
+        return same_year[-1]
+    historical = [
+        record
+        for record in prior_records
+        if record.get("derived_metrics", {}).get(metric_code) is not None
+    ]
+    if historical:
+        return historical[-1]
+    return None
+
+
+def build_label_evidence(metric_evidence: dict[str, list[str]]) -> dict[str, list[str]]:
+    label_evidence: dict[str, list[str]] = {}
+    for label_code, metric_codes in LABEL_METRIC_MAP.items():
+        chunk_ids: list[str] = []
+        for metric_code in metric_codes:
+            chunk_ids.extend(metric_evidence.get(metric_code, []))
+        if chunk_ids:
+            label_evidence[label_code] = dedupe_chunk_ids(chunk_ids)
+    return label_evidence
+
+
+def dedupe_chunk_ids(chunk_ids: list[str]) -> list[str]:
+    deduped: list[str] = []
+    for chunk_id in chunk_ids:
+        if chunk_id not in deduped:
+            deduped.append(chunk_id)
+    return deduped
 
 
 def _load_company_pool(path: Path) -> dict[str, dict[str, Any]]:

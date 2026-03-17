@@ -12,6 +12,7 @@ from opspilot.ingest.silver_metrics import (
     detect_unit_scale,
     derive_metric_codes,
     extract_balance_field,
+    extract_event_metrics,
     extract_profit_statement_values,
     infer_report_period,
     parse_value_segment,
@@ -189,6 +190,113 @@ class SilverMetricsTestCase(unittest.TestCase):
         self.assertEqual(derived["S1"], 2.0)
         self.assertEqual(derived["S2"], 60.0)
         self.assertEqual(derived["S4"], 3.0)
+
+    def test_extract_event_metrics_builds_i_metrics(self) -> None:
+        pages = [
+            {
+                "page": 9,
+                "blocks": [
+                    {
+                        "text": (
+                            "九、非经常性损益项目和金额 计入当期损益的政府补助 "
+                            "120,000,000.00 合计 300,000,000.00"
+                        )
+                    }
+                ],
+            },
+            {
+                "page": 20,
+                "blocks": [
+                    {
+                        "text": (
+                            "四、半年报审计情况 □适用√不适用 "
+                            "七、重大诉讼、仲裁事项 □本报告期公司有重大诉讼、仲裁事项√本报告期公司无重大诉讼、仲裁事项 "
+                            "八、上市公司及其董事、高级管理人员涉嫌违法违规、受到处罚及整改情况 □适用√不适用"
+                        )
+                    }
+                ],
+            },
+            {
+                "page": 31,
+                "blocks": [
+                    {
+                        "text": (
+                            "合并利润表 信用减值损失（损失以“-”号填列） -20,000,000.00 "
+                            "资产减值损失（损失以“-”号填列） -50,000,000.00"
+                        )
+                    }
+                ],
+            },
+        ]
+        row_values = {
+            "net_profit": {
+                "current": 1000000000.0,
+                "previous": 900000000.0,
+                "change_pct": 11.0,
+                "tokens": [],
+            },
+            "deducted_net_profit": {
+                "current": 800000000.0,
+                "previous": 750000000.0,
+                "change_pct": 6.67,
+                "tokens": [],
+            },
+            "operating_revenue": {
+                "current": 10000000000.0,
+                "previous": 9000000000.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "credit_impairment_loss": {
+                "current": -20000000.0,
+                "previous": -10000000.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "asset_impairment_loss": {
+                "current": -400000000.0,
+                "previous": -200000000.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+        }
+        metrics, metric_evidence, evidence_rows = extract_event_metrics(
+            pages,
+            row_values,
+            report_id="demo-report",
+            report_period="2025H1",
+        )
+        self.assertEqual(metrics["I1"], 0.12)
+        self.assertEqual(metrics["I2"], 0.0)
+        self.assertEqual(metrics["I3"], 0.0)
+        self.assertEqual(metrics["I4"], 0.042)
+        self.assertEqual(metric_evidence["I1"], ["demo-report-event-i1-page-009"])
+        self.assertEqual(metric_evidence["I4"], ["demo-report-event-i4-page-031"])
+        self.assertEqual(len(evidence_rows), 4)
+
+    def test_extract_event_metrics_detects_positive_litigation_signal(self) -> None:
+        pages = [
+            {
+                "page": 18,
+                "blocks": [
+                    {
+                        "text": (
+                            "八、诉讼事项 重大诉讼仲裁事项 公司存在重大诉讼、仲裁事项，"
+                            "报告期内收到行政处罚决定书。"
+                        )
+                    }
+                ],
+            }
+        ]
+        metrics, metric_evidence, evidence_rows = extract_event_metrics(
+            pages,
+            {},
+            report_id="risk-report",
+            report_period="2025H1",
+        )
+        self.assertEqual(metrics["I3"], 1.0)
+        self.assertEqual(metric_evidence["I3"], ["risk-report-event-i3-page-018"])
+        self.assertEqual(evidence_rows[0]["metric_code"], "I3")
 
     def test_infer_report_period_supports_standard_report_types(self) -> None:
         self.assertEqual(infer_report_period("2025年半年度报告", "2025-08-23"), "2025H1")

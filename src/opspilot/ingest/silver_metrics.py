@@ -45,6 +45,8 @@ PROFIT_FIELD_LABELS = {
     "finance_expense": ("财务费用",),
     "interest_expense": ("利息费用",),
     "interest_income": ("利息收入",),
+    "credit_impairment_loss": ("信用减值损失",),
+    "asset_impairment_loss": ("资产减值损失",),
 }
 
 FIELD_ORDER = list(FIELD_LABELS)
@@ -71,6 +73,8 @@ MONETARY_FIELDS = {
     "finance_expense",
     "interest_expense",
     "interest_income",
+    "credit_impairment_loss",
+    "asset_impairment_loss",
     "assets",
     "equity_parent",
     "cash_funds",
@@ -82,6 +86,60 @@ MONETARY_FIELDS = {
     "short_term_borrowings",
     "due_within_one_year_noncurrent_liabilities",
 }
+EVENT_METRIC_CODES = {"I1", "I2", "I3", "I4"}
+NEGATIVE_LITIGATION_PATTERNS = (
+    "无重大诉讼、仲裁事项",
+    "无重大诉讼仲裁事项",
+    "本报告期公司无重大诉讼、仲裁事项",
+    "本报告期公司无重大诉讼仲裁事项",
+    "未发生重大诉讼、仲裁事项",
+    "不存在重大诉讼、仲裁事项",
+)
+POSITIVE_LITIGATION_PATTERNS = (
+    "有重大诉讼、仲裁事项",
+    "存在重大诉讼、仲裁事项",
+    "重大诉讼事项进展",
+    "重大仲裁事项进展",
+)
+NEGATIVE_PENALTY_PATTERNS = (
+    "受到处罚及整改情况□适用√不适用",
+    "受到处罚及整改□适用√不适用",
+    "涉嫌违法违规、受到处罚及整改情况□适用√不适用",
+    "未受到处罚",
+)
+POSITIVE_PENALTY_PATTERNS = (
+    "行政处罚决定书",
+    "被中国证监会立案",
+    "立案调查",
+    "受到行政处罚",
+    "收到行政处罚",
+    "涉嫌违法违规",
+)
+STANDARD_AUDIT_PATTERNS = (
+    "标准无保留意见",
+    "无保留意见审计报告",
+    "半年报审计情况□适用√不适用",
+    "半年度财务报告未经审计",
+    "公司半年度报告未经审计",
+    "半年度报告是否经过审计□是否",
+    "审计报告□适用√不适用",
+    "非标准审计报告”的说明□适用√不适用",
+    "非标准审计报告的说明□适用√不适用",
+)
+RISK_AUDIT_PATTERNS = (
+    "保留意见",
+    "无法表示意见",
+    "否定意见",
+    "非标准无保留意见",
+    "带强调事项段的无保留意见",
+    "带持续经营重大不确定性段落的无保留意见",
+)
+ABNORMAL_RELATED_PARTY_PATTERNS = (
+    "非经营性资金占用",
+    "违规关联交易",
+    "关联方资金占用",
+    "关联担保未履行",
+)
 Q3_CUMULATIVE_FIELDS = {
     "revenue",
     "net_profit",
@@ -198,6 +256,13 @@ def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, 
         "_meta": {"report_period": report_period},
     }
     derived_metrics = derive_metric_codes(merged_row_values)
+    event_metrics, event_metric_evidence, event_evidence = extract_event_metrics(
+        pages,
+        merged_row_values,
+        report_id=record["report_id"],
+        report_period=report_period,
+    )
+    derived_metrics.update(event_metrics)
     summary_chunk_id = f"{record['report_id']}-summary-page-{summary_page['page']:03d}"
 
     return {
@@ -218,6 +283,8 @@ def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, 
             for key, value in merged_row_values.items()
             if key != "_meta"
         },
+        "event_metric_evidence": event_metric_evidence,
+        "event_evidence": event_evidence,
         "derived_metrics": derived_metrics,
     }
 
@@ -425,6 +492,254 @@ def is_plausible_balance_number(raw: str, value: float) -> bool:
     return "," in raw or len(digits) >= 5 or abs(value) >= 10000
 
 
+def extract_event_metrics(
+    pages: list[dict[str, Any]],
+    row_values: dict[str, dict[str, Any]],
+    *,
+    report_id: str,
+    report_period: str,
+) -> tuple[dict[str, float], dict[str, list[str]], list[dict[str, Any]]]:
+    metrics: dict[str, float] = {}
+    metric_evidence: dict[str, list[str]] = {}
+    evidence_rows: list[dict[str, Any]] = []
+
+    if grant_signal := extract_government_grant_signal(pages, row_values, report_id=report_id):
+        metrics["I1"] = grant_signal["value"]
+        metrics["RAW_GOVERNMENT_GRANTS"] = grant_signal["raw_amount"]
+        metric_evidence["I1"] = [grant_signal["chunk_id"]]
+        evidence_rows.append(grant_signal)
+
+    if audit_signal := extract_audit_signal(pages, report_id=report_id, report_period=report_period):
+        metrics["I2"] = audit_signal["value"]
+        metric_evidence["I2"] = [audit_signal["chunk_id"]]
+        evidence_rows.append(audit_signal)
+
+    if litigation_signal := extract_litigation_penalty_signal(pages, report_id=report_id):
+        metrics["I3"] = litigation_signal["value"]
+        metric_evidence["I3"] = [litigation_signal["chunk_id"]]
+        evidence_rows.append(litigation_signal)
+
+    if impairment_signal := extract_impairment_related_party_signal(
+        pages,
+        row_values,
+        report_id=report_id,
+    ):
+        metrics["I4"] = impairment_signal["value"]
+        metrics["RAW_IMPAIRMENT_PRESSURE"] = impairment_signal["impairment_ratio"]
+        metric_evidence["I4"] = [impairment_signal["chunk_id"]]
+        evidence_rows.append(impairment_signal)
+
+    return metrics, metric_evidence, evidence_rows
+
+
+def extract_government_grant_signal(
+    pages: list[dict[str, Any]],
+    row_values: dict[str, dict[str, Any]],
+    *,
+    report_id: str,
+) -> dict[str, Any] | None:
+    for page in pages:
+        text = normalize_page_text(page)
+        if amount := extract_numeric_after_label(
+            text,
+            "计入当期损益的政府补助",
+            max_numbers=4,
+        ):
+            denominator = max(
+                abs(current_value(row_values, "net_profit") or 0.0),
+                abs(current_value(row_values, "deducted_net_profit") or 0.0),
+                1.0,
+            )
+            return build_event_evidence(
+                report_id=report_id,
+                metric_code="I1",
+                page=page["page"],
+                excerpt=clip_excerpt(text, "计入当期损益的政府补助"),
+                value=round(amount / denominator, 4),
+                raw_amount=round(amount, 2),
+                source_type="official_event_page",
+            )
+    for page in pages:
+        text = normalize_page_text(page)
+        if amount := extract_numeric_after_label(text, "政府补助款", max_numbers=2):
+            denominator = max(abs(current_value(row_values, "net_profit") or 0.0), 1.0)
+            return build_event_evidence(
+                report_id=report_id,
+                metric_code="I1",
+                page=page["page"],
+                excerpt=clip_excerpt(text, "政府补助款"),
+                value=round(amount / denominator, 4),
+                raw_amount=round(amount, 2),
+                source_type="official_event_page",
+            )
+    return None
+
+
+def extract_audit_signal(
+    pages: list[dict[str, Any]],
+    *,
+    report_id: str,
+    report_period: str,
+) -> dict[str, Any] | None:
+    for page in pages[: min(len(pages), 12)]:
+        compact = compact_text(normalize_page_text(page))
+        for pattern in RISK_AUDIT_PATTERNS:
+            if pattern not in compact:
+                continue
+            if pattern == "保留意见" and "无保留意见" in compact:
+                continue
+            if "非标准审计报告的说明" in compact or "非标准审计报告”的说明" in compact:
+                continue
+            return build_event_evidence(
+                report_id=report_id,
+                metric_code="I2",
+                page=page["page"],
+                excerpt=clip_excerpt(normalize_page_text(page), pattern),
+                value=1.0,
+                source_type="official_event_page",
+            )
+    for page in pages[: min(len(pages), 60 if report_period.endswith("FY") else 40)]:
+        compact = compact_text(normalize_page_text(page))
+        if any(pattern in compact for pattern in STANDARD_AUDIT_PATTERNS):
+            return build_event_evidence(
+                report_id=report_id,
+                metric_code="I2",
+                page=page["page"],
+                excerpt=clip_excerpt(normalize_page_text(page), "审计"),
+                value=0.0,
+                source_type="official_event_page",
+            )
+    return None
+
+
+def extract_litigation_penalty_signal(
+    pages: list[dict[str, Any]],
+    *,
+    report_id: str,
+) -> dict[str, Any] | None:
+    for page in pages:
+        compact = compact_text(normalize_page_text(page))
+        if any(pattern in compact for pattern in POSITIVE_LITIGATION_PATTERNS + POSITIVE_PENALTY_PATTERNS):
+            if not any(pattern in compact for pattern in NEGATIVE_LITIGATION_PATTERNS + NEGATIVE_PENALTY_PATTERNS):
+                return build_event_evidence(
+                    report_id=report_id,
+                    metric_code="I3",
+                    page=page["page"],
+                    excerpt=clip_excerpt(normalize_page_text(page), "诉讼"),
+                    value=1.0,
+                    source_type="official_event_page",
+                )
+    for page in pages:
+        compact = compact_text(normalize_page_text(page))
+        if any(pattern in compact for pattern in NEGATIVE_LITIGATION_PATTERNS + NEGATIVE_PENALTY_PATTERNS):
+            anchor = "诉讼" if "诉讼" in compact else "处罚"
+            return build_event_evidence(
+                report_id=report_id,
+                metric_code="I3",
+                page=page["page"],
+                excerpt=clip_excerpt(normalize_page_text(page), anchor),
+                value=0.0,
+                source_type="official_event_page",
+            )
+    return None
+
+
+def extract_impairment_related_party_signal(
+    pages: list[dict[str, Any]],
+    row_values: dict[str, dict[str, Any]],
+    *,
+    report_id: str,
+) -> dict[str, Any] | None:
+    operating_revenue = current_value(row_values, "operating_revenue") or current_value(row_values, "revenue")
+    asset_impairment_loss = abs(current_value(row_values, "asset_impairment_loss") or 0.0)
+    credit_impairment_loss = abs(current_value(row_values, "credit_impairment_loss") or 0.0)
+    impairment_ratio = 0.0
+    if operating_revenue not in (None, 0):
+        impairment_ratio = (asset_impairment_loss + credit_impairment_loss) / operating_revenue
+
+    for page in pages:
+        compact = compact_text(normalize_page_text(page))
+        if any(pattern in compact for pattern in ABNORMAL_RELATED_PARTY_PATTERNS):
+            return build_event_evidence(
+                report_id=report_id,
+                metric_code="I4",
+                page=page["page"],
+                excerpt=clip_excerpt(normalize_page_text(page), "关联"),
+                value=round(max(impairment_ratio, 0.05), 4),
+                impairment_ratio=round(impairment_ratio, 4),
+                source_type="official_event_page",
+            )
+
+    if impairment_ratio > 0:
+        for page in pages:
+            text = normalize_page_text(page)
+            if "资产减值损失" in text or "信用减值损失" in text:
+                return build_event_evidence(
+                    report_id=report_id,
+                    metric_code="I4",
+                    page=page["page"],
+                    excerpt=clip_excerpt(text, "减值损失"),
+                    value=round(impairment_ratio, 4),
+                    impairment_ratio=round(impairment_ratio, 4),
+                    source_type="official_event_page",
+                )
+    return None
+
+
+def extract_numeric_after_label(text: str, label: str, *, max_numbers: int) -> float | None:
+    match = build_label_pattern(label).search(text)
+    if match is None:
+        return None
+    segment = text[match.end() : match.end() + 240]
+    values = []
+    for raw in NUMBER_RE.findall(segment):
+        if raw.endswith("%"):
+            continue
+        value = parse_numeric_token(raw)
+        if is_plausible_balance_number(raw, value):
+            values.append(value)
+        if len(values) >= max_numbers:
+            break
+    if not values:
+        return None
+    return float(values[0])
+
+
+def build_event_evidence(
+    *,
+    report_id: str,
+    metric_code: str,
+    page: int,
+    excerpt: str,
+    value: float,
+    source_type: str,
+    raw_amount: float | None = None,
+    impairment_ratio: float | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "chunk_id": f"{report_id}-event-{metric_code.lower()}-page-{page:03d}",
+        "metric_code": metric_code,
+        "page": page,
+        "excerpt": excerpt,
+        "value": value,
+        "source_type": source_type,
+    }
+    if raw_amount is not None:
+        payload["raw_amount"] = raw_amount
+    if impairment_ratio is not None:
+        payload["impairment_ratio"] = impairment_ratio
+    return payload
+
+
+def clip_excerpt(text: str, anchor: str, *, radius: int = 220) -> str:
+    index = text.find(anchor)
+    if index < 0:
+        return text[: min(len(text), radius * 2)]
+    start = max(index - radius // 2, 0)
+    end = min(index + radius, len(text))
+    return text[start:end]
+
+
 def apply_period_selection(
     row_values: dict[str, dict[str, Any]], report_period: str
 ) -> dict[str, dict[str, Any]]:
@@ -501,6 +816,8 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
     admin_expense = current_value(row_values, "admin_expense")
     rd_expense = current_value(row_values, "rd_expense")
     finance_expense = current_value(row_values, "finance_expense")
+    credit_impairment_loss = current_value(row_values, "credit_impairment_loss")
+    asset_impairment_loss = current_value(row_values, "asset_impairment_loss")
 
     revenue_yoy = change_value(row_values, "revenue")
     if revenue_yoy is not None:
@@ -554,6 +871,10 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
         derived["RAW_RD_EXPENSE"] = round(rd_expense, 2)
     if finance_expense is not None:
         derived["RAW_FINANCE_EXPENSE"] = round(finance_expense, 2)
+    if credit_impairment_loss is not None:
+        derived["RAW_CREDIT_IMPAIRMENT_LOSS"] = round(credit_impairment_loss, 2)
+    if asset_impairment_loss is not None:
+        derived["RAW_ASSET_IMPAIRMENT_LOSS"] = round(asset_impairment_loss, 2)
 
     assets = current_value(row_values, "assets")
     equity_parent = current_value(row_values, "equity_parent")
