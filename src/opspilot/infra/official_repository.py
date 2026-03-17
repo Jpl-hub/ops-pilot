@@ -149,6 +149,7 @@ class OfficialMetricsRepository:
                 }
                 metric_evidence.update(record.get("event_metric_evidence", {}))
                 metric_evidence.update(build_formula_metric_evidence(record, sorted_records[:index]))
+                formula_context = build_formula_context(record, sorted_records[:index])
                 backfill_missing_event_metrics(
                     metrics,
                     metric_evidence,
@@ -166,6 +167,7 @@ class OfficialMetricsRepository:
                         "trends": {},
                         "history": history,
                         "metric_evidence": metric_evidence,
+                        "formula_context": formula_context,
                         "label_evidence": build_label_evidence(metric_evidence),
                     }
                 )
@@ -346,6 +348,43 @@ def find_prior_comparable_record(
         if record["report_period"] == target_period:
             return record
     return None
+
+
+def build_formula_context(
+    record: dict[str, Any],
+    prior_records: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    derived_metrics = record.get("derived_metrics", {})
+    context: dict[str, dict[str, Any]] = {}
+
+    if derived_metrics.get("S3") is not None:
+        context["S3"] = {
+            "value": derived_metrics["S3"],
+            "profit_total": derived_metrics.get("RAW_PROFIT_TOTAL"),
+            "interest_expense": _interest_expense_from_record(record),
+            "formula": "(利润总额 + 利息费用) / 利息费用",
+        }
+
+    prior_record = find_prior_comparable_record(prior_records, record["report_period"])
+    if derived_metrics.get("C3") is not None and prior_record is not None:
+        current_receivable = derived_metrics.get("RAW_ACCOUNTS_RECEIVABLE")
+        prior_receivable = prior_record.get("derived_metrics", {}).get("RAW_ACCOUNTS_RECEIVABLE")
+        receivable_yoy = derived_metrics.get("RAW_ACCOUNTS_RECEIVABLE_YOY")
+        revenue_yoy = derived_metrics.get("G1")
+        context["C3"] = {
+            "value": derived_metrics["C3"],
+            "current_receivable": current_receivable,
+            "prior_receivable": prior_receivable,
+            "prior_period": prior_record["report_period"],
+            "receivable_yoy": receivable_yoy,
+            "revenue_yoy": revenue_yoy,
+            "formula": "应收账款同比 - 营业收入同比",
+        }
+    return context
+
+
+def _interest_expense_from_record(record: dict[str, Any]) -> float | None:
+    return record.get("facts", {}).get("interest_expense", {}).get("current")
 
 
 def _load_company_pool(path: Path) -> dict[str, dict[str, Any]]:

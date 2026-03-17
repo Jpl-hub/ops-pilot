@@ -64,6 +64,7 @@ class OpsPilotService:
         score_result = score_company(company, peers)
         risks = evaluate_risk_labels(company)
         opportunities = evaluate_opportunity_labels(company)
+        formula_cards = _build_formula_cards(company)
         evidence_ids = _collect_evidence_ids(company, score_result, risks, opportunities)
         evidence = self.repository.resolve_evidence(evidence_ids)
         key_numbers = [
@@ -71,6 +72,7 @@ class OpsPilotService:
             {"label": "子行业分位", "value": score_result["subindustry_percentile"], "unit": "pct"},
         ]
         calculations = [{"step": "维度加权汇总", "detail": score_result["dimension_scores"]}]
+        calculations.extend(_build_formula_calculations(formula_cards))
         audit = build_audit(
             key_numbers=key_numbers,
             evidence=evidence,
@@ -84,6 +86,7 @@ class OpsPilotService:
             "charts": _build_company_charts(company, score_result),
             "evidence": evidence,
             "calculations": calculations,
+            "formula_cards": formula_cards,
             "audit": audit,
             "scorecard": {**score_result, "risk_labels": risks, "opportunity_labels": opportunities},
         }
@@ -201,6 +204,10 @@ class OpsPilotService:
         value = company["metrics"][metric_code]
         evidence = self.repository.resolve_evidence(company.get("metric_evidence", {}).get(metric_code, []))
         calculations = [{"step": "指标直取", "detail": f"{metric_code} = {value}"}]
+        formula_cards = []
+        if formula_card := _build_formula_card(company, metric_code):
+            formula_cards.append(formula_card)
+            calculations.extend(_build_formula_calculations(formula_cards))
         audit = build_audit(
             key_numbers=[{"label": metric_def.name, "value": value, "unit": ""}],
             evidence=evidence,
@@ -214,6 +221,7 @@ class OpsPilotService:
             "charts": [],
             "evidence": evidence,
             "calculations": calculations,
+            "formula_cards": formula_cards,
             "audit": audit,
         }
 
@@ -235,6 +243,8 @@ def _collect_evidence_ids(company: dict[str, Any], score_result: dict[str, Any],
     chunk_ids: list[str] = []
     for metric in score_result["strengths"] + score_result["weaknesses"]:
         chunk_ids.extend(company.get("metric_evidence", {}).get(metric["code"], []))
+    for metric_code in ("C3", "S3"):
+        chunk_ids.extend(company.get("metric_evidence", {}).get(metric_code, []))
     for label in risks + opportunities:
         chunk_ids.extend(label["evidence_refs"])
     deduped: list[str] = []
@@ -285,6 +295,80 @@ def _build_company_charts(company: dict[str, Any], score_result: dict[str, Any])
             },
         },
     ]
+
+
+def _build_formula_cards(company: dict[str, Any]) -> list[dict[str, Any]]:
+    cards = []
+    for metric_code in ("C3", "S3"):
+        if formula_card := _build_formula_card(company, metric_code):
+            cards.append(formula_card)
+    return cards
+
+
+def _build_formula_card(company: dict[str, Any], metric_code: str) -> dict[str, Any] | None:
+    context = company.get("formula_context", {}).get(metric_code)
+    if not context:
+        return None
+    metric_def = METRIC_BY_CODE[metric_code]
+    if metric_code == "C3":
+        return {
+            "metric_code": metric_code,
+            "title": metric_def.name,
+            "formula": context["formula"],
+            "value": context["value"],
+            "lines": [
+                f"当前应收账款：{_format_number(context.get('current_receivable'))}",
+                f"去年同期应收账款（{context.get('prior_period')}）：{_format_number(context.get('prior_receivable'))}",
+                f"应收账款同比：{_format_pct(context.get('receivable_yoy'))}",
+                f"营业收入同比：{_format_pct(context.get('revenue_yoy'))}",
+                f"结果：{_format_pct(context.get('value'))}",
+            ],
+            "evidence_refs": company.get("metric_evidence", {}).get(metric_code, []),
+        }
+    if metric_code == "S3":
+        return {
+            "metric_code": metric_code,
+            "title": metric_def.name,
+            "formula": context["formula"],
+            "value": context["value"],
+            "lines": [
+                f"利润总额：{_format_number(context.get('profit_total'))}",
+                f"利息费用：{_format_number(context.get('interest_expense'))}",
+                f"结果：{_format_number(context.get('value'))}",
+            ],
+            "evidence_refs": company.get("metric_evidence", {}).get(metric_code, []),
+        }
+    return None
+
+
+def _build_formula_calculations(formula_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    calculations = []
+    for card in formula_cards:
+        calculations.append(
+            {
+                "step": f"{card['metric_code']} 公式回放",
+                "detail": {
+                    "formula": card["formula"],
+                    "value": card["value"],
+                    "lines": card["lines"],
+                },
+            }
+        )
+    return calculations
+
+
+def _format_number(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    if abs(value) >= 1e8:
+        return f"{value / 1e8:.2f} 亿元"
+    return f"{value:.4f}" if abs(value) < 100 else f"{value:.2f}"
+
+
+def _format_pct(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:.2f}%"
 
 
 def _guess_metric_code(query: str) -> str:

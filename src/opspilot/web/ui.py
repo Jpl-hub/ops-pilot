@@ -30,6 +30,7 @@ def run_ui_app() -> None:
         summary = ui.markdown(initial_score["answer_markdown"])
         radar = ui.echart(initial_score["charts"][0]["options"])
         trend = ui.echart(initial_score["charts"][1]["options"])
+        formula = ui.markdown(_format_formula_cards(initial_score.get("formula_cards", [])))
         evidence = ui.markdown(_format_evidence(initial_score["evidence"]))
 
         def refresh() -> None:
@@ -39,6 +40,7 @@ def run_ui_app() -> None:
             trend.options = payload["charts"][1]["options"]
             radar.update()
             trend.update()
+            formula.content = _format_formula_cards(payload.get("formula_cards", []))
             evidence.content = _format_evidence(payload["evidence"])
 
         ui.button("刷新评分", on_click=refresh)
@@ -62,5 +64,25 @@ def run_ui_app() -> None:
 def _format_evidence(evidence: list[dict]) -> str:
     lines = ["### 证据包"]
     for item in evidence:
-        lines.append(f"- `{item['chunk_id']}` | {item['source_title']} | p.{item['page']} | {item['excerpt']}")
+        lines.append(
+            f"- [`{item['chunk_id']}`](/evidence/{item['chunk_id']}) | {item['source_title']} | p.{item['page']} | {item['excerpt']}"
+        )
+    return "\n".join(lines)
+
+
+def _format_formula_cards(formula_cards: list[dict]) -> str:
+    lines = ["### 公式回放"]
+    if not formula_cards:
+        lines.append("- 当前公司暂无可回放公式指标。")
+        return "\n".join(lines)
+    for card in formula_cards:
+        lines.append(f"#### {card['metric_code']} {card['title']}")
+        lines.append(f"- 公式：`{card['formula']}`")
+        for detail in card["lines"]:
+            lines.append(f"- {detail}")
+        if card.get("evidence_refs"):
+            refs = " | ".join(
+                f"[`{chunk_id}`](/evidence/{chunk_id})" for chunk_id in card["evidence_refs"]
+            )
+            lines.append(f"- 证据：{refs}")
     return "\n".join(lines)

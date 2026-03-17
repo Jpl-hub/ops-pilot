@@ -337,6 +337,14 @@ class OfficialRepositoryTestCase(unittest.TestCase):
                                         "source_type": "official_statement_page",
                                     },
                                 },
+                                "facts": {
+                                    "interest_expense": {
+                                        "current": 50.0,
+                                        "previous": 40.0,
+                                        "change_pct": None,
+                                        "tokens": [],
+                                    }
+                                },
                                 "derived_metrics": {
                                     "G1": 15.0,
                                     "C3": 10.0,
@@ -390,6 +398,8 @@ class OfficialRepositoryTestCase(unittest.TestCase):
                     "r2-field-interest_expense-page-011",
                 ],
             )
+            self.assertEqual(latest["formula_context"]["C3"]["prior_period"], "2024Q3")
+            self.assertEqual(latest["formula_context"]["S3"]["interest_expense"], 50.0)
             c3_evidence = repository.get_evidence("r2-field-accounts_receivable-page-016")
             self.assertIsNotNone(c3_evidence)
             self.assertEqual(c3_evidence["page"], 16)
