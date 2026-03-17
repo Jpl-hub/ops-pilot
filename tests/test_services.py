@@ -643,9 +643,31 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(compare["rows"][0]["headline_forecast_year"], "2025")
             self.assertEqual(compare["rows"][0]["headline_forecast_value"], 11.0)
             self.assertEqual(compare["rows"][0]["headline_forecast_pe"], 20.0)
+            self.assertIn("信息最完整", compare["rows"][0]["signal_tags"])
             self.assertEqual(compare["key_numbers"][0]["value"], 2)
             self.assertTrue(compare["insights"])
             self.assertEqual(compare["insights"][0]["kind"], "consensus")
+            self.assertEqual(compare["total_reports"], 2)
+            self.assertEqual(compare["filtered_reports"], 2)
+
+            filtered = service.compare_research_reports(
+                "测试公司",
+                sort_by="target_price_desc",
+                filter_mode="target_price",
+            )
+
+            self.assertEqual(filtered["selected_sort"], "target_price_desc")
+            self.assertEqual(filtered["selected_filter"], "target_price")
+            self.assertEqual(filtered["filtered_reports"], 1)
+            self.assertEqual(filtered["rows"][0]["title"], "深度点评")
+
+            no_divergence = service.compare_research_reports(
+                "测试公司",
+                filter_mode="divergence",
+            )
+
+            self.assertEqual(no_divergence["filtered_reports"], 0)
+            self.assertEqual(no_divergence["rows"], [])
 
 
 if __name__ == "__main__":

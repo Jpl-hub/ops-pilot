@@ -83,9 +83,19 @@ def company_research_reports(company_name: str) -> dict:
 
 
 @router.get("/company/research-compare")
-def company_research_compare(company_name: str, limit: int = 4) -> dict:
+def company_research_compare(
+    company_name: str,
+    limit: int = 6,
+    sort_by: str = "priority",
+    filter_mode: str = "all",
+) -> dict:
     try:
-        return get_service().compare_research_reports(company_name, limit)
+        return get_service().compare_research_reports(
+            company_name,
+            limit,
+            sort_by=sort_by,
+            filter_mode=filter_mode,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -368,6 +368,27 @@ def run_ui_app() -> None:
                         value=initial_claim.get("report_meta", {}).get("title"),
                         label="选择研报",
                     ).classes("op-select")
+                    compare_sort_select = ui.select(
+                        options={
+                            "priority": "优先看分歧",
+                            "latest": "按时间最新",
+                            "target_price_desc": "目标价从高到低",
+                            "forecast_desc": "首年利润预测从高到低",
+                        },
+                        value="priority",
+                        label="对比排序",
+                    ).classes("op-select")
+                    compare_filter_select = ui.select(
+                        options={
+                            "all": "全部研报",
+                            "supported": "仅报期已对齐",
+                            "target_price": "仅看含目标价",
+                            "forecast": "仅看含盈利预测",
+                            "divergence": "仅看分歧信号",
+                        },
+                        value="all",
+                        label="对比筛选",
+                    ).classes("op-select")
                     ui.button("刷新核验", on_click=lambda: refresh()).props("unelevated color=teal-7")
 
             summary_section = ui.column().classes("w-full gap-4")
@@ -384,6 +405,11 @@ def run_ui_app() -> None:
                     payload = service.verify_claim(
                         company_select.value,
                         report_title=report_select.value,
+                    )
+                    payload["research_compare"] = service.compare_research_reports(
+                        company_select.value,
+                        sort_by=compare_sort_select.value,
+                        filter_mode=compare_filter_select.value,
                     )
                 except ValueError as exc:
                     summary_section.clear()
@@ -518,7 +544,11 @@ def run_ui_app() -> None:
                     if compare_payload.get("rows"):
                         with ui.card().classes("op-panel w-full"):
                             ui.label("同公司研报横向对比").classes("op-section-title")
-                            ui.label("横向比较不同机构的评级、目标价和首年利润预测，帮助快速识别观点分歧。").classes("op-note")
+                            ui.label(
+                                f"当前展示 {compare_payload.get('filtered_reports', len(compare_payload.get('rows', [])))} / "
+                                f"{compare_payload.get('total_reports', len(compare_payload.get('rows', [])))} 篇研报，"
+                                "横向比较不同机构的评级、目标价和首年利润预测。"
+                            ).classes("op-note")
                             if compare_payload.get("insights"):
                                 with ui.row().classes("w-full gap-4 wrap items-stretch"):
                                     for insight in compare_payload["insights"]:
@@ -546,6 +576,15 @@ def run_ui_app() -> None:
                                         ui.label(
                                             f"{row.get('source_name') or '机构未披露'} | {row.get('publish_date') or '日期未知'}"
                                         ).classes("op-note")
+                                        if row.get("signal_tags"):
+                                            with ui.row().classes("gap-2 wrap"):
+                                                for tag in row["signal_tags"]:
+                                                    tone = "neutral"
+                                                    if tag in {"目标价最高", "预测最乐观"} or tag.startswith("评级:"):
+                                                        tone = "opportunity"
+                                                    elif tag in {"目标价最低", "预测最谨慎", "报期待核实"}:
+                                                        tone = "risk"
+                                                    _render_pill(ui, tag, tone=tone)
                                         with ui.column().classes("w-full gap-0"):
                                             for label, value in (
                                                 ("评级", row.get("rating_text") or "未披露"),
@@ -568,6 +607,10 @@ def run_ui_app() -> None:
                                                 with ui.row().classes("op-detail-row w-full items-center justify-between gap-3"):
                                                     ui.label(label).classes("text-sm")
                                                     ui.label(value).classes("text-sm font-medium")
+                    elif compare_payload:
+                        with ui.card().classes("op-panel w-full"):
+                            ui.label("同公司研报横向对比").classes("op-section-title")
+                            ui.label("当前筛选条件下没有命中的研报，建议切回“全部研报”或放宽筛选。").classes("op-note")
                 _render_evidence_section(ui, evidence_section, payload)
 
             company_select.on_value_change(lambda _: sync_report_options())
@@ -860,7 +903,12 @@ def _format_rating_text(report_meta: dict[str, Any]) -> str:
     rating_parts = [
         part for part in (report_meta.get("rating_action"), report_meta.get("rating_label")) if part
     ]
-    return "".join(rating_parts) or report_meta.get("rating_code") or "未披露"
+    if rating_parts:
+        return "".join(rating_parts)
+    rating_code = report_meta.get("rating_code")
+    if isinstance(rating_code, str) and len(rating_code) == 1 and rating_code.isupper():
+        return "未披露"
+    return rating_code or "未披露"
 
 
 def _build_evidence_href(chunk_id: str, context: str, anchor_terms: list[str]) -> str:

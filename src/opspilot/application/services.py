@@ -264,11 +264,20 @@ class OpsPilotService:
             )
         return catalog
 
-    def compare_research_reports(self, company_name: str, limit: int = 4) -> dict[str, Any]:
+    def compare_research_reports(
+        self,
+        company_name: str,
+        limit: int = 6,
+        *,
+        sort_by: str = "priority",
+        filter_mode: str = "all",
+    ) -> dict[str, Any]:
         reports = self.list_research_reports(company_name)
         if not reports:
             raise ValueError(f"未找到研报：{company_name}")
-        rows = reports[:limit]
+        labeled_rows = _label_research_compare_rows(reports)
+        filtered_rows = _filter_research_compare_rows(labeled_rows, filter_mode)
+        rows = _sort_research_compare_rows(filtered_rows, sort_by)[:limit]
         target_prices = [item["target_price"] for item in rows if item.get("target_price") is not None]
         headline_forecasts = [
             item["headline_forecast_value"]
@@ -303,6 +312,12 @@ class OpsPilotService:
                 _build_research_compare_chart(rows),
             ],
             "insights": _build_research_compare_insights(rows),
+            "selected_sort": sort_by,
+            "selected_filter": filter_mode,
+            "sort_options": _build_research_compare_sort_options(),
+            "filter_options": _build_research_compare_filter_options(),
+            "total_reports": len(reports),
+            "filtered_reports": len(filtered_rows),
         }
 
     def verify_claim(
@@ -1114,6 +1129,159 @@ def _build_research_compare_chart(rows: list[dict[str, Any]]) -> dict[str, Any]:
             ],
         },
     }
+
+
+def _build_research_compare_sort_options() -> dict[str, str]:
+    return {
+        "priority": "优先看分歧",
+        "latest": "按时间最新",
+        "target_price_desc": "目标价从高到低",
+        "forecast_desc": "首年利润预测从高到低",
+    }
+
+
+def _build_research_compare_filter_options() -> dict[str, str]:
+    return {
+        "all": "全部研报",
+        "supported": "仅报期已对齐",
+        "target_price": "仅看含目标价",
+        "forecast": "仅看含盈利预测",
+        "divergence": "仅看分歧信号",
+    }
+
+
+def _label_research_compare_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    labeled_rows = [dict(row) for row in rows]
+    if not labeled_rows:
+        return labeled_rows
+
+    target_price_rows = [row for row in labeled_rows if row.get("target_price") is not None]
+    if len(target_price_rows) >= 2:
+        high_target = max(target_price_rows, key=lambda row: row["target_price"])
+        low_target = min(target_price_rows, key=lambda row: row["target_price"])
+        high_target.setdefault("signal_tags", []).append("目标价最高")
+        low_target.setdefault("signal_tags", []).append("目标价最低")
+
+    forecast_rows = [row for row in labeled_rows if row.get("headline_forecast_value") is not None]
+    if len(forecast_rows) >= 2:
+        high_forecast = max(forecast_rows, key=lambda row: row["headline_forecast_value"])
+        low_forecast = min(forecast_rows, key=lambda row: row["headline_forecast_value"])
+        high_forecast.setdefault("signal_tags", []).append("预测最乐观")
+        low_forecast.setdefault("signal_tags", []).append("预测最谨慎")
+
+    complete_rows = [row for row in labeled_rows if row.get("forecast_count")]
+    if complete_rows:
+        richest = max(
+            complete_rows,
+            key=lambda row: (
+                row.get("forecast_count", 0),
+                row.get("claim_signal_count", 0),
+                row.get("target_price") is not None,
+            ),
+        )
+        richest.setdefault("signal_tags", []).append("信息最完整")
+
+    rating_values = {
+        row["rating_text"]
+        for row in labeled_rows
+        if row.get("rating_text") and row["rating_text"] != "未披露"
+    }
+    rating_diverges = len(rating_values) > 1
+    for row in labeled_rows:
+        tags = row.setdefault("signal_tags", [])
+        if row.get("is_period_supported"):
+            tags.append("报期已对齐")
+        else:
+            tags.append("报期待核实")
+        if row.get("target_price") is not None:
+            tags.append("含目标价")
+        if row.get("headline_forecast_value") is not None:
+            tags.append("含盈利预测")
+        if rating_diverges and row.get("rating_text") and row["rating_text"] != "未披露":
+            tags.append(f"评级:{row['rating_text']}")
+
+        row["signal_tags"] = list(dict.fromkeys(tags))
+        row["divergence_score"] = _compute_research_divergence_score(row)
+    return labeled_rows
+
+
+def _compute_research_divergence_score(row: dict[str, Any]) -> int:
+    score = 0
+    for tag in row.get("signal_tags", []):
+        if tag in {"目标价最高", "目标价最低", "预测最乐观", "预测最谨慎"}:
+            score += 2
+        elif tag.startswith("评级:"):
+            score += 2
+        elif tag in {"含目标价", "含盈利预测", "信息最完整"}:
+            score += 1
+    if not row.get("is_period_supported"):
+        score -= 1
+    return score
+
+
+def _filter_research_compare_rows(
+    rows: list[dict[str, Any]],
+    filter_mode: str,
+) -> list[dict[str, Any]]:
+    if filter_mode == "supported":
+        return [row for row in rows if row.get("is_period_supported")]
+    if filter_mode == "target_price":
+        return [row for row in rows if row.get("target_price") is not None]
+    if filter_mode == "forecast":
+        return [row for row in rows if row.get("headline_forecast_value") is not None]
+    if filter_mode == "divergence":
+        return [
+            row
+            for row in rows
+            if any(
+                tag in {"目标价最高", "目标价最低", "预测最乐观", "预测最谨慎"}
+                or tag.startswith("评级:")
+                for tag in row.get("signal_tags", [])
+            )
+        ]
+    return rows
+
+
+def _sort_research_compare_rows(rows: list[dict[str, Any]], sort_by: str) -> list[dict[str, Any]]:
+    if sort_by == "latest":
+        return sorted(
+            rows,
+            key=lambda row: (
+                row.get("publish_date") or "",
+                row.get("divergence_score", 0),
+            ),
+            reverse=True,
+        )
+    if sort_by == "target_price_desc":
+        return sorted(
+            rows,
+            key=lambda row: (
+                row.get("target_price") is not None,
+                row.get("target_price") or -1,
+                row.get("divergence_score", 0),
+            ),
+            reverse=True,
+        )
+    if sort_by == "forecast_desc":
+        return sorted(
+            rows,
+            key=lambda row: (
+                row.get("headline_forecast_value") is not None,
+                row.get("headline_forecast_value") or -1,
+                row.get("divergence_score", 0),
+            ),
+            reverse=True,
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            row.get("divergence_score", 0),
+            row.get("forecast_count", 0),
+            row.get("claim_signal_count", 0),
+            row.get("publish_date") or "",
+        ),
+        reverse=True,
+    )
 
 
 def _build_research_compare_insights(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
