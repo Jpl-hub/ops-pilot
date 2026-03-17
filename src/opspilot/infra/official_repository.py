@@ -148,6 +148,7 @@ class OfficialMetricsRepository:
                     if metric_code not in EVENT_METRIC_CODES
                 }
                 metric_evidence.update(record.get("event_metric_evidence", {}))
+                metric_evidence.update(build_formula_metric_evidence(record, sorted_records[:index]))
                 backfill_missing_event_metrics(
                     metrics,
                     metric_evidence,
@@ -185,6 +186,19 @@ class OfficialMetricsRepository:
                 "source_url": record["source_url"],
                 "local_path": record["local_path"],
             }
+            for field_name, item in record.get("field_evidence", {}).items():
+                index[item["chunk_id"]] = {
+                    "chunk_id": item["chunk_id"],
+                    "company_name": record["company_name"],
+                    "report_period": record["report_period"],
+                    "source_title": record["title"],
+                    "source_type": item.get("source_type", "official_statement_page"),
+                    "page": item["page"],
+                    "excerpt": item["excerpt"],
+                    "fingerprint": f"{record['report_id']}-{field_name}-{item['page']}",
+                    "source_url": record["source_url"],
+                    "local_path": record["local_path"],
+                }
             for item in record.get("event_evidence", []):
                 index[item["chunk_id"]] = {
                     "chunk_id": item["chunk_id"],
@@ -285,6 +299,53 @@ def dedupe_chunk_ids(chunk_ids: list[str]) -> list[str]:
         if chunk_id not in deduped:
             deduped.append(chunk_id)
     return deduped
+
+
+def build_formula_metric_evidence(
+    record: dict[str, Any],
+    prior_records: list[dict[str, Any]],
+) -> dict[str, list[str]]:
+    evidence: dict[str, list[str]] = {}
+    field_evidence = record.get("field_evidence", {})
+
+    s3_chunk_ids = []
+    if profit_total_evidence := field_evidence.get("profit_total", {}).get("chunk_id"):
+        s3_chunk_ids.append(profit_total_evidence)
+    if interest_evidence := field_evidence.get("interest_expense", {}).get("chunk_id"):
+        s3_chunk_ids.append(interest_evidence)
+    if s3_chunk_ids:
+        evidence["S3"] = dedupe_chunk_ids(s3_chunk_ids)
+
+    prior_c3_record = find_prior_comparable_record(prior_records, record["report_period"])
+    c3_chunk_ids = []
+    if current_receivable := field_evidence.get("accounts_receivable", {}).get("chunk_id"):
+        c3_chunk_ids.append(current_receivable)
+    if record.get("summary_chunk_id"):
+        c3_chunk_ids.append(record["summary_chunk_id"])
+    if prior_c3_record is not None:
+        prior_field_evidence = prior_c3_record.get("field_evidence", {})
+        if prior_receivable := prior_field_evidence.get("accounts_receivable", {}).get("chunk_id"):
+            c3_chunk_ids.append(prior_receivable)
+        elif prior_c3_record.get("summary_chunk_id"):
+            c3_chunk_ids.append(prior_c3_record["summary_chunk_id"])
+    if len(c3_chunk_ids) >= 2:
+        evidence["C3"] = dedupe_chunk_ids(c3_chunk_ids)
+
+    return evidence
+
+
+def find_prior_comparable_record(
+    prior_records: list[dict[str, Any]],
+    report_period: str,
+) -> dict[str, Any] | None:
+    match = re.fullmatch(r"(\d{4})(Q1|H1|Q3|FY)", report_period)
+    if not match:
+        return None
+    target_period = f"{int(match.group(1)) - 1}{match.group(2)}"
+    for record in reversed(prior_records):
+        if record["report_period"] == target_period:
+            return record
+    return None
 
 
 def _load_company_pool(path: Path) -> dict[str, dict[str, Any]]:

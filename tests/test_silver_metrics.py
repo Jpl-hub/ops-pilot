@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from opspilot.ingest.silver_metrics import (
     apply_period_selection,
     apply_unit_scale,
+    build_field_evidence,
     detect_unit_scale,
     derive_metric_codes,
     enrich_comparable_metrics,
@@ -159,6 +160,51 @@ class SilverMetricsTestCase(unittest.TestCase):
         )
         self.assertEqual(values["operating_cost"]["current"], 211427147000.0)
         self.assertEqual(values["rd_expense"]["current"], 15067826000.0)
+
+    def test_profit_statement_scans_following_page_for_profit_total(self) -> None:
+        pages = [
+            {
+                "page": 9,
+                "blocks": [{"text": "合并利润表 营业总成本 231,962,490 215,471,465 销售费用 2,408,522 2,608,019"}],
+            },
+            {
+                "page": 10,
+                "blocks": [
+                    {
+                        "text": (
+                            "加：营业外收入 3,083,971.84 18,392,787.85 减：营业外支出 36,335,941.15 9,826,527.22 "
+                            "四、利润总额（亏损总额以“－”号填列） -2,289,939,677.23 -971,932,511.26"
+                        )
+                    }
+                ],
+            },
+        ]
+        values = extract_profit_statement_values(
+            pages,
+            fallback_unit_text="单位：元",
+            fallback_unit_scale=1.0,
+        )
+        self.assertEqual(values["profit_total"]["current"], -2289939677.23)
+
+    def test_build_field_evidence_uses_statement_page_excerpt(self) -> None:
+        pages = [
+            {
+                "page": 12,
+                "blocks": [{"text": "四、利润总额（亏损总额以“－”号填列） 3,704,473,265.70 2,363,917,456.64"}],
+            }
+        ]
+        row_values = {
+            "profit_total": {
+                "current": 3704473265.70,
+                "previous": 2363917456.64,
+                "change_pct": None,
+                "tokens": [],
+                "page": 12,
+            }
+        }
+        field_evidence = build_field_evidence(pages, row_values, report_id="demo")
+        self.assertEqual(field_evidence["profit_total"]["chunk_id"], "demo-field-profit_total-page-012")
+        self.assertIn("利润总额", field_evidence["profit_total"]["excerpt"])
 
     def test_derive_metric_codes_builds_balance_sheet_ratios(self) -> None:
         row_values = {

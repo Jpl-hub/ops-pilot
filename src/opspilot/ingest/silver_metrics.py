@@ -259,6 +259,11 @@ def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, 
         "_meta": {"report_period": report_period},
     }
     derived_metrics = derive_metric_codes(merged_row_values)
+    field_evidence = build_field_evidence(
+        pages,
+        merged_row_values,
+        report_id=record["report_id"],
+    )
     event_metrics, event_metric_evidence, event_evidence = extract_event_metrics(
         pages,
         merged_row_values,
@@ -286,6 +291,7 @@ def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, 
             for key, value in merged_row_values.items()
             if key != "_meta"
         },
+        "field_evidence": field_evidence,
         "event_metric_evidence": event_metric_evidence,
         "event_evidence": event_evidence,
         "derived_metrics": derived_metrics,
@@ -376,8 +382,8 @@ def extract_balance_sheet_values(
     fallback_unit_text: str,
     fallback_unit_scale: float,
 ) -> dict[str, dict[str, Any]]:
-    asset_pages = select_candidate_pages(pages, ASSET_PAGE_ANCHORS)
-    liability_pages = select_candidate_pages(pages, LIABILITY_PAGE_ANCHORS)
+    asset_pages = select_candidate_pages(pages, ASSET_PAGE_ANCHORS, include_following=1)
+    liability_pages = select_candidate_pages(pages, LIABILITY_PAGE_ANCHORS, include_following=1)
 
     values: dict[str, dict[str, Any]] = {}
     for field in ("cash_funds", "accounts_receivable", "inventory", "current_assets"):
@@ -412,7 +418,7 @@ def extract_profit_statement_values(
     fallback_unit_text: str,
     fallback_unit_scale: float,
 ) -> dict[str, dict[str, Any]]:
-    profit_pages = select_candidate_pages(pages, PROFIT_PAGE_ANCHORS)
+    profit_pages = select_candidate_pages(pages, PROFIT_PAGE_ANCHORS, include_following=2)
     values: dict[str, dict[str, Any]] = {}
     for field, labels in PROFIT_FIELD_LABELS.items():
         if result := locate_balance_field(
@@ -427,14 +433,26 @@ def extract_profit_statement_values(
 
 
 def select_candidate_pages(
-    pages: list[dict[str, Any]], anchors: tuple[str, ...]
+    pages: list[dict[str, Any]], anchors: tuple[str, ...], *, include_following: int = 0
 ) -> list[dict[str, Any]]:
-    candidates = []
+    candidates: list[dict[str, Any]] = []
+    page_by_number = {page["page"]: page for page in pages}
     for page in pages:
         text = normalize_page_text(page)
         if any(anchor in text for anchor in anchors):
             candidates.append(page)
-    return candidates
+            for offset in range(1, include_following + 1):
+                next_page = page_by_number.get(page["page"] + offset)
+                if next_page is not None:
+                    candidates.append(next_page)
+    deduped: list[dict[str, Any]] = []
+    seen_pages: set[int] = set()
+    for page in candidates:
+        if page["page"] in seen_pages:
+            continue
+        seen_pages.add(page["page"])
+        deduped.append(page)
+    return deduped
 
 
 def locate_balance_field(
@@ -706,6 +724,42 @@ def extract_numeric_after_label(text: str, label: str, *, max_numbers: int) -> f
     if not values:
         return None
     return float(values[0])
+
+
+def build_field_evidence(
+    pages: list[dict[str, Any]],
+    row_values: dict[str, dict[str, Any]],
+    *,
+    report_id: str,
+) -> dict[str, dict[str, Any]]:
+    page_text_by_number = {page["page"]: normalize_page_text(page) for page in pages}
+    field_evidence: dict[str, dict[str, Any]] = {}
+    for field, value in row_values.items():
+        if field == "_meta":
+            continue
+        page = value.get("page")
+        if page is None:
+            continue
+        page_text = page_text_by_number.get(page, "")
+        label = field_anchor_label(field)
+        field_evidence[field] = {
+            "chunk_id": f"{report_id}-field-{field}-page-{page:03d}",
+            "field": field,
+            "page": page,
+            "excerpt": clip_excerpt(page_text, label),
+            "source_type": "official_statement_page",
+        }
+    return field_evidence
+
+
+def field_anchor_label(field: str) -> str:
+    if field in FIELD_LABELS:
+        return FIELD_LABELS[field][0]
+    if field in BALANCE_FIELD_LABELS:
+        return BALANCE_FIELD_LABELS[field][0]
+    if field in PROFIT_FIELD_LABELS:
+        return PROFIT_FIELD_LABELS[field][0]
+    return field
 
 
 def build_event_evidence(

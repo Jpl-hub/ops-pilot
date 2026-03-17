@@ -236,6 +236,164 @@ class OfficialRepositoryTestCase(unittest.TestCase):
             self.assertIsNotNone(evidence)
             self.assertEqual(evidence["page"], 20)
 
+    def test_repository_exposes_formula_metric_evidence_for_c3_and_s3(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            silver_root = root / "silver" / "official" / "manifests"
+            silver_root.mkdir(parents=True, exist_ok=True)
+            universe_path = root / "universe.json"
+
+            universe_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "company_name": "测试公司",
+                            "security_code": "000001",
+                            "ticker": "000001.SZ",
+                            "exchange": "SZSE",
+                            "subindustry": "储能",
+                        },
+                        {
+                            "company_name": "对标公司",
+                            "security_code": "000002",
+                            "ticker": "000002.SZ",
+                            "exchange": "SZSE",
+                            "subindustry": "储能",
+                        },
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            (silver_root / "financial_metrics_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "record_count": 3,
+                        "records": [
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "exchange": "SZSE",
+                                "subindustry": "储能",
+                                "title": "测试公司：2024年三季度报告",
+                                "publish_date": "2024-10-20",
+                                "report_period": "2024Q3",
+                                "report_id": "r1",
+                                "summary_page": 9,
+                                "summary_chunk_id": "r1-summary-page-009",
+                                "summary_excerpt": "营业收入 150",
+                                "source_url": "https://example.com/r1.pdf",
+                                "local_path": "data/raw/r1.pdf",
+                                "field_evidence": {
+                                    "accounts_receivable": {
+                                        "chunk_id": "r1-field-accounts_receivable-page-015",
+                                        "field": "accounts_receivable",
+                                        "page": 15,
+                                        "excerpt": "应收账款 80.0",
+                                        "source_type": "official_statement_page",
+                                    }
+                                },
+                                "derived_metrics": {
+                                    "G1": 12.0,
+                                    "RAW_REVENUE": 150.0,
+                                    "RAW_ACCOUNTS_RECEIVABLE": 80.0,
+                                },
+                            },
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "exchange": "SZSE",
+                                "subindustry": "储能",
+                                "title": "测试公司：2025年三季度报告",
+                                "publish_date": "2025-10-20",
+                                "report_period": "2025Q3",
+                                "report_id": "r2",
+                                "summary_page": 8,
+                                "summary_chunk_id": "r2-summary-page-008",
+                                "summary_excerpt": "营业收入 180",
+                                "source_url": "https://example.com/r2.pdf",
+                                "local_path": "data/raw/r2.pdf",
+                                "field_evidence": {
+                                    "accounts_receivable": {
+                                        "chunk_id": "r2-field-accounts_receivable-page-016",
+                                        "field": "accounts_receivable",
+                                        "page": 16,
+                                        "excerpt": "应收账款 100.0",
+                                        "source_type": "official_statement_page",
+                                    },
+                                    "profit_total": {
+                                        "chunk_id": "r2-field-profit_total-page-011",
+                                        "field": "profit_total",
+                                        "page": 11,
+                                        "excerpt": "利润总额 300.0",
+                                        "source_type": "official_statement_page",
+                                    },
+                                    "interest_expense": {
+                                        "chunk_id": "r2-field-interest_expense-page-011",
+                                        "field": "interest_expense",
+                                        "page": 11,
+                                        "excerpt": "利息费用 50.0",
+                                        "source_type": "official_statement_page",
+                                    },
+                                },
+                                "derived_metrics": {
+                                    "G1": 15.0,
+                                    "C3": 10.0,
+                                    "S3": 7.0,
+                                    "RAW_REVENUE": 180.0,
+                                    "RAW_ACCOUNTS_RECEIVABLE": 100.0,
+                                },
+                            },
+                            {
+                                "company_name": "对标公司",
+                                "security_code": "000002",
+                                "exchange": "SZSE",
+                                "subindustry": "储能",
+                                "title": "对标公司：2025年三季度报告",
+                                "publish_date": "2025-10-20",
+                                "report_period": "2025Q3",
+                                "report_id": "r3",
+                                "summary_page": 7,
+                                "summary_chunk_id": "r3-summary-page-007",
+                                "summary_excerpt": "营业收入 160",
+                                "source_url": "https://example.com/r3.pdf",
+                                "local_path": "data/raw/r3.pdf",
+                                "derived_metrics": {
+                                    "G1": 12.0,
+                                    "C3": 0.0,
+                                    "S3": 4.0,
+                                    "RAW_REVENUE": 160.0,
+                                },
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            repository = OfficialMetricsRepository(silver_root.parent, universe_path)
+            latest = repository.get_company("测试公司", "2025Q3")
+            self.assertEqual(
+                latest["metric_evidence"]["C3"],
+                [
+                    "r2-field-accounts_receivable-page-016",
+                    "r2-summary-page-008",
+                    "r1-field-accounts_receivable-page-015",
+                ],
+            )
+            self.assertEqual(
+                latest["metric_evidence"]["S3"],
+                [
+                    "r2-field-profit_total-page-011",
+                    "r2-field-interest_expense-page-011",
+                ],
+            )
+            c3_evidence = repository.get_evidence("r2-field-accounts_receivable-page-016")
+            self.assertIsNotNone(c3_evidence)
+            self.assertEqual(c3_evidence["page"], 16)
+
 
 if __name__ == "__main__":
     unittest.main()
