@@ -1,0 +1,21 @@
+[
+  {"chunk_id": "ev-longi-02", "company_name": "隆基绿能", "report_period": "2024Q3", "source_title": "样例证据：隆基绿能毛利修复", "source_type": "bootstrap_note", "page": 18, "excerpt": "产品结构优化后，毛利率较上期回升。", "fingerprint": "bootstrap-longi-02"},
+  {"chunk_id": "ev-longi-03", "company_name": "隆基绿能", "report_period": "2024Q3", "source_title": "样例证据：隆基绿能现金流改善", "source_type": "bootstrap_note", "page": 23, "excerpt": "经营现金流与利润匹配度较前期改善。", "fingerprint": "bootstrap-longi-03"},
+  {"chunk_id": "ev-longi-04", "company_name": "隆基绿能", "report_period": "2024Q3", "source_title": "样例证据：隆基绿能库存与偿债", "source_type": "bootstrap_note", "page": 29, "excerpt": "存货周转天数下降，现金短债比回升。", "fingerprint": "bootstrap-longi-04"},
+  {"chunk_id": "ev-tcl-02", "company_name": "TCL中环", "report_period": "2024Q3", "source_title": "样例证据：TCL中环应收扩张", "source_type": "bootstrap_note", "page": 21, "excerpt": "应收账款增速快于收入增速，回款压力上升。", "fingerprint": "bootstrap-tcl-02"},
+  {"chunk_id": "ev-tcl-03", "company_name": "TCL中环", "report_period": "2024Q3", "source_title": "样例证据：TCL中环短债压力", "source_type": "bootstrap_note", "page": 24, "excerpt": "现金短债比低于安全阈值，短期偿债承压。", "fingerprint": "bootstrap-tcl-03"},
+  {"chunk_id": "ev-tcl-04", "company_name": "TCL中环", "report_period": "2024Q3", "source_title": "样例证据：TCL中环减值风险", "source_type": "bootstrap_note", "page": 33, "excerpt": "部分资产存在减值测试压力。", "fingerprint": "bootstrap-tcl-04"},
+  {"chunk_id": "ev-catl-02", "company_name": "宁德时代", "report_period": "2024Q3", "source_title": "样例证据：宁德时代盈利质量", "source_type": "bootstrap_note", "page": 16, "excerpt": "产品结构优化带动毛利率提升。", "fingerprint": "bootstrap-catl-02"},
+  {"chunk_id": "ev-catl-03", "company_name": "宁德时代", "report_period": "2024Q3", "source_title": "样例证据：宁德时代现金流", "source_type": "bootstrap_note", "page": 19, "excerpt": "经营现金流持续覆盖利润。", "fingerprint": "bootstrap-catl-03"},
+  {"chunk_id": "ev-catl-04", "company_name": "宁德时代", "report_period": "2024Q3", "source_title": "样例证据：宁德时代短债保障", "source_type": "bootstrap_note", "page": 27, "excerpt": "现金储备充足，短期偿债安全边际高。", "fingerprint": "bootstrap-catl-04"},
+  {"chunk_id": "ev-catl-05", "company_name": "宁德时代", "report_period": "2024Q3", "source_title": "样例证据：宁德时代研发兑现", "source_type": "bootstrap_note", "page": 35, "excerpt": "研发投入持续，带动产品竞争力强化。", "fingerprint": "bootstrap-catl-05"},
+  {"chunk_id": "ev-eve-02", "company_name": "亿纬锂能", "report_period": "2024Q3", "source_title": "样例证据：亿纬锂能研发强度", "source_type": "bootstrap_note", "page": 17, "excerpt": "研发费用率维持较高水平。", "fingerprint": "bootstrap-eve-02"},
+  {"chunk_id": "ev-eve-03", "company_name": "亿纬锂能", "report_period": "2024Q3", "source_title": "样例证据：亿纬锂能现金质量", "source_type": "bootstrap_note", "page": 22, "excerpt": "经营性现金流指标改善。", "fingerprint": "bootstrap-eve-03"},
+  {"chunk_id": "ev-eve-04", "company_name": "亿纬锂能", "report_period": "2024Q3", "source_title": "样例证据：亿纬锂能偿债能力", "source_type": "bootstrap_note", "page": 26, "excerpt": "现金短债比保持改善。", "fingerprint": "bootstrap-eve-04"},
+  {"chunk_id": "ev-sungrow-02", "company_name": "阳光电源", "report_period": "2024Q3", "source_title": "样例证据：阳光电源毛利率", "source_type": "bootstrap_note", "page": 15, "excerpt": "高附加值业务占比提升。", "fingerprint": "bootstrap-sungrow-02"},
+  {"chunk_id": "ev-sungrow-03", "company_name": "阳光电源", "report_period": "2024Q3", "source_title": "样例证据：阳光电源现金流", "source_type": "bootstrap_note", "page": 20, "excerpt": "经营现金流保持健康。", "fingerprint": "bootstrap-sungrow-03"},
+  {"chunk_id": "ev-sungrow-04", "company_name": "阳光电源", "report_period": "2024Q3", "source_title": "样例证据：阳光电源去库存", "source_type": "bootstrap_note", "page": 28, "excerpt": "周转效率较前期提升。", "fingerprint": "bootstrap-sungrow-04"},
+  {"chunk_id": "ev-goldwind-02", "company_name": "金风科技", "report_period": "2024Q3", "source_title": "样例证据：金风科技库存压力", "source_type": "bootstrap_note", "page": 21, "excerpt": "存货周转天数偏高，项目回款节奏偏慢。", "fingerprint": "bootstrap-goldwind-02"},
+  {"chunk_id": "ev-goldwind-03", "company_name": "金风科技", "report_period": "2024Q3", "source_title": "样例证据：金风科技短债压力", "source_type": "bootstrap_note", "page": 25, "excerpt": "现金短债比偏低，短期偿债边际偏弱。", "fingerprint": "bootstrap-goldwind-03"},
+  {"chunk_id": "ev-goldwind-04", "company_name": "金风科技", "report_period": "2024Q3", "source_title": "样例证据：金风科技事件风险", "source_type": "bootstrap_note", "page": 31, "excerpt": "存在需重点跟踪的处罚或诉讼事件。", "fingerprint": "bootstrap-goldwind-04"}
+]

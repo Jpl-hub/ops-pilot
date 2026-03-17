@@ -1,0 +1,657 @@
+# OpsPilot-X 需求规格说明书与详细设计说明书
+
+**文档编号**：OPX-SRS-SDD-001
+**版本**：v1.1.0
+**状态**：P0 Sprint-1 In Progress
+**项目名称**：OpsPilot-X 智能体赋能的新能源企业运营分析与决策支持系统
+**文档用途**：研发实施基线 / 项目归档 / 比赛设计母版
+
+------
+
+## 1. 项目定位
+
+OpsPilot-X 面向 2026 年中国大学生计算机设计大赛大数据主题赛命题赛道，固定聚焦 **新能源行业上市公司运营分析**，构建一个面向投资者、企业管理者、监管/风控角色的企业运营分析与决策支持系统。系统必须完成以下六项核心能力：**智能问数、企业运营评估、同业对标、风险与机会洞察、研报观点核验、定制化经营简报生成**，并以 **来源追溯、归因分析、逻辑拆解、证据回放** 作为可信性基础。
+
+------
+
+## 2. 最终架构原则
+
+### 2.1 架构选型总原则
+
+本项目采用以下总原则：
+
+1. **能用单智能体解决的，不上多智能体。**
+2. **遇到知识容量与流程复用问题，优先引入 Skills，而不是先拆更多 Agent。**
+3. **只有当任务需要严格职责隔离、并行处理或交叉校验时，才引入中心化 Multi-Agent。**
+4. **Agent Teams 不作为主路径，只作为高不确定性任务的增强模式，并默认关闭。**
+5. **所有最终答案必须经过中心化审计器，不允许分散式“群体共识即正确”。**
+
+这一原则直接吸收了所给文章与相关研究的核心结论：Agent 架构演化本质上是在模型之外补足领域知识注入与长期记忆；应遵循“由简入繁、按需升级”；频繁 agent 间通信会压缩有效上下文；单智能体基线超过约 45% 后，继续加 agent 可能收益递减；独立多智能体若缺少中心化约束，会显著放大错误。([modb.pro](https://www.modb.pro/db/2031293375384199168))
+
+### 2.2 主路径架构结论
+
+本项目最终冻结为：
+
+- **P0 基线**：Single Agent + Skills + Deterministic Router + Audit Guard
+- **P1 增强**：Centralized Multi-Agent（Manager / Fact / Evidence / Diagnosis / Auditor）
+- **P2 可选**：Agent Teams 仅用于开放式诊断、竞争假设分析、策略共创，不进入默认业务链路
+
+### 2.3 为什么不把 Agent Teams 作为主线
+
+Claude Code 官方文档明确指出 agent teams 是 **experimental**，默认关闭，且存在已知限制；其优势在于共享任务列表、并行探索和直接通信，适合研究、调试、竞品分析等开放问题，但会明显增加协同开销与 token 成本。对于本项目这种**金融/企业运营场景、证据敏感、错误高代价**的任务，默认路径必须以 **中心化、低带宽、可审计** 为先。([Claude](https://code.claude.com/docs/en/agent-teams))
+
+------
+
+## 3. 赛题对齐与范围冻结
+
+### 3.1 固定行业
+
+固定行业为 **A 股新能源产业链上市公司**，覆盖四个子行业：
+
+- 光伏
+- 锂电池与电池材料
+- 储能
+- 风电设备与新能源装备
+
+### 3.2 固定公司池与时间范围
+
+- 样本集：5–10 家
+- 正式集：约 50 家
+- 时间范围：2019-01-01 至系统运行时最新已披露定期报告期
+
+### 3.3 固定用户角色
+
+- 投资者
+- 企业管理者
+- 监管/风控角色
+
+### 3.4 固定数据来源
+
+- 交易所定期报告
+- 行业研报、个股研报
+- 国家统计局宏观数据
+- 其他合法合规补充数据
+
+赛题已明确这些数据路径与补充数据的合规边界。
+
+------
+
+## 4. 产品目标与非目标
+
+### 4.1 产品目标
+
+本系统不是通用聊天机器人，不是单纯大屏展示，也不是普通 RAG 问答页面。
+本系统的目标是构建一个 **可信的企业运营分析系统**，让用户可以围绕具体公司、具体报告期、具体问题完成：
+
+- 问数
+- 评分
+- 对标
+- 归因
+- 风险扫描
+- 观点核验
+- 简报生成
+- 证据回放
+
+### 4.2 非目标
+
+以下内容不纳入首发必做范围：
+
+- Unity 数字人
+- 多端 App
+- 首发即微调
+- 全本地大模型部署
+- Full GraphRAG
+- 外部开放 Skill 平台
+- 默认启用 Agent Teams
+
+------
+
+## 5. 总体技术路线
+
+### 5.1 冻结技术栈
+
+| 层级       | 选型                                            |
+| ---------- | ----------------------------------------------- |
+| 前端/UI    | NiceGUI + ECharts                               |
+| API        | FastAPI                                         |
+| 智能体框架 | AgentScope                                      |
+| 离线 ETL   | PySpark                                         |
+| 本地分析   | DuckDB + Polars                                 |
+| 业务数据库 | PostgreSQL                                      |
+| 向量检索   | pgvector                                        |
+| 文档解析   | PyMuPDF / pdfplumber / PaddleOCR-VL / PaddleOCR |
+| Embedding  | BGE-M3                                          |
+| Reranker   | BGE Reranker V2                                 |
+| 调度       | Python CLI Jobs + Cron                          |
+| 部署       | Docker Compose                                  |
+| 模型接入   | Hosted API / OpenAI-compatible API / 可选 vLLM  |
+
+选型依据如下：AgentScope 当前文档已经包含 Agent Skill、Routing、Handoffs、MCP、Tracing、Evaluation 等能力；Anthropic 将 Skills 定义为以文件夹封装的可复用流程知识层；OpenAI 当前在 Responses API 中提供 MCP 工具支持；NiceGUI 是 Python-based UI 框架并直接支持 `ui.echart`；BGE-M3 支持 dense、sparse 和 multi-vector 检索；pgvector 支持 exact 与 approximate nearest neighbor search；PaddleOCR-VL-1.5 在 OmniDocBench v1.5 上报告了 94.5% 的结果；GraphRAG 官方同时明确提醒 indexing 可能昂贵，且图抽取约占索引成本的 75%。([doc.agentscope.io](https://doc.agentscope.io/))
+
+### 5.2 部署策略
+
+本项目采用 **云端/API 优先**，不强制本地离线大模型部署。
+理由如下：
+
+1. 赛题允许 Web/API 形态，不要求本地离线。
+2. 你的现实约束是时间紧、个人开发、硬件受限。
+3. 比赛加分点在于可信分析闭环，而不是本地推理炫技。
+4. Hosted API 能显著降低实现风险，提升首发成功率。
+
+### 5.3 OceanBase 的定位
+
+OceanBase 不作为本项目 **P0/P1 基线数据库**，但可作为 **P2 企业化增强部署档位**。
+原因是：官方文档确实提供了 HTAP 场景模板和实时分析混合负载方案，适合“企业级、实时分析、混合负载”的叙事；但在当前阶段，将其设为基线会提高环境复杂度，不利于快速稳定交付。最终设计采取 **“接口抽象保留 OceanBase 迁移可能，但不把 OceanBase 作为首发强依赖”** 的策略。([oceanbase.com](https://www.oceanbase.com/docs/common-oceanbase-database-cn-1000000001573564))
+
+------
+
+## 6. 大数据工程设计
+
+### 6.1 评委可感知的大数据特征
+
+本项目的大数据能力不以“数据量吹嘘”为核心，而以**数据工程链路完整**为核心，具体体现在：
+
+1. 多源异构数据采集
+2. Raw / Bronze / Silver / Gold 四层数据分层
+3. 增量 ETL 与定时作业
+4. 行业指标治理与口径统一
+5. 批量风险扫描
+6. 列式存储与本地大文件查询
+7. 评测集与审计日志闭环
+
+### 6.2 数据分层
+
+**Raw**：原始 PDF、HTML、JSON、抓取元数据
+**Bronze**：页、元素、表格、OCR 结果、切片结果
+**Silver**：财务事实表、公司维表、期间维表、事件表、研报观点表
+**Gold**：指标宽表、分位表、评分结果、风险标签、机会标签、问答索引、报告模板结果
+
+### 6.3 增量更新节奏
+
+- 每日：交易所新增报告抓取
+- 每周：研报增量抓取
+- 每月：宏观指标更新
+- 每夜：解析新增文档
+- 每夜：增量重算指标
+- 每周：重算分位、评分与风险榜
+- 每周：增量重建索引
+
+### 6.4 本地与云端分工
+
+- 本地：样本集开发、页面联调、规则调试、DuckDB 查询 Parquet
+- 云端：全量 ETL、OCR、向量化、风险批扫、模型调用
+
+DuckDB 官方文档明确强调其对 larger-than-memory/out-of-core 工作负载的支持，并支持直接查询 Parquet 文件，因此它非常适合你的小机器开发场景。([DuckDB](https://duckdb.org/docs/stable/guides/performance/how_to_tune_workloads))
+
+------
+
+## 7. 企业运营评估体系
+
+### 7.1 一级维度与权重
+
+| 一级维度   | 权重 |
+| ---------- | ---- |
+| 增长与扩张 | 20   |
+| 盈利与效率 | 25   |
+| 现金质量   | 20   |
+| 韧性与偿债 | 20   |
+| 创新与治理 | 15   |
+
+### 7.2 二级指标
+
+固定二级指标如下：
+
+- G1 营业收入同比
+- G2 扣非净利润同比
+- G3 研发费用率
+- P1 毛利率
+- P2 净利率
+- P3 期间费用率
+- P4 存货周转天数
+- P5 应收账款周转天数
+- C1 经营现金流/净利润
+- C2 经营现金流/收入
+- C3 应收增速-收入增速差
+- S1 流动比率
+- S2 资产负债率
+- S3 利息保障倍数
+- S4 现金短债比
+- I1 政府补助依赖度
+- I2 审计意见风险
+- I3 处罚/诉讼事件风险
+- I4 重大减值/关联交易风险
+
+### 7.3 评分机制
+
+- 同子行业、同期计算分位
+- 数值型指标按正逆向映射到 0–100
+- 事件型指标采用等级分
+- 缺失值在同一级维度内按比例重分配权重
+- 子行业样本不足时退化为新能源全行业分位
+
+### 7.4 输出结构
+
+评分结果必须输出：
+
+- 总分
+- 维度分
+- 等级
+- 子行业分位
+- 强项 Top3
+- 弱项 Top3
+- 关键驱动 Top3
+- 风险标签
+- 机会标签
+- 行动建议
+
+该设计直接对齐赛题“企业运营评估体系、问题诊断、风险与机会洞察、决策建议”的核心要求。
+
+------
+
+## 8. 风险与机会规则
+
+### 8.1 风险规则
+
+固定内置风险规则：
+
+- R1 利润现金背离
+- R2 应收扩张过快
+- R3 存货积压
+- R4 短债压力
+- R5 高补助依赖
+- R6 审计意见异常
+- R7 重大处罚/诉讼
+- R8 重大减值
+
+### 8.2 机会规则
+
+固定内置机会规则：
+
+- O1 毛利修复
+- O2 现金质量改善
+- O3 去库存改善
+- O4 偿债修复
+- O5 研发兑现信号
+
+### 8.3 标签绑定规范
+
+每条标签必须同时绑定：
+
+- 规则 ID
+- 时间标签
+- 至少一个结构化指标证据
+- 至少一个文本或事件证据（若存在）
+
+------
+
+## 9. 智能体与 Skill 设计
+
+## 9.1 架构升级策略
+
+| 等级 | 形态                    | 默认启用 | 适用任务                       |
+| ---- | ----------------------- | -------- | ------------------------------ |
+| P0   | Single Agent + Skills   | 是       | 智能问数、评分、简报、一般对标 |
+| P1   | Centralized Multi-Agent | 是       | 风险扫描、观点核验、复杂归因   |
+| P2   | Agent Teams             | 否       | 开放式诊断、竞争假设、策略共创 |
+
+## 9.2 Skill 优先于多 Agent
+
+Anthropic 的 Skills 官方指南将 skill 定义为一个文件夹封装的任务流程知识，核心设计原则包括 progressive disclosure、composability 和 portability；OceanBase 那篇文章也明确提出，当单 Agent 遭遇知识瓶颈时，优先尝试 Agent Skills，而不是直接上更复杂的 Multi-Agent。([Anthropic 资源](https://resources.anthropic.com/hubfs/The-Complete-Guide-to-Building-Skill-for-Claude.pdf?hsLang=en))
+
+因此，本项目采用 **Skill-first** 策略：
+
+- 先把标准领域流程做成 Skill
+- 再由单智能体按需装载与调用
+- 只有技能无法覆盖时，才升级为多智能体编排
+
+## 9.3 Skill 目录规范
+
+```text
+skills/
+  metric-query/
+    SKILL.md
+    input_schema.json
+    output_schema.json
+    examples.md
+    tests.yaml
+  company-scoring/
+    ...
+  peer-benchmark/
+    ...
+  risk-scan/
+    ...
+  claim-verification/
+    ...
+  brief-generation/
+    ...
+  evidence-location/
+    ...
+  audit-guard/
+    ...
+```
+
+### 9.4 Skill 家族
+
+本项目首发 Skill 库固定为 8 个，避免库规模膨胀：
+
+1. MetricQuerySkill
+2. CompanyScoringSkill
+3. PeerBenchmarkSkill
+4. RiskScanSkill
+5. ClaimVerificationSkill
+6. BriefGenerationSkill
+7. EvidenceLocationSkill
+8. AuditGuardSkill
+
+### 9.5 Skill 选择与容量控制
+
+2026 年论文《When Single-Agent with Skills Replace Multi-Agent Systems and When They Fail》指出，单智能体 + skills 可在保持竞争性准确率的同时显著降低 token 与延迟，但随着 skill library 扩大，skill selection 会出现容量阈值与语义混淆问题；层级式组织可以缓解这一问题。基于这一点，本项目采取两条硬约束：
+
+- 首发 Skill 总数控制在 **20 个以内**
+- 必须采用 **两级路由**：任务家族 → 具体 Skill
+
+([arXiv](https://arxiv.org/abs/2601.04748))
+
+## 9.6 Agent 角色
+
+P1 层固定采用 5 角色中心化多智能体：
+
+- **Manager / Orchestrator**：意图识别、任务编排、结果合并
+- **Fact Analyst**：SQL 查询、指标计算、评分调用
+- **Evidence Analyst**：文档检索、证据打包、页码定位
+- **Diagnosis Analyst**：归因、对标差距解释、建议生成
+- **Auditor**：数值一致性、证据覆盖、合规校验、拒答控制
+
+### 9.7 通信规则
+
+为了贯彻“低带宽、多复用、强约束”，所有 agent 间通信遵循：
+
+- 不允许自由闲聊式互传大段上下文
+- 只允许传递结构化中间对象
+- 中间对象必须包含 request_id 和 evidence refs
+- Auditor 为唯一最终放行节点
+
+------
+
+## 10. 文档解析与可信检索
+
+### 10.1 文档解析策略
+
+采用 **数字文本优先、扫描页再 OCR/VLM** 的双路径策略：
+
+1. 数字 PDF：PyMuPDF / pdfplumber
+2. 扫描页：PaddleOCR-VL 优先，PaddleOCR 兜底
+
+PaddleOCR-VL-1.5 是 2026 年的新结果，强调复杂文档解析、印章识别和 text spotting，适合作为财报扫描页兜底方案。([arXiv](https://arxiv.org/abs/2601.21957))
+
+### 10.2 切片与证据包
+
+- chunk：320–512 tokens
+- overlap：64 tokens
+- 表格与正文分开切片
+- 保留页码、bbox、元素类型、阅读顺序置信度
+- 关键表生成 `table_full` 与 `table_keyrows` 双视图
+
+### 10.3 Hybrid Retrieval
+
+检索链路固定为：
+
+**Query 分类 → 结构化过滤 → Sparse → Dense → Rerank → 证据包合并 → 审计**
+
+BGE-M3 支持 dense、sparse 和 multi-vector 检索，因此适合混合召回。([Hugging Face](https://huggingface.co/BAAI/bge-m3/blob/96e9e917014f87e9a196924c6b6bb16121faa285/README.md))
+
+### 10.4 GraphRAG-Lite
+
+本项目不采用 full GraphRAG，而采用 **GraphRAG-Lite**：
+
+- 只构建公司、期间、指标、事件、证据、观点之间的轻量边
+- 用于归因解释、证据路径展示、规则触发说明
+- 不做重型社区摘要索引与全量图探索
+
+理由是 GraphRAG 官方明确提示 indexing 可能很昂贵，且标准 GraphRAG 的图抽取约占索引成本 75%。因此，比赛版只吸收其“图增强检索”思想，不引入重型成本。([微软开源项目](https://microsoft.github.io/graphrag/index/methods/))
+
+### 10.5 多模态 RAG 思路
+
+RAG-Anything 的核心启发是：文档不是纯文本仓库，而是文本、表格、图表、结构关系共同构成的异构知识空间。比赛版不直接复现其全框架，但保留两点：
+
+- 证据对象统一建模
+- 跨模态证据打包而非只返回文本
+
+([arXiv](https://arxiv.org/abs/2510.12323))
+
+------
+
+## 11. 三证据闭环
+
+系统所有分析结论必须绑定以下三类证据中的至少两类：
+
+1. **结构化事实证据**：指标值、分位、评分、规则命中、公式步骤
+2. **文本证据**：财报、附注、研报切片及页码定位
+3. **关系路径证据**：公司—期间—指标—事件—结论路径
+
+硬约束如下：
+
+- 数值句必须绑定结构化事实证据
+- 原因句必须绑定文本或关系路径证据
+- 建议句必须绑定弱项、风险或对标差距
+- 证据不足必须拒答或降级答复
+
+这正是赛题中“来源追溯、来源核验、归因分析、逻辑拆解”的高分关键。
+
+------
+
+## 12. API 设计
+
+### 12.1 核心接口
+
+| 路径                          | 方法 | 用途         |
+| ----------------------------- | ---- | ------------ |
+| `/api/v1/chat/turn`           | POST | 智能问答     |
+| `/api/v1/company/score`       | POST | 企业评分     |
+| `/api/v1/company/benchmark`   | POST | 同业对标     |
+| `/api/v1/industry/risk-scan`  | POST | 行业风险扫描 |
+| `/api/v1/claim/verify`        | POST | 研报观点核验 |
+| `/api/v1/brief/generate`      | POST | 经营简报生成 |
+| `/api/v1/evidence/{chunk_id}` | GET  | 证据回放     |
+| `/api/v1/admin/jobs/run`      | POST | 触发作业     |
+| `/api/v1/admin/eval/run`      | POST | 启动评测     |
+| `/api/v1/healthz`             | GET  | 健康检查     |
+
+### 12.2 标准回答协议
+
+所有最终回答必须输出统一结构：
+
+- `answer_markdown`
+- `query_type`
+- `key_numbers`
+- `charts`
+- `evidence`
+- `calculations`
+- `audit`
+
+其中 `audit` 至少包含：
+
+- `numeric_consistency`
+- `evidence_coverage`
+- `policy`
+- `insufficient_evidence`
+
+------
+
+## 13. 前端页面设计
+
+### 页面一：对话分析台
+
+用于 U1/U4/U6，含对话区、图表区、证据侧栏、计算步骤侧栏、审计标签。
+
+### 页面二：企业运营体检页
+
+用于 U2，含总分卡、五维雷达、历史趋势、分位、风险/机会标签、建议动作。
+
+### 页面三：行业风险与对标大屏
+
+用于 U3/U4，含子行业切换、风险榜、机会榜、热力图、排行。
+
+### 页面四：证据查看器
+
+用于证据回放，支持页图、高亮框、原文片段、来源信息、指纹信息。
+
+### 页面五：管理台
+
+用于采集、解析、索引、作业、评测与日志管理。
+
+NiceGUI 支持 Python 方式构建 Web UI，并可直接嵌入 ECharts，因此适合“全 Python、快速实现、展示效果强”的比赛场景。([nicegui.io](https://nicegui.io/documentation/echart))
+
+------
+
+## 14. 评测与验收
+
+### 14.1 评测维度
+
+- 检索质量：context precision / recall / faithfulness / answer relevance
+- 智能体质量：路由正确率、澄清正确率、拒答正确率、引用充分性
+- 业务质量：数值准确率、评分稳定性、风险规则命中率、研报核验一致性
+
+### 14.2 评测集
+
+固定 200 条：
+
+- U1–U5 各 40 条
+- 覆盖三类角色
+- 每条样本包含 query、期望公司、期望期间、关键指标、必要证据、是否允许拒答
+
+### 14.3 验收门槛
+
+- 数值准确率 ≥ 99%
+- 证据可追溯率 ≥ 95%
+- 拒答准确率 ≥ 90%
+- 研报核验一致性 ≥ 85%
+- 核心接口 smoke test 全绿
+
+------
+
+## 15. 安全、合规与审计
+
+### 15.1 基本要求
+
+- 最小权限
+- 模板化工具调用
+- 全链路审计
+- 研报最小必要引用
+- 非法输入检测与拒绝
+- 补充数据来源说明
+
+### 15.2 审计日志字段
+
+至少包括：
+
+- `ts`
+- `request_id`
+- `user_id`
+- `role`
+- `action`
+- `resource`
+- `params_hash`
+- `result`
+- `latency_ms`
+- `evidence_hashes`
+
+### 15.3 合规边界
+
+补充数据必须合法合规，不得使用涉密、违规或来源不明数据；系统应支持展示数据来源说明与证据回放。
+
+------
+
+## 16. Codex 实施约束
+
+1. 必须使用 Python 3.11
+2. 首发采用单仓库实现
+3. UI 使用 NiceGUI，不拆独立前端仓
+4. 所有配置统一使用 `.env` 与 `config.py`
+5. 所有 DB 迁移统一使用 Alembic
+6. 所有离线作业必须可 CLI 执行
+7. 所有最终答案必须经过 AuditGuard
+8. 先完成样本集，再切正式集
+9. 禁止首发即微调
+10. 禁止将 Agent Teams、OceanBase、Full GraphRAG、全本地大模型作为 P0 强依赖
+11. Skill 总数控制在 20 个以内
+12. 所有数值必须可复算
+13. 所有原因判断必须附证据
+14. 证据不足必须拒答
+
+------
+
+## 17. 实施里程碑
+
+### P0：最小可用骨架
+
+- 仓库初始化
+- Docker Compose
+- PostgreSQL + pgvector
+- 公司池导入
+- 样本数据目录
+- 指标字典与规则字典
+- 基础 UI
+- `/chat/turn`、`/company/score`、`/evidence/{id}`
+- 最小评分引擎
+- 最小证据检索链路
+- 最小审计器
+
+### P1：比赛主闭环
+
+- 全量 50 家公司
+- 风险扫描
+- 同业对标
+- 研报核验
+- 简报生成
+- 行业大屏
+- 自动评测
+- 审计日志
+
+### P2：增强项
+
+- OceanBase 企业化部署档位
+- 可选本地 vLLM
+- 更强多模态解析
+- 探索式 Agent Teams
+- 更强行业叙事与展示层增强
+
+------
+
+## 18. 最终结论
+
+最终版设计的核心不是“做一个很炫的多智能体系统”，而是**做一个评委能相信、能看懂、能复核、能演示、能落地的企业运营分析系统**。因此，最终定稿的三条总纲是：
+
+1. **架构上**：Single Agent + Skills 为基线，中心化低带宽 Multi-Agent 为增强，Teams 默认关闭。
+2. **数据上**：用四层数据工程、批量风险扫描、行业指标治理和证据图，把“大数据赛道”做实。
+3. **比赛上**：用运营评估体系、三证据闭环、可追溯与可拒答机制，把“智能体赋能的决策支持”做成高可信产品，而不是技术拼盘。
+
+------
+
+## 19. 当前实现冻结（P0 Sprint-1）
+
+截至当前仓库首版实现，新增以下落地约束：
+
+- 采用 `FastAPI + 样本集规则引擎` 作为第一轮可运行底座
+- 使用 `data/bootstrap/` 保存联调用样本公司、指标、证据对象
+- 首版必须完整跑通 `评分 -> 风险/机会 -> 证据 -> 审计 -> API 返回协议`
+- `chat/turn` 当前采用确定性路由，不把 LLM 调用作为 P0 强依赖
+- `NiceGUI` 页面先提供演示骨架，后续再接正式交互和多页面联动
+- 当前样本数据仅用于联调与展示，不可替代正式比赛数据
+
+当前 Sprint 的目标不是做完全部能力，而是先把“可信闭环最小系统”搭实，再逐步接真实数据、RAG、Skill 和 Agent 编排。
+
+
+
+|      |      |      |
+|------|------|------|
+|      |      |      |
+|      |      |      |
+|      |      |      |
+|      |      |      |
+|      |      |      |
+|      |      |      |
+|      |      |      |
+|      |      |      |
+|      |      |      |
+|      |      |      |

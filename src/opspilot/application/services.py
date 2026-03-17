@@ -1,0 +1,260 @@
+from __future__ import annotations
+
+from typing import Any
+
+from opspilot.config import Settings
+from opspilot.domain.audit import build_audit
+from opspilot.domain.catalog import METRIC_BY_CODE
+from opspilot.domain.routing import detect_query_type
+from opspilot.domain.rules import evaluate_opportunity_labels, evaluate_risk_labels
+from opspilot.domain.scoring import score_company
+from opspilot.infra.sample_repository import SampleRepository
+
+
+class OpsPilotService:
+    def __init__(self, repository: SampleRepository, settings: Settings) -> None:
+        self.repository = repository
+        self.settings = settings
+
+    def health(self) -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "app_name": self.settings.app_name,
+            "env": self.settings.env,
+            "default_period": self.settings.default_period,
+            "companies": len(self.repository.list_companies(self.settings.default_period)),
+        }
+
+    def list_company_names(self) -> list[str]:
+        return self.repository.list_company_names()
+
+    def score_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
+        period = report_period or self.settings.default_period
+        company = self.repository.get_company(company_name, period)
+        if company is None:
+            raise ValueError(f"未找到公司：{company_name}")
+
+        peers = self.repository.list_companies(period)
+        score_result = score_company(company, peers)
+        risks = evaluate_risk_labels(company)
+        opportunities = evaluate_opportunity_labels(company)
+        evidence_ids = _collect_evidence_ids(company, score_result, risks, opportunities)
+        evidence = self.repository.resolve_evidence(evidence_ids)
+        key_numbers = [
+            {"label": "总分", "value": score_result["total_score"], "unit": "分"},
+            {"label": "子行业分位", "value": score_result["subindustry_percentile"], "unit": "pct"},
+        ]
+        calculations = [{"step": "维度加权汇总", "detail": score_result["dimension_scores"]}]
+        audit = build_audit(
+            key_numbers=key_numbers,
+            evidence=evidence,
+            calculations=calculations,
+            min_evidence=self.settings.audit_min_evidence,
+        )
+        return {
+            "answer_markdown": _render_score_answer(company, score_result, risks, opportunities),
+            "query_type": "company_scoring",
+            "key_numbers": key_numbers,
+            "charts": _build_company_charts(company, score_result),
+            "evidence": evidence,
+            "calculations": calculations,
+            "audit": audit,
+            "scorecard": {**score_result, "risk_labels": risks, "opportunity_labels": opportunities},
+        }
+
+    def benchmark_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
+        period = report_period or self.settings.default_period
+        company = self.repository.get_company(company_name, period)
+        if company is None:
+            raise ValueError(f"未找到公司：{company_name}")
+        peers = self.repository.list_companies(period)
+        rows = []
+        for peer in peers:
+            score_result = score_company(peer, peers)
+            rows.append(
+                {
+                    "company_name": peer["company_name"],
+                    "subindustry": peer["subindustry"],
+                    "total_score": score_result["total_score"],
+                    "grade": score_result["grade"],
+                }
+            )
+        rows.sort(key=lambda item: item["total_score"], reverse=True)
+        target = next(item for item in rows if item["company_name"] == company_name)
+        return {
+            "query_type": "peer_benchmark",
+            "answer_markdown": f"**{company_name}** 当前总分为 **{target['total_score']} 分**，在样本集中位列第 **{rows.index(target) + 1}** 位。",
+            "benchmark": rows,
+            "charts": [
+                {
+                    "type": "bar",
+                    "title": "样本集企业总分对比",
+                    "options": {
+                        "xAxis": {"type": "category", "data": [row["company_name"] for row in rows]},
+                        "yAxis": {"type": "value", "max": 100},
+                        "series": [{"type": "bar", "data": [row["total_score"] for row in rows]}],
+                    },
+                }
+            ],
+        }
+
+    def risk_scan(self, report_period: str | None = None) -> dict[str, Any]:
+        period = report_period or self.settings.default_period
+        companies = self.repository.list_companies(period)
+        board = []
+        for company in companies:
+            risks = evaluate_risk_labels(company)
+            board.append(
+                {
+                    "company_name": company["company_name"],
+                    "subindustry": company["subindustry"],
+                    "risk_count": len(risks),
+                    "risk_labels": [item["name"] for item in risks],
+                }
+            )
+        board.sort(key=lambda item: item["risk_count"], reverse=True)
+        return {
+            "query_type": "risk_scan",
+            "answer_markdown": "已完成样本集行业风险扫描，可直接查看高风险公司与标签分布。",
+            "risk_board": board,
+            "charts": [
+                {
+                    "type": "bar",
+                    "title": "行业风险标签命中数",
+                    "options": {
+                        "xAxis": {"type": "category", "data": [row["company_name"] for row in board]},
+                        "yAxis": {"type": "value"},
+                        "series": [{"type": "bar", "data": [row["risk_count"] for row in board]}],
+                    },
+                }
+            ],
+        }
+
+    def brief_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
+        score_payload = self.score_company(company_name, report_period)
+        scorecard = score_payload["scorecard"]
+        return {
+            "query_type": "brief_generation",
+            "answer_markdown": (
+                f"### {company_name} 经营简报\n"
+                f"- 总分：{scorecard['total_score']}（{scorecard['grade']}）\n"
+                f"- 强项：{', '.join(item['name'] for item in scorecard['strengths'])}\n"
+                f"- 弱项：{', '.join(item['name'] for item in scorecard['weaknesses'])}\n"
+                f"- 风险：{', '.join(item['name'] for item in scorecard['risk_labels']) or '暂无高风险标签'}\n"
+                f"- 机会：{', '.join(item['name'] for item in scorecard['opportunity_labels']) or '暂无显著机会标签'}"
+            ),
+            "scorecard": scorecard,
+            "evidence": score_payload["evidence"],
+            "audit": score_payload["audit"],
+        }
+
+    def chat_turn(self, *, query: str, company_name: str | None = None, report_period: str | None = None) -> dict[str, Any]:
+        period = report_period or self.settings.default_period
+        detected_company = company_name or self.repository.find_company_from_query(query, period)
+        query_type = detect_query_type(query)
+        if query_type == "company_scoring" and detected_company:
+            return self.score_company(detected_company, period)
+        if query_type == "peer_benchmark" and detected_company:
+            return self.benchmark_company(detected_company, period)
+        if query_type == "brief_generation" and detected_company:
+            return self.brief_company(detected_company, period)
+        if query_type == "risk_scan":
+            return self.risk_scan(period)
+        return self.metric_query(query=query, company_name=detected_company, report_period=period)
+
+    def metric_query(self, *, query: str, company_name: str | None, report_period: str) -> dict[str, Any]:
+        if not company_name:
+            raise ValueError("当前样本问答需要显式包含公司名。")
+        company = self.repository.get_company(company_name, report_period)
+        if company is None:
+            raise ValueError(f"未找到公司：{company_name}")
+        metric_code = _guess_metric_code(query)
+        metric_def = METRIC_BY_CODE[metric_code]
+        value = company["metrics"][metric_code]
+        evidence = self.repository.resolve_evidence(company.get("metric_evidence", {}).get(metric_code, []))
+        calculations = [{"step": "指标直取", "detail": f"{metric_code} = {value}"}]
+        audit = build_audit(
+            key_numbers=[{"label": metric_def.name, "value": value, "unit": ""}],
+            evidence=evidence,
+            calculations=calculations,
+            min_evidence=self.settings.audit_min_evidence,
+        )
+        return {
+            "answer_markdown": f"**{company_name}** 在 **{report_period}** 的 **{metric_def.name}** 为 **{value}**。",
+            "query_type": "metric_query",
+            "key_numbers": [{"label": metric_def.name, "value": value, "unit": ""}],
+            "charts": [],
+            "evidence": evidence,
+            "calculations": calculations,
+            "audit": audit,
+        }
+
+    def get_evidence(self, chunk_id: str) -> dict[str, Any]:
+        evidence = self.repository.get_evidence(chunk_id)
+        if evidence is None:
+            raise ValueError(f"未找到证据：{chunk_id}")
+        return evidence
+
+
+def _collect_evidence_ids(company: dict[str, Any], score_result: dict[str, Any], risks: list[dict[str, Any]], opportunities: list[dict[str, Any]]) -> list[str]:
+    chunk_ids: list[str] = []
+    for metric in score_result["strengths"] + score_result["weaknesses"]:
+        chunk_ids.extend(company.get("metric_evidence", {}).get(metric["code"], []))
+    for label in risks + opportunities:
+        chunk_ids.extend(label["evidence_refs"])
+    deduped: list[str] = []
+    for chunk_id in chunk_ids:
+        if chunk_id not in deduped:
+            deduped.append(chunk_id)
+    return deduped
+
+
+def _render_score_answer(company: dict[str, Any], score_result: dict[str, Any], risks: list[dict[str, Any]], opportunities: list[dict[str, Any]]) -> str:
+    strong_names = "、".join(item["name"] for item in score_result["strengths"])
+    weak_names = "、".join(item["name"] for item in score_result["weaknesses"])
+    risk_names = "、".join(item["name"] for item in risks) or "暂无高风险标签"
+    opportunity_names = "、".join(item["name"] for item in opportunities) or "暂无显著机会标签"
+    return (
+        f"### {company['company_name']} 运营评估\n"
+        f"- 总分：**{score_result['total_score']}**（等级 **{score_result['grade']}**）\n"
+        f"- 分位：**{score_result['subindustry_percentile']}pct**，对标范围：{score_result['peer_scope']}\n"
+        f"- 强项 Top3：{strong_names}\n"
+        f"- 弱项 Top3：{weak_names}\n"
+        f"- 风险标签：{risk_names}\n"
+        f"- 机会标签：{opportunity_names}"
+    )
+
+
+def _build_company_charts(company: dict[str, Any], score_result: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "radar",
+            "title": "五维运营雷达",
+            "options": {
+                "radar": {"indicator": [{"name": name, "max": 100} for name in score_result["dimension_scores"].keys()]},
+                "series": [{"type": "radar", "data": [{"value": list(score_result["dimension_scores"].values()), "name": company["company_name"]}]}],
+            },
+        },
+        {
+            "type": "line",
+            "title": "历史营收与净利润",
+            "options": {
+                "tooltip": {"trigger": "axis"},
+                "legend": {"data": ["营收", "净利润"]},
+                "xAxis": {"type": "category", "data": [row["period"] for row in company["history"]]},
+                "yAxis": {"type": "value"},
+                "series": [
+                    {"name": "营收", "type": "line", "data": [row["revenue"] for row in company["history"]]},
+                    {"name": "净利润", "type": "line", "data": [row["net_profit"] for row in company["history"]]},
+                ],
+            },
+        },
+    ]
+
+
+def _guess_metric_code(query: str) -> str:
+    mapping = {"营收": "G1", "收入": "G1", "利润": "G2", "研发": "G3", "毛利": "P1", "净利率": "P2", "费用": "P3", "存货": "P4", "应收": "P5", "现金流": "C1", "现金质量": "C2", "负债": "S2", "短债": "S4"}
+    for keyword, metric_code in mapping.items():
+        if keyword in query:
+            return metric_code
+    return "G1"
