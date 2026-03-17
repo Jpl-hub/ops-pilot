@@ -1,0 +1,383 @@
+from __future__ import annotations
+
+from argparse import ArgumentParser
+from collections import Counter
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+import json
+import re
+
+
+NUMBER_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?%?")
+WHITESPACE_RE = re.compile(r"\s+")
+
+FIELD_LABELS = {
+    "revenue": ("营业收入",),
+    "profit_total": ("利润总额",),
+    "net_profit": ("归属于上市公司股东的净利润",),
+    "deducted_net_profit": ("归属于上市公司股东的扣除非经常性损益的净利润",),
+    "operating_cash_flow": ("经营活动产生的现金流量净额",),
+    "basic_eps": ("基本每股收益",),
+    "diluted_eps": ("稀释每股收益",),
+    "roe": ("加权平均净资产收益率",),
+    "assets": ("总资产", "资产总额"),
+    "equity_parent": ("归属于上市公司股东的净资产", "归属于上市公司股东的所有者权益"),
+}
+
+FIELD_ORDER = list(FIELD_LABELS)
+CORE_SUMMARY_LABELS = (
+    "营业收入",
+    "归属于上市公司股东的净利润",
+    "经营活动产生的现金流量净额",
+    "总资产",
+    "归属于上市公司股东的净资产",
+)
+MONETARY_FIELDS = {
+    "revenue",
+    "profit_total",
+    "net_profit",
+    "deducted_net_profit",
+    "operating_cash_flow",
+    "assets",
+    "equity_parent",
+}
+Q3_CUMULATIVE_FIELDS = {
+    "revenue",
+    "net_profit",
+    "deducted_net_profit",
+    "basic_eps",
+    "diluted_eps",
+    "roe",
+}
+UNIT_SCALE_BY_TEXT = {
+    "单位：元": 1.0,
+    "单位：千元": 1_000.0,
+    "单位：万元": 10_000.0,
+    "单位：百万元": 1_000_000.0,
+    "（元）": 1.0,
+    "(元)": 1.0,
+    "（千元）": 1_000.0,
+    "(千元)": 1_000.0,
+    "（万元）": 10_000.0,
+    "(万元)": 10_000.0,
+    "（百万元）": 1_000_000.0,
+    "(百万元)": 1_000_000.0,
+}
+
+
+def build_parser() -> ArgumentParser:
+    parser = ArgumentParser(description="Extract silver financial metrics from bronze page text.")
+    parser.add_argument(
+        "--manifest",
+        default="data/bronze/official/manifests/parsed_periodic_reports_manifest.json",
+        help="Path to the bronze periodic reports manifest JSON.",
+    )
+    parser.add_argument(
+        "--output-root",
+        default="data/silver/official",
+        help="Directory to store silver outputs.",
+    )
+    parser.add_argument(
+        "--codes",
+        default="",
+        help="Comma-separated security codes to limit execution.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Optional max number of reports to process.",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=20,
+        help="Scan only the first N pages when locating the summary page.",
+    )
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    manifest_path = Path(args.manifest)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    records: list[dict[str, Any]] = payload.get("records", [])
+
+    selected_codes = {item.strip() for item in args.codes.split(",") if item.strip()}
+    if selected_codes:
+        records = [item for item in records if item["security_code"] in selected_codes]
+    if args.limit > 0:
+        records = records[: args.limit]
+
+    silver_rows: list[dict[str, Any]] = []
+    for index, record in enumerate(records, start=1):
+        row = extract_record(record, max_pages=args.max_pages)
+        silver_rows.append(row)
+        print(
+            f"[{index}/{len(records)}] silver {record['security_code']} "
+            f"{row['report_period']} metrics={len(row['derived_metrics'])}"
+        )
+
+    output_root = Path(args.output_root)
+    manifests_root = output_root / "manifests"
+    manifests_root.mkdir(parents=True, exist_ok=True)
+
+    manifest_payload = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "record_count": len(silver_rows),
+        "period_counts": dict(Counter(row["report_period"] for row in silver_rows)),
+        "records": silver_rows,
+    }
+    (manifests_root / "financial_metrics_manifest.json").write_text(
+        json.dumps(manifest_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"silver_reports={len(silver_rows)}")
+
+
+def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, Any]:
+    page_payload = json.loads(Path(record["page_json_path"]).read_text(encoding="utf-8"))
+    summary_page = select_summary_page(page_payload.get("pages", []), max_pages=max_pages)
+    summary_text = normalize_page_text(summary_page)
+    row_values = extract_row_values(summary_text)
+    report_period = infer_report_period(record["title"], record["publish_date"])
+    row_values = apply_period_selection(row_values, report_period)
+    unit_text, unit_scale = detect_unit_scale(summary_text)
+    row_values = apply_unit_scale(row_values, unit_scale)
+    derived_metrics = derive_metric_codes(row_values)
+    summary_chunk_id = f"{record['report_id']}-summary-page-{summary_page['page']:03d}"
+
+    return {
+        **record,
+        "report_period": report_period,
+        "summary_page": summary_page["page"],
+        "summary_chunk_id": summary_chunk_id,
+        "summary_unit": unit_text,
+        "unit_scale": unit_scale,
+        "summary_excerpt": summary_text[:1500],
+        "facts": {
+            key: {
+                "current": value["current"],
+                "previous": value["previous"],
+                "change_pct": value["change_pct"],
+                "tokens": value["tokens"],
+            }
+            for key, value in row_values.items()
+        },
+        "derived_metrics": derived_metrics,
+    }
+
+
+def select_summary_page(pages: list[dict[str, Any]], *, max_pages: int) -> dict[str, Any]:
+    best_page: dict[str, Any] | None = None
+    best_score = -1
+    for page in pages[:max_pages]:
+        text = compact_text(normalize_page_text(page))
+        score = sum(1 for label in CORE_SUMMARY_LABELS if label in text)
+        if score > best_score:
+            best_score = score
+            best_page = page
+    if best_page is None:
+        raise ValueError("未找到可用的摘要页。")
+    return best_page
+
+
+def normalize_page_text(page: dict[str, Any]) -> str:
+    return WHITESPACE_RE.sub(
+        " ",
+        " ".join(block["text"] for block in page.get("blocks", []))
+        .replace("\u3000", " ")
+        .replace("\xa0", " "),
+    ).strip()
+
+
+def compact_text(text: str) -> str:
+    return WHITESPACE_RE.sub("", text.replace("\u3000", " ").replace("\xa0", " "))
+
+
+def extract_row_values(text: str) -> dict[str, dict[str, Any]]:
+    positions: list[tuple[int, int, str]] = []
+    for field in FIELD_ORDER:
+        match = None
+        for label in FIELD_LABELS[field]:
+            match = build_label_pattern(label).search(text)
+            if match is not None:
+                break
+        if match is not None:
+            positions.append((match.start(), match.end(), field))
+    positions.sort(key=lambda item: item[0])
+
+    values: dict[str, dict[str, Any]] = {}
+    for index, (_, label_end, field) in enumerate(positions):
+        start = label_end
+        end = positions[index + 1][0] if index + 1 < len(positions) else len(text)
+        values[field] = parse_value_segment(text[start:end])
+    return values
+
+
+def build_label_pattern(label: str) -> re.Pattern[str]:
+    return re.compile(r"\s*".join(re.escape(char) for char in label))
+
+
+def parse_value_segment(segment: str) -> dict[str, Any]:
+    parsed_tokens = []
+    for raw in NUMBER_RE.findall(segment):
+        cleaned = raw.replace(",", "").replace("%", "")
+        try:
+            value = float(cleaned)
+        except ValueError:
+            continue
+        parsed_tokens.append({"raw": raw, "value": value, "is_percent": raw.endswith("%")})
+
+    current = parsed_tokens[0]["value"] if parsed_tokens else None
+    previous = parsed_tokens[1]["value"] if len(parsed_tokens) >= 2 else None
+
+    percent_tokens = [token["value"] for token in parsed_tokens if token["is_percent"]]
+    change_pct = percent_tokens[-1] if percent_tokens else None
+    if change_pct is None and len(parsed_tokens) >= 3 and abs(parsed_tokens[-1]["value"]) <= 1000:
+        change_pct = parsed_tokens[-1]["value"]
+
+    return {
+        "current": current,
+        "previous": previous,
+        "change_pct": change_pct,
+        "tokens": [token["raw"] for token in parsed_tokens[:8]],
+    }
+
+
+def apply_period_selection(
+    row_values: dict[str, dict[str, Any]], report_period: str
+) -> dict[str, dict[str, Any]]:
+    adjusted = {
+        field: {
+            "current": value["current"],
+            "previous": value["previous"],
+            "change_pct": value["change_pct"],
+            "tokens": list(value["tokens"]),
+        }
+        for field, value in row_values.items()
+    }
+    if not report_period.endswith("Q3"):
+        return adjusted
+
+    for field in Q3_CUMULATIVE_FIELDS:
+        value = adjusted.get(field)
+        if value is None:
+            continue
+        tokens = value["tokens"]
+        if len(tokens) >= 4 and tokens[1].endswith("%") and not tokens[2].endswith("%") and tokens[3].endswith("%"):
+            value["current"] = parse_numeric_token(tokens[2])
+            value["previous"] = None
+            value["change_pct"] = parse_numeric_token(tokens[3])
+    return adjusted
+
+
+def detect_unit_scale(text: str) -> tuple[str, float]:
+    for unit_text, unit_scale in UNIT_SCALE_BY_TEXT.items():
+        if unit_text in text:
+            return unit_text, unit_scale
+    return "单位：元", 1.0
+
+
+def apply_unit_scale(
+    row_values: dict[str, dict[str, Any]], unit_scale: float
+) -> dict[str, dict[str, Any]]:
+    if unit_scale == 1.0:
+        return row_values
+
+    adjusted = {
+        field: {
+            "current": value["current"],
+            "previous": value["previous"],
+            "change_pct": value["change_pct"],
+            "tokens": list(value["tokens"]),
+        }
+        for field, value in row_values.items()
+    }
+    for field in MONETARY_FIELDS:
+        if field not in adjusted:
+            continue
+        if adjusted[field]["current"] is not None:
+            adjusted[field]["current"] = round(adjusted[field]["current"] * unit_scale, 2)
+        if adjusted[field]["previous"] is not None:
+            adjusted[field]["previous"] = round(adjusted[field]["previous"] * unit_scale, 2)
+    return adjusted
+
+
+def parse_numeric_token(raw: str) -> float:
+    return float(raw.replace(",", "").replace("%", ""))
+
+
+def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, float]:
+    derived: dict[str, float] = {}
+
+    revenue = current_value(row_values, "revenue")
+    net_profit = current_value(row_values, "net_profit")
+    deducted_net_profit = current_value(row_values, "deducted_net_profit")
+    operating_cash_flow = current_value(row_values, "operating_cash_flow")
+
+    revenue_yoy = change_value(row_values, "revenue")
+    if revenue_yoy is not None:
+        derived["G1"] = round(revenue_yoy, 2)
+
+    profit_yoy = change_value(row_values, "deducted_net_profit")
+    if profit_yoy is None:
+        profit_yoy = change_value(row_values, "net_profit")
+    if profit_yoy is not None:
+        derived["G2"] = round(profit_yoy, 2)
+
+    if revenue is not None and net_profit is not None and revenue != 0:
+        derived["P2"] = round(net_profit / revenue * 100.0, 2)
+
+    if net_profit not in (None, 0) and operating_cash_flow is not None:
+        derived["C1"] = round(operating_cash_flow / net_profit, 4)
+
+    if revenue not in (None, 0) and operating_cash_flow is not None:
+        derived["C2"] = round(operating_cash_flow / revenue, 4)
+
+    if revenue is not None:
+        derived["RAW_REVENUE"] = round(revenue, 2)
+    if net_profit is not None:
+        derived["RAW_NET_PROFIT"] = round(net_profit, 2)
+    if deducted_net_profit is not None:
+        derived["RAW_DEDUCTED_NET_PROFIT"] = round(deducted_net_profit, 2)
+    if operating_cash_flow is not None:
+        derived["RAW_OPERATING_CASH_FLOW"] = round(operating_cash_flow, 2)
+
+    assets = current_value(row_values, "assets")
+    equity_parent = current_value(row_values, "equity_parent")
+    if assets is not None:
+        derived["RAW_TOTAL_ASSETS"] = round(assets, 2)
+    if equity_parent is not None:
+        derived["RAW_PARENT_EQUITY"] = round(equity_parent, 2)
+
+    return derived
+
+
+def current_value(row_values: dict[str, dict[str, Any]], field: str) -> float | None:
+    value = row_values.get(field, {}).get("current")
+    return None if value is None else float(value)
+
+
+def change_value(row_values: dict[str, dict[str, Any]], field: str) -> float | None:
+    value = row_values.get(field, {}).get("change_pct")
+    return None if value is None else float(value)
+
+
+def infer_report_period(title: str, publish_date: str) -> str:
+    year_match = re.search(r"(\d{4})年", title)
+    year = year_match.group(1) if year_match else publish_date[:4]
+    if "半年度报告" in title:
+        return f"{year}H1"
+    if "三季度报告" in title or "第三季度报告" in title:
+        return f"{year}Q3"
+    if "一季度报告" in title or "第一季度报告" in title:
+        return f"{year}Q1"
+    if "年度报告" in title:
+        return f"{year}FY"
+    return publish_date
+
+
+if __name__ == "__main__":
+    main()

@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException
 from opspilot.api.schemas import BenchmarkRequest, ChatTurnRequest, ScoreRequest
 from opspilot.application.services import OpsPilotService
 from opspilot.config import get_settings
+from opspilot.infra.hybrid_repository import HybridRepository
+from opspilot.infra.official_repository import OfficialMetricsRepository
 from opspilot.infra.sample_repository import SampleRepository
 
 
@@ -16,7 +18,13 @@ router = APIRouter(prefix="/api/v1")
 @lru_cache(maxsize=1)
 def get_service() -> OpsPilotService:
     settings = get_settings()
-    repository = SampleRepository(settings.sample_data_path)
+    repository = HybridRepository(
+        official_repository=OfficialMetricsRepository(
+            settings.silver_data_path,
+            settings.sample_data_path.parent / "universe" / "formal_company_pool.json",
+        ),
+        sample_repository=SampleRepository(settings.sample_data_path),
+    )
     return OpsPilotService(repository, settings)
 
 

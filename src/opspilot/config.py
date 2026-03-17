@@ -16,6 +16,7 @@ class Settings:
     sample_data_path: Path
     official_data_path: Path
     bronze_data_path: Path
+    silver_data_path: Path
     postgres_dsn: str
     audit_min_evidence: int = 2
 
@@ -33,6 +34,7 @@ def get_settings() -> Settings:
         sample_data_path=(root / sample_path).resolve(),
         official_data_path=(root / os.getenv("OPS_PILOT_OFFICIAL_DATA_PATH", "data/raw/official")).resolve(),
         bronze_data_path=(root / os.getenv("OPS_PILOT_BRONZE_DATA_PATH", "data/bronze/official")).resolve(),
+        silver_data_path=(root / os.getenv("OPS_PILOT_SILVER_DATA_PATH", "data/silver/official")).resolve(),
         postgres_dsn=os.getenv(
             "OPS_PILOT_POSTGRES_DSN",
             "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot",

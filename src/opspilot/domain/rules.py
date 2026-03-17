@@ -26,22 +26,32 @@ OPPORTUNITY_DEFINITIONS = {
 def evaluate_risk_labels(company: dict[str, Any]) -> list[dict[str, Any]]:
     metrics = company["metrics"]
     labels: list[dict[str, Any]] = []
-    if metrics["C1"] < 0.8 and metrics["G2"] > 0:
-        labels.append(_label(company, "R1", [metrics["C1"], metrics["G2"]]))
-    if metrics["C3"] > 8:
-        labels.append(_label(company, "R2", [metrics["C3"]]))
-    if metrics["P4"] > 120:
-        labels.append(_label(company, "R3", [metrics["P4"]]))
-    if metrics["S4"] < 0.8 or metrics["S1"] < 1.2:
-        labels.append(_label(company, "R4", [metrics["S4"], metrics["S1"]]))
-    if metrics["I1"] > 0.06:
-        labels.append(_label(company, "R5", [metrics["I1"]]))
-    if metrics["I2"] > 0:
-        labels.append(_label(company, "R6", [metrics["I2"]]))
-    if metrics["I3"] > 0:
-        labels.append(_label(company, "R7", [metrics["I3"]]))
-    if metrics["I4"] > 0:
-        labels.append(_label(company, "R8", [metrics["I4"]]))
+    c1 = metrics.get("C1")
+    g2 = metrics.get("G2")
+    c3 = metrics.get("C3")
+    p4 = metrics.get("P4")
+    s4 = metrics.get("S4")
+    s1 = metrics.get("S1")
+    i1 = metrics.get("I1")
+    i2 = metrics.get("I2")
+    i3 = metrics.get("I3")
+    i4 = metrics.get("I4")
+    if c1 is not None and g2 is not None and c1 < 0.8 and g2 > 0:
+        labels.append(_label(company, "R1", [c1, g2]))
+    if c3 is not None and c3 > 8:
+        labels.append(_label(company, "R2", [c3]))
+    if p4 is not None and p4 > 120:
+        labels.append(_label(company, "R3", [p4]))
+    if (s4 is not None and s4 < 0.8) or (s1 is not None and s1 < 1.2):
+        labels.append(_label(company, "R4", [value for value in [s4, s1] if value is not None]))
+    if i1 is not None and i1 > 0.06:
+        labels.append(_label(company, "R5", [i1]))
+    if i2 is not None and i2 > 0:
+        labels.append(_label(company, "R6", [i2]))
+    if i3 is not None and i3 > 0:
+        labels.append(_label(company, "R7", [i3]))
+    if i4 is not None and i4 > 0:
+        labels.append(_label(company, "R8", [i4]))
     return labels
 
 

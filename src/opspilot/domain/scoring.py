@@ -59,13 +59,20 @@ def score_company(company: dict[str, Any], peers: list[dict[str, Any]]) -> dict[
 
     dimension_rollup: dict[str, float] = {}
     total_score = 0.0
+    available_weight = 0.0
     for dimension, weight in DIMENSION_WEIGHTS.items():
         scores = dimension_scores.get(dimension, [])
         if not scores:
             continue
         dim_score = round(sum(scores) / len(scores), 2)
         dimension_rollup[dimension] = dim_score
-        total_score += dim_score * weight / 100.0
+        available_weight += weight
+        total_score += dim_score * weight
+
+    if available_weight > 0:
+        total_score = total_score / available_weight
+    else:
+        total_score = 0.0
 
     metric_scores.sort(key=lambda item: item["score"], reverse=True)
     percentile = round(

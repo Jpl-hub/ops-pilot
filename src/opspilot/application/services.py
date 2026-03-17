@@ -19,40 +19,48 @@ class OpsPilotService:
         self.settings = settings
 
     def health(self) -> dict[str, Any]:
+        preferred_period = self._preferred_period()
         return {
             "status": "ok",
             "app_name": self.settings.app_name,
             "env": self.settings.env,
             "default_period": self.settings.default_period,
-            "companies": len(self.repository.list_companies(self.settings.default_period)),
+            "preferred_period": preferred_period,
+            "companies": len(self.repository.list_companies(preferred_period)),
         }
 
     def official_data_status(self) -> dict[str, Any]:
         manifests_root = self.settings.official_data_path / "manifests"
         bronze_manifests_root = self.settings.bronze_data_path / "manifests"
+        silver_manifests_root = self.settings.silver_data_path / "manifests"
         periodic_manifest = _read_manifest(manifests_root / "periodic_reports_manifest.json")
         research_manifest = _read_manifest(manifests_root / "research_reports_manifest.json")
         bronze_periodic_manifest = _read_manifest(
             bronze_manifests_root / "parsed_periodic_reports_manifest.json"
         )
+        silver_metrics_manifest = _read_manifest(
+            silver_manifests_root / "financial_metrics_manifest.json"
+        )
         return {
             "official_data_root": str(self.settings.official_data_path),
             "bronze_data_root": str(self.settings.bronze_data_path),
+            "silver_data_root": str(self.settings.silver_data_path),
             "periodic_reports": periodic_manifest,
             "research_reports": research_manifest,
             "bronze_periodic_reports": bronze_periodic_manifest,
+            "silver_financial_metrics": silver_metrics_manifest,
         }
 
     def list_company_names(self) -> list[str]:
         return self.repository.list_company_names()
 
     def score_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
-        period = report_period or self.settings.default_period
+        period = report_period or self._preferred_period()
         company = self.repository.get_company(company_name, period)
         if company is None:
             raise ValueError(f"未找到公司：{company_name}")
 
-        peers = self.repository.list_companies(period)
+        peers = self.repository.list_companies(company["report_period"])
         score_result = score_company(company, peers)
         risks = evaluate_risk_labels(company)
         opportunities = evaluate_opportunity_labels(company)
@@ -81,11 +89,11 @@ class OpsPilotService:
         }
 
     def benchmark_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
-        period = report_period or self.settings.default_period
+        period = report_period or self._preferred_period()
         company = self.repository.get_company(company_name, period)
         if company is None:
             raise ValueError(f"未找到公司：{company_name}")
-        peers = self.repository.list_companies(period)
+        peers = self.repository.list_companies(company["report_period"])
         rows = []
         for peer in peers:
             score_result = score_company(peer, peers)
@@ -117,7 +125,7 @@ class OpsPilotService:
         }
 
     def risk_scan(self, report_period: str | None = None) -> dict[str, Any]:
-        period = report_period or self.settings.default_period
+        period = report_period or self._preferred_period()
         companies = self.repository.list_companies(period)
         board = []
         for company in companies:
@@ -167,7 +175,7 @@ class OpsPilotService:
         }
 
     def chat_turn(self, *, query: str, company_name: str | None = None, report_period: str | None = None) -> dict[str, Any]:
-        period = report_period or self.settings.default_period
+        period = report_period or self._preferred_period()
         detected_company = company_name or self.repository.find_company_from_query(query, period)
         query_type = detect_query_type(query)
         if query_type == "company_scoring" and detected_company:
@@ -180,7 +188,9 @@ class OpsPilotService:
             return self.risk_scan(period)
         return self.metric_query(query=query, company_name=detected_company, report_period=period)
 
-    def metric_query(self, *, query: str, company_name: str | None, report_period: str) -> dict[str, Any]:
+    def metric_query(
+        self, *, query: str, company_name: str | None, report_period: str | None
+    ) -> dict[str, Any]:
         if not company_name:
             raise ValueError("当前样本问答需要显式包含公司名。")
         company = self.repository.get_company(company_name, report_period)
@@ -198,7 +208,7 @@ class OpsPilotService:
             min_evidence=self.settings.audit_min_evidence,
         )
         return {
-            "answer_markdown": f"**{company_name}** 在 **{report_period}** 的 **{metric_def.name}** 为 **{value}**。",
+            "answer_markdown": f"**{company_name}** 在 **{company['report_period']}** 的 **{metric_def.name}** 为 **{value}**。",
             "query_type": "metric_query",
             "key_numbers": [{"label": metric_def.name, "value": value, "unit": ""}],
             "charts": [],
@@ -212,6 +222,13 @@ class OpsPilotService:
         if evidence is None:
             raise ValueError(f"未找到证据：{chunk_id}")
         return evidence
+
+    def _preferred_period(self) -> str:
+        if hasattr(self.repository, "preferred_period"):
+            preferred_period = self.repository.preferred_period()
+            if preferred_period:
+                return preferred_period
+        return self.settings.default_period
 
 
 def _collect_evidence_ids(company: dict[str, Any], score_result: dict[str, Any], risks: list[dict[str, Any]], opportunities: list[dict[str, Any]]) -> list[str]:

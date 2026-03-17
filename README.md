@@ -53,6 +53,12 @@ ops-pilot-fetch-real-data --codes 601012,002129,300750,300014,300274,002202
 ops-pilot-parse-official-reports --codes 601012,002129,300750,300014,300274,002202
 ```
 
+执行 silver 指标抽取：
+
+```bash
+ops-pilot-build-silver-metrics --codes 601012,002129,300750,300014,300274,002202
+```
+
 输出目录：
 
 - `data/universe/formal_company_pool.json`：正式公司池
@@ -62,6 +68,14 @@ ops-pilot-parse-official-reports --codes 601012,002129,300750,300014,300274,0022
 - `data/bronze/official/manifests/`：页级抽取与 chunk 清单
 - `data/bronze/official/page_text/`：页级文本 JSON
 - `data/bronze/official/chunks/`：chunk JSONL
+- `data/silver/official/manifests/`：真实财务摘要指标 manifest
+
+当前 silver v1 已完成：
+
+- 从真实财报摘要页抽取营收、归母净利润、扣非净利润、经营现金流、总资产、归母权益
+- 自动识别 `元 / 千元 / 万元 / 百万元` 单位并统一换算
+- 对三季报统一采用“年初至报告期末”累计口径
+- API 在未显式传 `report_period` 时，默认优先使用当前可比主周期 `2025Q3`
 
 二进制原始文件默认不纳入 Git，仓库只保留脚本、公司池和 manifest 结构。
 
