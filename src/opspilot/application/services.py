@@ -242,6 +242,7 @@ class OpsPilotService:
             if insight is None:
                 continue
             inferred_period = _infer_report_period_from_text(insight["report_meta"]["title"])
+            forecast_summary = _summarize_forecast_cards(insight["forecast_cards"])
             catalog.append(
                 {
                     "title": insight["report_meta"]["title"],
@@ -251,6 +252,9 @@ class OpsPilotService:
                     "rating_change": insight["report_meta"].get("rating_change"),
                     "target_price": insight["report_meta"].get("target_price"),
                     "forecast_count": len(insight["forecast_cards"]),
+                    "headline_forecast_year": forecast_summary.get("headline_year"),
+                    "headline_forecast_value": forecast_summary.get("headline_value"),
+                    "headline_forecast_pe": forecast_summary.get("headline_pe"),
                     "claim_signal_count": insight["claim_signal_count"],
                     "source_name": insight["report_meta"].get("source_name"),
                     "is_period_supported": (
@@ -259,6 +263,46 @@ class OpsPilotService:
                 }
             )
         return catalog
+
+    def compare_research_reports(self, company_name: str, limit: int = 4) -> dict[str, Any]:
+        reports = self.list_research_reports(company_name)
+        if not reports:
+            raise ValueError(f"未找到研报：{company_name}")
+        rows = reports[:limit]
+        target_prices = [item["target_price"] for item in rows if item.get("target_price") is not None]
+        headline_forecasts = [
+            item["headline_forecast_value"]
+            for item in rows
+            if item.get("headline_forecast_value") is not None
+        ]
+        return {
+            "company_name": company_name,
+            "rows": rows,
+            "key_numbers": [
+                {"label": "对比研报", "value": len(rows), "unit": "篇"},
+                {
+                    "label": "目标价区间",
+                    "value": (
+                        round(max(target_prices) - min(target_prices), 2)
+                        if len(target_prices) >= 2
+                        else None
+                    ),
+                    "unit": "元",
+                },
+                {
+                    "label": "预测利润区间",
+                    "value": (
+                        round(max(headline_forecasts) - min(headline_forecasts), 2)
+                        if len(headline_forecasts) >= 2
+                        else None
+                    ),
+                    "unit": "亿元",
+                },
+            ],
+            "charts": [
+                _build_research_compare_chart(rows),
+            ],
+        }
 
     def verify_claim(
         self,
@@ -346,6 +390,7 @@ class OpsPilotService:
             "forecast_cards": forecast_cards,
             "report_meta": research_meta,
             "available_reports": self.list_research_reports(company_name),
+            "research_compare": self.compare_research_reports(company_name),
         }
 
     def chat_turn(self, *, query: str, company_name: str | None = None, report_period: str | None = None) -> dict[str, Any]:
@@ -1020,6 +1065,51 @@ def _build_claim_chart(claim_cards: list[dict[str, Any]]) -> dict[str, Any]:
                     "type": "bar",
                     "data": [sum(1 for item in claim_cards if item["status"] == label) for label in labels],
                 }
+            ],
+        },
+    }
+
+
+def _summarize_forecast_cards(forecast_cards: list[dict[str, Any]]) -> dict[str, Any]:
+    if not forecast_cards:
+        return {}
+    headline = min(
+        forecast_cards,
+        key=lambda item: item.get("report_period", "9999FY"),
+    )
+    headline_year = headline.get("report_period", "").replace("FY", "") or None
+    return {
+        "headline_year": headline_year,
+        "headline_value": headline.get("forecast_value"),
+        "headline_pe": headline.get("pe_value"),
+    }
+
+
+def _build_research_compare_chart(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    labels = [item["source_name"] or item["title"] for item in rows]
+    return {
+        "type": "bar",
+        "title": "研报目标价与首年利润预测对比",
+        "options": {
+            "tooltip": {"trigger": "axis"},
+            "legend": {"data": ["目标价", "首年利润预测"]},
+            "xAxis": {"type": "category", "data": labels},
+            "yAxis": [
+                {"type": "value", "name": "目标价(元)"},
+                {"type": "value", "name": "利润预测(亿元)"},
+            ],
+            "series": [
+                {
+                    "name": "目标价",
+                    "type": "bar",
+                    "data": [item.get("target_price") for item in rows],
+                },
+                {
+                    "name": "首年利润预测",
+                    "type": "line",
+                    "yAxisIndex": 1,
+                    "data": [item.get("headline_forecast_value") for item in rows],
+                },
             ],
         },
     }

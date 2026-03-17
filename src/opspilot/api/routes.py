@@ -82,6 +82,14 @@ def company_research_reports(company_name: str) -> dict:
     return {"company_name": company_name, "reports": reports}
 
 
+@router.get("/company/research-compare")
+def company_research_compare(company_name: str, limit: int = 4) -> dict:
+    try:
+        return get_service().compare_research_reports(company_name, limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/industry/risk-scan")
 def industry_risk_scan(report_period: str | None = None) -> dict:
     return get_service().risk_scan(report_period)

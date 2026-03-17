@@ -636,6 +636,15 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(reports[0]["rating_change"], "维持")
             self.assertEqual(reports[0]["target_price"], 43.5)
 
+            compare = service.compare_research_reports("测试公司")
+
+            self.assertEqual(compare["company_name"], "测试公司")
+            self.assertEqual(compare["rows"][0]["title"], "深度点评")
+            self.assertEqual(compare["rows"][0]["headline_forecast_year"], "2025")
+            self.assertEqual(compare["rows"][0]["headline_forecast_value"], 11.0)
+            self.assertEqual(compare["rows"][0]["headline_forecast_pe"], 20.0)
+            self.assertEqual(compare["key_numbers"][0]["value"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

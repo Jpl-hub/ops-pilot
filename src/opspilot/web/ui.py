@@ -514,6 +514,49 @@ def run_ui_app() -> None:
                                                     ui.label(label).classes("text-sm")
                                                     ui.label(value).classes("text-sm font-medium")
                                         ui.label(card["excerpt"]).classes("op-evidence-excerpt")
+                    compare_payload = payload.get("research_compare", {})
+                    if compare_payload.get("rows"):
+                        with ui.card().classes("op-panel w-full"):
+                            ui.label("同公司研报横向对比").classes("op-section-title")
+                            ui.label("横向比较不同机构的评级、目标价和首年利润预测，帮助快速识别观点分歧。").classes("op-note")
+                            with ui.row().classes("w-full gap-4 wrap"):
+                                for item in compare_payload.get("key_numbers", []):
+                                    _render_stat_card(
+                                        ui,
+                                        label=item["label"],
+                                        value=_format_compare_value(item.get("value"), item.get("unit")),
+                                        hint=payload["company_name"],
+                                    )
+                            ui.echart(compare_payload["charts"][0]["options"]).classes("w-full").style("height: 320px;")
+                            with ui.row().classes("w-full gap-4 wrap items-stretch"):
+                                for row in compare_payload["rows"]:
+                                    with ui.card().classes("op-mini-card"):
+                                        ui.label(row["title"]).classes("text-lg font-semibold")
+                                        ui.label(
+                                            f"{row.get('source_name') or '机构未披露'} | {row.get('publish_date') or '日期未知'}"
+                                        ).classes("op-note")
+                                        with ui.column().classes("w-full gap-0"):
+                                            for label, value in (
+                                                ("评级", row.get("rating_text") or "未披露"),
+                                                ("目标价", _format_target_price(row.get("target_price"))),
+                                                (
+                                                    "首年利润预测",
+                                                    _format_forecast_value(
+                                                        row.get("headline_forecast_value"),
+                                                        unit="亿元",
+                                                    ),
+                                                ),
+                                                (
+                                                    "首年PE",
+                                                    _format_forecast_value(
+                                                        row.get("headline_forecast_pe"),
+                                                        unit="x",
+                                                    ),
+                                                ),
+                                            ):
+                                                with ui.row().classes("op-detail-row w-full items-center justify-between gap-3"):
+                                                    ui.label(label).classes("text-sm")
+                                                    ui.label(value).classes("text-sm font-medium")
                 _render_evidence_section(ui, evidence_section, payload)
 
             company_select.on_value_change(lambda _: sync_report_options())
@@ -774,6 +817,16 @@ def _format_target_price(value: float | None) -> str:
     if value is None:
         return "未披露"
     return f"{value:.2f} 元"
+
+
+def _format_compare_value(value: float | int | None, unit: str) -> str:
+    if value is None:
+        return "N/A"
+    if unit == "元":
+        return f"{value:.2f} 元"
+    if unit == "亿元":
+        return f"{value:.2f} 亿元"
+    return f"{value} {unit}".strip()
 
 
 def _build_report_options(reports: list[dict[str, Any]]) -> dict[str, str]:
