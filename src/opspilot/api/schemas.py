@@ -20,3 +20,9 @@ class ScoreRequest(BaseModel):
 class BenchmarkRequest(BaseModel):
     company_name: str
     report_period: str | None = None
+
+
+class ClaimVerifyRequest(BaseModel):
+    company_name: str
+    report_period: str | None = None
+    report_title: str | None = None

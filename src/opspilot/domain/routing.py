@@ -9,6 +9,8 @@ def detect_query_type(query: str) -> str:
         return "peer_benchmark"
     if any(keyword in query for keyword in ("风险", "机会", "扫描")):
         return "risk_scan"
+    if any(keyword in query for keyword in ("研报", "核验", "验证", "观点")):
+        return "claim_verification"
     if any(keyword in query for keyword in ("简报", "摘要", "汇报")):
         return "brief_generation"
     if any(keyword in normalized for keyword in ("revenue", "margin", "cash")):

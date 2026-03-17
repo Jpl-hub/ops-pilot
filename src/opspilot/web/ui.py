@@ -233,6 +233,20 @@ def run_ui_app() -> None:
     default_company = service.list_company_names()[0]
     initial_score = service.score_company(default_company)
     initial_risk = service.risk_scan()
+    initial_claim_company = default_company
+    initial_claim = None
+    for company_name in service.list_company_names():
+        try:
+            initial_claim = service.verify_claim(company_name)
+            initial_claim_company = company_name
+            break
+        except ValueError:
+            continue
+    if initial_claim is None:
+        initial_claim = {
+            "claim_cards": [],
+            "report_period": initial_score["report_period"],
+        }
 
     @ui.page("/")
     def landing() -> None:
@@ -246,6 +260,7 @@ def run_ui_app() -> None:
                 with ui.row().classes("gap-3 wrap"):
                     ui.link("进入企业体检页", "/score")
                     ui.link("进入行业风险页", "/risk")
+                    ui.link("进入研报核验页", "/verify")
                     ui.link("打开证据查看器", f"/evidence/{initial_score['evidence'][0]['chunk_id']}")
 
             with ui.row().classes("w-full gap-4 wrap"):
@@ -266,6 +281,12 @@ def run_ui_app() -> None:
                     label="公式回放",
                     value=str(len(initial_score.get("formula_cards", []))),
                     hint="当前展示 C3 / S3 关键公式",
+                )
+                _render_stat_card(
+                    ui,
+                    label="研报核验",
+                    value=str(len(initial_claim.get("claim_cards", []))),
+                    hint="最新研报中的可核验观点数",
                 )
 
     @ui.page("/score")
@@ -323,8 +344,95 @@ def run_ui_app() -> None:
                         ui.label(f"风险数 {item['risk_count']}").classes("op-stat-hint")
                         with ui.row().classes("gap-2 wrap"):
                             labels = item["risk_labels"] or ["暂无高风险标签"]
-                            for label in labels:
-                                _render_pill(ui, label, tone="risk" if label != "暂无高风险标签" else "neutral")
+                        for label in labels:
+                            _render_pill(ui, label, tone="risk" if label != "暂无高风险标签" else "neutral")
+
+    @ui.page("/verify")
+    def verify_page() -> None:
+        with ui.column().classes("op-shell gap-6"):
+            with ui.row().classes("items-end justify-between w-full gap-4 wrap"):
+                with ui.column().classes("gap-1"):
+                    ui.label("研报观点核验").classes("op-section-title")
+                    ui.label("把研报里的关键数字观点和真实财报指标放在一屏对照。").classes("op-subtitle")
+                with ui.row().classes("gap-3 items-center wrap"):
+                    company_select = ui.select(
+                        options=service.list_company_names(),
+                        value=initial_claim_company,
+                        label="选择公司",
+                    ).classes("op-select")
+                    ui.button("刷新核验", on_click=lambda: refresh()).props("unelevated color=teal-7")
+
+            summary_section = ui.column().classes("w-full gap-4")
+            evidence_section = ui.column().classes("w-full gap-4")
+
+            def refresh() -> None:
+                try:
+                    payload = service.verify_claim(company_select.value)
+                except ValueError as exc:
+                    summary_section.clear()
+                    evidence_section.clear()
+                    with summary_section:
+                        with ui.card().classes("op-panel w-full"):
+                            ui.label("研报观点核验").classes("op-section-title")
+                            ui.label(str(exc)).classes("op-note")
+                    return
+                summary_section.clear()
+                with summary_section:
+                    with ui.row().classes("w-full gap-4 wrap"):
+                        _render_stat_card(
+                            ui,
+                            label="核验报期",
+                            value=payload["report_period"],
+                            hint=payload["company_name"],
+                        )
+                        _render_stat_card(
+                            ui,
+                            label="匹配观点",
+                            value=str(next(item["value"] for item in payload["key_numbers"] if item["label"] == "匹配观点")),
+                            hint=payload["report_meta"]["title"],
+                        )
+                        _render_stat_card(
+                            ui,
+                            label="偏差观点",
+                            value=str(next(item["value"] for item in payload["key_numbers"] if item["label"] == "偏差观点")),
+                            hint=payload["report_meta"]["publish_date"],
+                        )
+                    with ui.card().classes("op-panel w-full"):
+                        ui.markdown(payload["answer_markdown"])
+                    with ui.card().classes("op-panel w-full"):
+                        ui.label("观点对照").classes("op-section-title")
+                        ui.echart(payload["charts"][0]["options"]).classes("w-full").style("height: 320px;")
+                        with ui.row().classes("w-full gap-4 wrap items-stretch"):
+                            for card in payload.get("claim_cards", []):
+                                with ui.card().classes("op-mini-card"):
+                                    ui.label(card["label"]).classes("text-lg font-semibold")
+                                    tone = "neutral"
+                                    if card["status"] == "match":
+                                        tone = "opportunity"
+                                    elif card["status"] == "mismatch":
+                                        tone = "risk"
+                                    _render_pill(
+                                        ui,
+                                        {
+                                            "match": "匹配",
+                                            "mismatch": "偏差",
+                                            "insufficient_data": "待补充",
+                                        }[card["status"]],
+                                        tone=tone,
+                                    )
+                                    with ui.column().classes("w-full gap-0"):
+                                        for label, value in (
+                                            ("研报值", _format_signal_value(card["claimed_value"])),
+                                            ("系统值", _format_signal_value(card["actual_value"])),
+                                            ("差值", _format_signal_value(card["delta"])),
+                                        ):
+                                            with ui.row().classes("op-detail-row w-full items-center justify-between gap-3"):
+                                                ui.label(label).classes("text-sm")
+                                                ui.label(value).classes("text-sm font-medium")
+                                    ui.label(card["excerpt"]).classes("op-evidence-excerpt")
+                _render_evidence_section(ui, evidence_section, payload)
+
+            refresh()
 
     @ui.page("/evidence/{chunk_id}")
     def evidence_page(chunk_id: str, request: Request) -> None:
@@ -457,7 +565,7 @@ def _render_label_card(ui: Any, card: dict[str, Any]) -> None:
                 for chunk_id in card["evidence_refs"]:
                     ui.link(
                         chunk_id,
-                        _build_evidence_href(chunk_id, f"{card['metric_code']} {card['title']}", card.get("anchor_terms", [])),
+                        _build_evidence_href(chunk_id, f"{card['code']} {card['name']}", card.get("anchor_terms", [])),
                     ).classes("op-evidence-link")
 
 
@@ -496,7 +604,7 @@ def _render_formula_card(ui: Any, card: dict[str, Any]) -> None:
                 for chunk_id in card["evidence_refs"]:
                     ui.link(
                         chunk_id,
-                        _build_evidence_href(chunk_id, f"{card['code']} {card['name']}", card.get("anchor_terms", [])),
+                        _build_evidence_href(chunk_id, f"{card['metric_code']} {card['title']}", card.get("anchor_terms", [])),
                     ).classes("op-evidence-link")
 
 

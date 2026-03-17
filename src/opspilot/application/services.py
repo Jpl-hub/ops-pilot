@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import json
+import re
 
 from opspilot.config import Settings
 from opspilot.domain.audit import build_audit
@@ -223,6 +224,85 @@ class OpsPilotService:
             "audit": score_payload["audit"],
         }
 
+    def verify_claim(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        report_title: str | None = None,
+    ) -> dict[str, Any]:
+        research_reports = _load_research_reports(
+            self.settings.official_data_path / "manifests" / "research_reports_manifest.json"
+        )
+        report = _select_research_report(
+            research_reports,
+            company_name=company_name,
+            report_period=report_period,
+            report_title=report_title,
+        )
+        if report is None:
+            raise ValueError(f"未找到研报：{company_name}")
+
+        inferred_period = report_period or _infer_report_period_from_text(report["title"])
+        if inferred_period:
+            company = self.repository.get_company(company_name, inferred_period)
+            if company is None:
+                raise ValueError(f"未找到与研报一致的真实报期：{company_name} {inferred_period}")
+        else:
+            company = self._resolve_company(company_name, None)
+        if company is None:
+            raise ValueError(f"未找到公司：{company_name}")
+
+        report_html = Path(report["local_path"]).read_text(encoding="utf-8")
+        report_body = _extract_research_body(report_html)
+        claim_cards = _build_claim_cards(company, report, report_body)
+        evidence = _build_claim_evidence(self.repository, report, claim_cards)
+        calculations = [
+            {
+                "step": "研报观点核验",
+                "detail": {
+                    "report_title": report["title"],
+                    "claim_count": len(claim_cards),
+                    "matches": sum(1 for item in claim_cards if item["status"] == "match"),
+                    "mismatches": sum(1 for item in claim_cards if item["status"] == "mismatch"),
+                    "insufficient": sum(
+                        1 for item in claim_cards if item["status"] == "insufficient_data"
+                    ),
+                },
+            }
+        ]
+        key_numbers = [
+            {"label": "匹配观点", "value": sum(1 for item in claim_cards if item["status"] == "match"), "unit": "条"},
+            {"label": "偏差观点", "value": sum(1 for item in claim_cards if item["status"] == "mismatch"), "unit": "条"},
+            {
+                "label": "待补充观点",
+                "value": sum(1 for item in claim_cards if item["status"] == "insufficient_data"),
+                "unit": "条",
+            },
+        ]
+        audit = build_audit(
+            key_numbers=key_numbers,
+            evidence=evidence,
+            calculations=calculations,
+            min_evidence=self.settings.audit_min_evidence,
+        )
+        return {
+            "company_name": company["company_name"],
+            "report_period": company["report_period"],
+            "answer_markdown": _render_claim_answer(report["title"], company["report_period"], claim_cards),
+            "query_type": "claim_verification",
+            "key_numbers": key_numbers,
+            "charts": [_build_claim_chart(claim_cards)],
+            "evidence": evidence,
+            "calculations": calculations,
+            "audit": audit,
+            "claim_cards": claim_cards,
+            "report_meta": {
+                "title": report["title"],
+                "publish_date": report["publish_date"],
+                "source_url": report.get("detail_url") or report["source_url"],
+            },
+        }
+
     def chat_turn(self, *, query: str, company_name: str | None = None, report_period: str | None = None) -> dict[str, Any]:
         period = report_period or self._preferred_period()
         detected_company = (
@@ -235,6 +315,8 @@ class OpsPilotService:
             return self.score_company(detected_company, period)
         if query_type == "peer_benchmark" and detected_company:
             return self.benchmark_company(detected_company, period)
+        if query_type == "claim_verification" and detected_company:
+            return self.verify_claim(detected_company, report_period)
         if query_type == "brief_generation" and detected_company:
             return self.brief_company(detected_company, period)
         if query_type == "risk_scan":
@@ -536,6 +618,247 @@ def _format_pct(value: float | None) -> str:
     if value is None:
         return "N/A"
     return f"{value:.2f}%"
+
+
+def _load_research_reports(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload.get("records", [])
+
+
+def _select_research_report(
+    reports: list[dict[str, Any]],
+    *,
+    company_name: str,
+    report_period: str | None,
+    report_title: str | None,
+) -> dict[str, Any] | None:
+    matches = [report for report in reports if report.get("company_name") == company_name]
+    if report_title:
+        matches = [report for report in matches if report_title in report.get("title", "")]
+    if report_period:
+        period_matches = [
+            report
+            for report in matches
+            if _infer_report_period_from_text(report.get("title", "")) == report_period
+        ]
+        if period_matches:
+            matches = period_matches
+    matches.sort(key=lambda item: item.get("publish_date", ""), reverse=True)
+    return matches[0] if matches else None
+
+
+def _infer_report_period_from_text(text: str) -> str | None:
+    year_match = re.search(r"(\d{4})年", text)
+    if not year_match:
+        return None
+    year = year_match.group(1)
+    if "半年度" in text:
+        return f"{year}H1"
+    if "三季度" in text or "第三季度" in text:
+        return f"{year}Q3"
+    if "一季度" in text or "第一季度" in text:
+        return f"{year}Q1"
+    if "年度" in text:
+        return f"{year}FY"
+    return None
+
+
+def _extract_research_body(report_html: str) -> str:
+    match = re.search(r'<div id="ctx-content"[^>]*>(.*?)</div>', report_html, re.S)
+    body = match.group(1) if match else report_html
+    cleaned = re.sub(r"<br\s*/?>", "\n", body)
+    cleaned = re.sub(r"</p>", "\n", cleaned)
+    cleaned = re.sub(r"<[^>]+>", "", cleaned)
+    cleaned = cleaned.replace("&nbsp;", " ").replace("\u3000", " ")
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _build_claim_cards(
+    company: dict[str, Any],
+    report: dict[str, Any],
+    report_body: str,
+) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    patterns = [
+        (
+            "营收同比",
+            "G1",
+            "percent",
+            re.compile(r"营收(?:\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?亿元，)?同比([+-]?\d+(?:\.\d+)?)%"),
+        ),
+        (
+            "营收规模",
+            "RAW_REVENUE",
+            "amount_100m",
+            re.compile(r"营收(\d+(?:\.\d+)?)(?:/\d+(?:\.\d+)?)?亿元"),
+        ),
+        (
+            "归母净利润同比",
+            "NET_PROFIT_YOY",
+            "percent",
+            re.compile(r"归母净利润(?:\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?亿元，)?同比([+-]?\d+(?:\.\d+)?)%"),
+        ),
+        (
+            "归母净利润规模",
+            "RAW_NET_PROFIT",
+            "amount_100m",
+            re.compile(r"归母净利润(\d+(?:\.\d+)?)(?:/\d+(?:\.\d+)?)?亿元"),
+        ),
+        (
+            "扣非归母净利润同比",
+            "G2",
+            "percent",
+            re.compile(r"扣非归母净利润(?:\d+(?:\.\d+)?(?:/\d+(?:\.\d+)?)?亿元，)?同比([+-]?\d+(?:\.\d+)?)%"),
+        ),
+        (
+            "毛利率",
+            "P1",
+            "percent",
+            re.compile(r"毛利率(\d+(?:\.\d+)?)%"),
+        ),
+    ]
+    for index, (label, metric_key, value_type, pattern) in enumerate(patterns, start=1):
+        match = pattern.search(report_body)
+        if match is None:
+            continue
+        claimed_value = float(match.group(1))
+        actual_value = _resolve_claim_actual_value(company, metric_key)
+        status, delta = _compare_claim_values(claimed_value, actual_value, value_type=value_type)
+        evidence_refs = _resolve_claim_evidence_refs(company, metric_key)
+        cards.append(
+            {
+                "claim_id": f"{report['security_code']}-claim-{index}",
+                "label": label,
+                "metric_key": metric_key,
+                "claimed_value": claimed_value,
+                "actual_value": actual_value,
+                "delta": delta,
+                "status": status,
+                "excerpt": _clip_claim_excerpt(report_body, match.group(0)),
+                "research_chunk_id": f"research-{report['security_code']}-{index}",
+                "evidence_refs": evidence_refs,
+                "report_title": report["title"],
+            }
+        )
+    return cards
+
+
+def _resolve_claim_actual_value(company: dict[str, Any], metric_key: str) -> float | None:
+    if metric_key in company.get("metrics", {}):
+        return company["metrics"][metric_key]
+    if metric_key in company.get("raw_metrics", {}):
+        raw_value = company["raw_metrics"][metric_key]
+        if raw_value is None:
+            return None
+        return round(raw_value / 1e8, 2)
+    if metric_key == "NET_PROFIT_YOY":
+        value = company.get("facts", {}).get("net_profit", {}).get("change_pct")
+        return None if value is None else float(value)
+    return None
+
+
+def _compare_claim_values(
+    claimed_value: float,
+    actual_value: float | None,
+    *,
+    value_type: str,
+) -> tuple[str, float | None]:
+    if actual_value is None:
+        return "insufficient_data", None
+    delta = round(actual_value - claimed_value, 2)
+    tolerance = 1.5 if value_type == "percent" else max(0.5, abs(claimed_value) * 0.05)
+    if abs(delta) <= tolerance:
+        return "match", delta
+    return "mismatch", delta
+
+
+def _resolve_claim_evidence_refs(company: dict[str, Any], metric_key: str) -> list[str]:
+    metric_map = {
+        "RAW_REVENUE": "G1",
+        "RAW_NET_PROFIT": "G2",
+        "NET_PROFIT_YOY": "G2",
+    }
+    evidence_metric = metric_map.get(metric_key, metric_key)
+    refs = list(company.get("metric_evidence", {}).get(evidence_metric, []))
+    if not refs and company.get("summary_chunk_id"):
+        refs.append(company["summary_chunk_id"])
+    return refs
+
+
+def _clip_claim_excerpt(text: str, anchor: str, *, radius: int = 180) -> str:
+    index = text.find(anchor)
+    if index < 0:
+        return text[: radius * 2]
+    start = max(index - radius // 2, 0)
+    end = min(index + len(anchor) + radius, len(text))
+    return text[start:end]
+
+
+def _build_claim_evidence(
+    repository: Any,
+    report: dict[str, Any],
+    claim_cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    for card in claim_cards:
+        evidence.append(
+            {
+                "chunk_id": card["research_chunk_id"],
+                "company_name": report["company_name"],
+                "report_period": _infer_report_period_from_text(report["title"]) or report["publish_date"],
+                "source_title": report["title"],
+                "source_type": "research_report_excerpt",
+                "page": 1,
+                "excerpt": card["excerpt"],
+                "fingerprint": f"{report['security_code']}-{card['claim_id']}",
+                "source_url": report.get("detail_url") or report["source_url"],
+                "local_path": report["local_path"],
+            }
+        )
+        evidence.extend(repository.resolve_evidence(card["evidence_refs"]))
+
+    deduped: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for item in evidence:
+        if item["chunk_id"] in seen_ids:
+            continue
+        seen_ids.add(item["chunk_id"])
+        deduped.append(item)
+    return deduped
+
+
+def _render_claim_answer(report_title: str, report_period: str, claim_cards: list[dict[str, Any]]) -> str:
+    matched = sum(1 for item in claim_cards if item["status"] == "match")
+    mismatched = sum(1 for item in claim_cards if item["status"] == "mismatch")
+    insufficient = sum(1 for item in claim_cards if item["status"] == "insufficient_data")
+    return (
+        f"### 研报观点核验\n"
+        f"- 研报：**{report_title}**\n"
+        f"- 核验报期：**{report_period}**\n"
+        f"- 匹配：**{matched}** 条\n"
+        f"- 偏差：**{mismatched}** 条\n"
+        f"- 待补充：**{insufficient}** 条"
+    )
+
+
+def _build_claim_chart(claim_cards: list[dict[str, Any]]) -> dict[str, Any]:
+    labels = ["match", "mismatch", "insufficient_data"]
+    return {
+        "type": "bar",
+        "title": "研报观点核验结果",
+        "options": {
+            "xAxis": {"type": "category", "data": ["匹配", "偏差", "待补充"]},
+            "yAxis": {"type": "value"},
+            "series": [
+                {
+                    "type": "bar",
+                    "data": [sum(1 for item in claim_cards if item["status"] == label) for label in labels],
+                }
+            ],
+        },
+    }
 
 
 def _guess_metric_code(query: str) -> str:

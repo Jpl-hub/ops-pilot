@@ -4,7 +4,7 @@ from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException
 
-from opspilot.api.schemas import BenchmarkRequest, ChatTurnRequest, ScoreRequest
+from opspilot.api.schemas import BenchmarkRequest, ChatTurnRequest, ClaimVerifyRequest, ScoreRequest
 from opspilot.application.services import OpsPilotService
 from opspilot.config import get_settings
 from opspilot.infra.hybrid_repository import HybridRepository
@@ -58,6 +58,18 @@ def company_score(request: ScoreRequest) -> dict:
 def company_benchmark(request: BenchmarkRequest) -> dict:
     try:
         return get_service().benchmark_company(request.company_name, request.report_period)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/claim/verify")
+def claim_verify(request: ClaimVerifyRequest) -> dict:
+    try:
+        return get_service().verify_claim(
+            request.company_name,
+            request.report_period,
+            request.report_title,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

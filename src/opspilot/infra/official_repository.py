@@ -148,6 +148,11 @@ class OfficialMetricsRepository:
                     for key, value in record.get("derived_metrics", {}).items()
                     if key not in RAW_METRIC_CODES
                 }
+                raw_metrics = {
+                    key: value
+                    for key, value in record.get("derived_metrics", {}).items()
+                    if key in RAW_METRIC_CODES
+                }
                 metric_evidence = {
                     metric_code: [record["summary_chunk_id"]]
                     for metric_code in metrics
@@ -169,12 +174,16 @@ class OfficialMetricsRepository:
                         "ticker": company_meta.get("ticker", infer_ticker(record)),
                         "subindustry": record["subindustry"],
                         "report_period": record["report_period"],
+                        "report_title": record["title"],
                         "metrics": metrics,
+                        "raw_metrics": raw_metrics,
+                        "facts": record.get("facts", {}),
                         "trends": {},
                         "history": history,
                         "metric_evidence": metric_evidence,
                         "formula_context": formula_context,
                         "label_evidence": build_label_evidence(metric_evidence),
+                        "summary_chunk_id": record["summary_chunk_id"],
                     }
                 )
         return companies
