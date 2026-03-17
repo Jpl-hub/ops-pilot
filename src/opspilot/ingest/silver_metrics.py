@@ -32,6 +32,18 @@ BALANCE_FIELD_LABELS = {
     "short_term_borrowings": ("短期借款",),
     "due_within_one_year_noncurrent_liabilities": ("一年内到期的非流动负债",),
 }
+PROFIT_FIELD_LABELS = {
+    "operating_total_revenue": ("营业总收入",),
+    "operating_revenue": ("营业收入",),
+    "operating_total_cost": ("营业总成本",),
+    "operating_cost": ("营业成本",),
+    "sales_expense": ("销售费用",),
+    "admin_expense": ("管理费用",),
+    "rd_expense": ("研发费用",),
+    "finance_expense": ("财务费用",),
+    "interest_expense": ("利息费用",),
+    "interest_income": ("利息收入",),
+}
 
 FIELD_ORDER = list(FIELD_LABELS)
 CORE_SUMMARY_LABELS = (
@@ -47,6 +59,16 @@ MONETARY_FIELDS = {
     "net_profit",
     "deducted_net_profit",
     "operating_cash_flow",
+    "operating_total_revenue",
+    "operating_revenue",
+    "operating_total_cost",
+    "operating_cost",
+    "sales_expense",
+    "admin_expense",
+    "rd_expense",
+    "finance_expense",
+    "interest_expense",
+    "interest_income",
     "assets",
     "equity_parent",
     "cash_funds",
@@ -66,6 +88,7 @@ Q3_CUMULATIVE_FIELDS = {
 }
 ASSET_PAGE_ANCHORS = ("流动资产合计", "合并资产负债表", "资产负债表", "流动资产：")
 LIABILITY_PAGE_ANCHORS = ("流动负债合计", "负债合计", "所有者权益合计", "流动负债：")
+PROFIT_PAGE_ANCHORS = ("合并利润表", "营业总成本", "销售费用", "管理费用", "研发费用")
 UNIT_SCALE_BY_TEXT = {
     "单位：元": 1.0,
     "单位：千元": 1_000.0,
@@ -162,8 +185,9 @@ def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, 
     row_values = apply_period_selection(row_values, report_period)
     unit_text, unit_scale = detect_unit_scale(summary_text)
     row_values = apply_unit_scale(row_values, unit_scale)
-    balance_row_values = extract_balance_sheet_values(pages)
-    derived_metrics = derive_metric_codes({**row_values, **balance_row_values})
+    balance_row_values = extract_balance_sheet_values(pages, fallback_unit_text=unit_text, fallback_unit_scale=unit_scale)
+    profit_row_values = extract_profit_statement_values(pages, fallback_unit_text=unit_text, fallback_unit_scale=unit_scale)
+    derived_metrics = derive_metric_codes({**row_values, **balance_row_values, **profit_row_values})
     summary_chunk_id = f"{record['report_id']}-summary-page-{summary_page['page']:03d}"
 
     return {
@@ -181,7 +205,7 @@ def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, 
                 "change_pct": value["change_pct"],
                 "tokens": value["tokens"],
             }
-            for key, value in {**row_values, **balance_row_values}.items()
+            for key, value in {**row_values, **balance_row_values, **profit_row_values}.items()
         },
         "derived_metrics": derived_metrics,
     }
@@ -265,13 +289,24 @@ def parse_value_segment(segment: str) -> dict[str, Any]:
     }
 
 
-def extract_balance_sheet_values(pages: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def extract_balance_sheet_values(
+    pages: list[dict[str, Any]],
+    *,
+    fallback_unit_text: str,
+    fallback_unit_scale: float,
+) -> dict[str, dict[str, Any]]:
     asset_pages = select_candidate_pages(pages, ASSET_PAGE_ANCHORS)
     liability_pages = select_candidate_pages(pages, LIABILITY_PAGE_ANCHORS)
 
     values: dict[str, dict[str, Any]] = {}
     for field in ("cash_funds", "current_assets"):
-        if result := locate_balance_field(field, asset_pages or pages, BALANCE_FIELD_LABELS[field]):
+        if result := locate_balance_field(
+            field,
+            asset_pages or pages,
+            BALANCE_FIELD_LABELS[field],
+            fallback_unit_text=fallback_unit_text,
+            fallback_unit_scale=fallback_unit_scale,
+        ):
             values[field] = result
     for field in (
         "current_liabilities",
@@ -279,7 +314,33 @@ def extract_balance_sheet_values(pages: list[dict[str, Any]]) -> dict[str, dict[
         "short_term_borrowings",
         "due_within_one_year_noncurrent_liabilities",
     ):
-        if result := locate_balance_field(field, liability_pages or pages, BALANCE_FIELD_LABELS[field]):
+        if result := locate_balance_field(
+            field,
+            liability_pages or pages,
+            BALANCE_FIELD_LABELS[field],
+            fallback_unit_text=fallback_unit_text,
+            fallback_unit_scale=fallback_unit_scale,
+        ):
+            values[field] = result
+    return values
+
+
+def extract_profit_statement_values(
+    pages: list[dict[str, Any]],
+    *,
+    fallback_unit_text: str,
+    fallback_unit_scale: float,
+) -> dict[str, dict[str, Any]]:
+    profit_pages = select_candidate_pages(pages, PROFIT_PAGE_ANCHORS)
+    values: dict[str, dict[str, Any]] = {}
+    for field, labels in PROFIT_FIELD_LABELS.items():
+        if result := locate_balance_field(
+            field,
+            profit_pages or pages,
+            labels,
+            fallback_unit_text=fallback_unit_text,
+            fallback_unit_scale=fallback_unit_scale,
+        ):
             values[field] = result
     return values
 
@@ -296,11 +357,19 @@ def select_candidate_pages(
 
 
 def locate_balance_field(
-    field_name: str, pages: list[dict[str, Any]], labels: tuple[str, ...]
+    field_name: str,
+    pages: list[dict[str, Any]],
+    labels: tuple[str, ...],
+    *,
+    fallback_unit_text: str,
+    fallback_unit_scale: float,
 ) -> dict[str, Any] | None:
     for page in pages:
         text = normalize_page_text(page)
         unit_text, unit_scale = detect_unit_scale(text)
+        if unit_scale == 1.0 and fallback_unit_scale != 1.0:
+            unit_text = fallback_unit_text
+            unit_scale = fallback_unit_scale
         for label in labels:
             extracted = extract_balance_field(text, label)
             if extracted is None:
@@ -415,6 +484,12 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
     net_profit = current_value(row_values, "net_profit")
     deducted_net_profit = current_value(row_values, "deducted_net_profit")
     operating_cash_flow = current_value(row_values, "operating_cash_flow")
+    operating_revenue = current_value(row_values, "operating_revenue") or revenue
+    operating_cost = current_value(row_values, "operating_cost")
+    sales_expense = current_value(row_values, "sales_expense")
+    admin_expense = current_value(row_values, "admin_expense")
+    rd_expense = current_value(row_values, "rd_expense")
+    finance_expense = current_value(row_values, "finance_expense")
 
     revenue_yoy = change_value(row_values, "revenue")
     if revenue_yoy is not None:
@@ -428,6 +503,21 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
 
     if revenue is not None and net_profit is not None and revenue != 0:
         derived["P2"] = round(net_profit / revenue * 100.0, 2)
+
+    if operating_revenue not in (None, 0) and rd_expense is not None:
+        derived["G3"] = round(rd_expense / operating_revenue * 100.0, 2)
+
+    if operating_revenue not in (None, 0) and operating_cost is not None:
+        derived["P1"] = round((operating_revenue - operating_cost) / operating_revenue * 100.0, 2)
+
+    if operating_revenue not in (None, 0):
+        period_expenses = [
+            value
+            for value in [sales_expense, admin_expense, rd_expense, finance_expense]
+            if value is not None
+        ]
+        if len(period_expenses) >= 3:
+            derived["P3"] = round(sum(period_expenses) / operating_revenue * 100.0, 2)
 
     if net_profit not in (None, 0) and operating_cash_flow is not None:
         derived["C1"] = round(operating_cash_flow / net_profit, 4)
@@ -443,6 +533,16 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
         derived["RAW_DEDUCTED_NET_PROFIT"] = round(deducted_net_profit, 2)
     if operating_cash_flow is not None:
         derived["RAW_OPERATING_CASH_FLOW"] = round(operating_cash_flow, 2)
+    if operating_cost is not None:
+        derived["RAW_OPERATING_COST"] = round(operating_cost, 2)
+    if sales_expense is not None:
+        derived["RAW_SALES_EXPENSE"] = round(sales_expense, 2)
+    if admin_expense is not None:
+        derived["RAW_ADMIN_EXPENSE"] = round(admin_expense, 2)
+    if rd_expense is not None:
+        derived["RAW_RD_EXPENSE"] = round(rd_expense, 2)
+    if finance_expense is not None:
+        derived["RAW_FINANCE_EXPENSE"] = round(finance_expense, 2)
 
     assets = current_value(row_values, "assets")
     equity_parent = current_value(row_values, "equity_parent")

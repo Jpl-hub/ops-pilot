@@ -12,6 +12,7 @@ from opspilot.ingest.silver_metrics import (
     detect_unit_scale,
     derive_metric_codes,
     extract_balance_field,
+    extract_profit_statement_values,
     infer_report_period,
     parse_value_segment,
     select_summary_page,
@@ -42,11 +43,20 @@ class SilverMetricsTestCase(unittest.TestCase):
                 "change_pct": 200.0,
                 "tokens": [],
             },
+            "operating_revenue": {"current": 100.0, "previous": 80.0, "change_pct": None, "tokens": []},
+            "operating_cost": {"current": 70.0, "previous": 60.0, "change_pct": None, "tokens": []},
+            "sales_expense": {"current": 5.0, "previous": 4.0, "change_pct": None, "tokens": []},
+            "admin_expense": {"current": 3.0, "previous": 2.0, "change_pct": None, "tokens": []},
+            "rd_expense": {"current": 4.0, "previous": 3.0, "change_pct": None, "tokens": []},
+            "finance_expense": {"current": 1.0, "previous": 0.5, "change_pct": None, "tokens": []},
         }
         derived = derive_metric_codes(row_values)
         self.assertEqual(derived["G1"], 25.0)
         self.assertEqual(derived["G2"], 11.11)
+        self.assertEqual(derived["G3"], 4.0)
+        self.assertEqual(derived["P1"], 30.0)
         self.assertEqual(derived["P2"], 12.0)
+        self.assertEqual(derived["P3"], 13.0)
         self.assertEqual(derived["C1"], 1.25)
         self.assertEqual(derived["C2"], 0.15)
 
@@ -105,6 +115,30 @@ class SilverMetricsTestCase(unittest.TestCase):
         self.assertIsNotNone(extracted)
         self.assertEqual(extracted["current"], 1508150285.79)
         self.assertEqual(extracted["previous"], 1902000262.18)
+
+    def test_profit_statement_uses_fallback_unit_scale(self) -> None:
+        pages = [
+            {
+                "page": 9,
+                "blocks": [
+                    {
+                        "text": (
+                            "合并利润表 二、营业总成本 231,962,490 215,471,465 "
+                            "其中：营业成本 211,427,147 194,352,589 "
+                            "销售费用 2,408,522 2,608,019 管理费用 8,231,715 6,774,456 "
+                            "研发费用 15,067,826 13,073,136 财务费用 -7,015,786 -2,894,209"
+                        )
+                    }
+                ],
+            }
+        ]
+        values = extract_profit_statement_values(
+            pages,
+            fallback_unit_text="（千元）",
+            fallback_unit_scale=1000.0,
+        )
+        self.assertEqual(values["operating_cost"]["current"], 211427147000.0)
+        self.assertEqual(values["rd_expense"]["current"], 15067826000.0)
 
     def test_derive_metric_codes_builds_balance_sheet_ratios(self) -> None:
         row_values = {
