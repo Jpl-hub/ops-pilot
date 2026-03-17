@@ -16,12 +16,21 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: ops-pilot-api
-    env_file:
-      - .env
     ports:
       - "8000:8000"
     depends_on:
       - postgres
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ops-pilot-ui
+    command: ["ops-pilot-ui"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
 
 volumes:
   postgres_data:

@@ -25,13 +25,65 @@ OpsPilot_需求与设计文档.md  项目母版文档
 
 ## 本地启动
 
-1. 使用 Python 3.11 创建虚拟环境。
-2. 安装依赖：`pip install -e .`
+### 方式一：直接按命令启动
+
+1. 使用 Python 3.11 创建虚拟环境并激活。
+2. 安装依赖：
+
+```bash
+pip install -r requirements.txt
+pip install -e .
+```
+
 3. 复制 `.env.example` 为 `.env` 并按需修改。
-4. 启动 API：`ops-pilot-api`
-5. 启动 UI：`ops-pilot-ui`
+4. 启动后端 API：
+
+```bash
+ops-pilot-api
+```
+
+默认监听 `http://127.0.0.1:8000`。
+
+5. 启动前端 UI（当前前端为 NiceGUI，不是独立 Vue 工程）：
+
+```bash
+ops-pilot-ui
+```
+
+默认监听 `http://127.0.0.1:8080`。
+
+### 方式二：Docker Compose 一键启动
+
+```bash
+docker compose up --build
+```
+
+启动后：
+
+- API：`http://127.0.0.1:8000`
+- UI：`http://127.0.0.1:8080`
+- PostgreSQL：`127.0.0.1:5432`
+
+### 常用开发命令
+
+```bash
+python -m unittest discover -s tests -t .
+ops-pilot-fetch-real-data --codes 601012,002129,300750,300014,300274,002202
+ops-pilot-parse-official-reports --codes 601012,002129,300750,300014,300274,002202
+ops-pilot-build-silver-metrics --codes 601012,002129,300750,300014,300274,002202
+```
 
 当前环境若未安装 `nicegui`，API 仍可运行，UI 启动会给出明确提示。
+
+## 前端说明
+
+当前仓库前端采用 `NiceGUI`，原因是：
+
+- 与项目母版文档当前冻结技术栈一致
+- 单仓库全 Python，更适合比赛阶段快速迭代
+- 现在 UI 还处于业务闭环验证期，尚未进入复杂前后端分离阶段
+
+如果后面我们确定要冲更强展示效果、复杂交互和多页面工程化，我同意在后续阶段切到 `Vue 3 + ECharts`。但当前阶段不建议立刻迁移，否则会打断真实数据、指标体系、证据链这条主线。
 
 ## 官方真实数据抓取
 
@@ -81,12 +133,6 @@ ops-pilot-build-silver-metrics --codes 601012,002129,300750,300014,300274,002202
 - API 在未显式传 `report_period` 时，默认优先使用当前可比主周期 `2025Q3`
 
 二进制原始文件默认不纳入 Git，仓库只保留脚本、公司池和 manifest 结构。
-
-## Docker
-
-```bash
-docker compose up --build
-```
 
 ## 下一步
 
