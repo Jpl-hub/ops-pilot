@@ -49,6 +49,14 @@ class SilverMetricsTestCase(unittest.TestCase):
             "admin_expense": {"current": 3.0, "previous": 2.0, "change_pct": None, "tokens": []},
             "rd_expense": {"current": 4.0, "previous": 3.0, "change_pct": None, "tokens": []},
             "finance_expense": {"current": 1.0, "previous": 0.5, "change_pct": None, "tokens": []},
+            "accounts_receivable": {
+                "current": 30.0,
+                "previous": 20.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "inventory": {"current": 40.0, "previous": 20.0, "change_pct": None, "tokens": []},
+            "_meta": {"report_period": "2025H1"},
         }
         derived = derive_metric_codes(row_values)
         self.assertEqual(derived["G1"], 25.0)
@@ -57,6 +65,8 @@ class SilverMetricsTestCase(unittest.TestCase):
         self.assertEqual(derived["P1"], 30.0)
         self.assertEqual(derived["P2"], 12.0)
         self.assertEqual(derived["P3"], 13.0)
+        self.assertEqual(derived["P4"], 77.57)
+        self.assertEqual(derived["P5"], 45.25)
         self.assertEqual(derived["C1"], 1.25)
         self.assertEqual(derived["C2"], 0.15)
 

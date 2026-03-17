@@ -27,6 +27,8 @@ FIELD_LABELS = {
 BALANCE_FIELD_LABELS = {
     "cash_funds": ("货币资金",),
     "current_assets": ("流动资产合计",),
+    "accounts_receivable": ("应收账款",),
+    "inventory": ("存货",),
     "current_liabilities": ("流动负债合计",),
     "total_liabilities": ("负债合计",),
     "short_term_borrowings": ("短期借款",),
@@ -73,6 +75,8 @@ MONETARY_FIELDS = {
     "equity_parent",
     "cash_funds",
     "current_assets",
+    "accounts_receivable",
+    "inventory",
     "current_liabilities",
     "total_liabilities",
     "short_term_borrowings",
@@ -187,7 +191,13 @@ def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, 
     row_values = apply_unit_scale(row_values, unit_scale)
     balance_row_values = extract_balance_sheet_values(pages, fallback_unit_text=unit_text, fallback_unit_scale=unit_scale)
     profit_row_values = extract_profit_statement_values(pages, fallback_unit_text=unit_text, fallback_unit_scale=unit_scale)
-    derived_metrics = derive_metric_codes({**row_values, **balance_row_values, **profit_row_values})
+    merged_row_values = {
+        **row_values,
+        **balance_row_values,
+        **profit_row_values,
+        "_meta": {"report_period": report_period},
+    }
+    derived_metrics = derive_metric_codes(merged_row_values)
     summary_chunk_id = f"{record['report_id']}-summary-page-{summary_page['page']:03d}"
 
     return {
@@ -205,7 +215,8 @@ def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, 
                 "change_pct": value["change_pct"],
                 "tokens": value["tokens"],
             }
-            for key, value in {**row_values, **balance_row_values, **profit_row_values}.items()
+            for key, value in merged_row_values.items()
+            if key != "_meta"
         },
         "derived_metrics": derived_metrics,
     }
@@ -299,7 +310,7 @@ def extract_balance_sheet_values(
     liability_pages = select_candidate_pages(pages, LIABILITY_PAGE_ANCHORS)
 
     values: dict[str, dict[str, Any]] = {}
-    for field in ("cash_funds", "current_assets"):
+    for field in ("cash_funds", "accounts_receivable", "inventory", "current_assets"):
         if result := locate_balance_field(
             field,
             asset_pages or pages,
@@ -554,6 +565,8 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
     due_within_one_year = (
         current_value(row_values, "due_within_one_year_noncurrent_liabilities") or 0.0
     )
+    accounts_receivable = current_value(row_values, "accounts_receivable")
+    inventory = current_value(row_values, "inventory")
 
     if current_assets not in (None, 0) and current_liabilities not in (None, 0):
         derived["S1"] = round(current_assets / current_liabilities, 4)
@@ -563,6 +576,16 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
     if cash_funds is not None and short_debt > 0:
         derived["S4"] = round(cash_funds / short_debt, 4)
 
+    period_days = report_period_days(row_values)
+    if operating_cost not in (None, 0) and inventory is not None:
+        average_inventory = average_period_balance(row_values, "inventory")
+        if average_inventory is not None:
+            derived["P4"] = round(average_inventory / operating_cost * period_days, 2)
+    if operating_revenue not in (None, 0) and accounts_receivable is not None:
+        average_receivable = average_period_balance(row_values, "accounts_receivable")
+        if average_receivable is not None:
+            derived["P5"] = round(average_receivable / operating_revenue * period_days, 2)
+
     if assets is not None:
         derived["RAW_TOTAL_ASSETS"] = round(assets, 2)
     if equity_parent is not None:
@@ -571,6 +594,10 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
         derived["RAW_CASH_FUNDS"] = round(cash_funds, 2)
     if current_assets is not None:
         derived["RAW_CURRENT_ASSETS"] = round(current_assets, 2)
+    if accounts_receivable is not None:
+        derived["RAW_ACCOUNTS_RECEIVABLE"] = round(accounts_receivable, 2)
+    if inventory is not None:
+        derived["RAW_INVENTORY"] = round(inventory, 2)
     if current_liabilities is not None:
         derived["RAW_CURRENT_LIABILITIES"] = round(current_liabilities, 2)
     if total_liabilities is not None:
@@ -583,6 +610,31 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
         )
 
     return derived
+
+
+def average_period_balance(row_values: dict[str, dict[str, Any]], field: str) -> float | None:
+    current = current_value(row_values, field)
+    previous = row_values.get(field, {}).get("previous")
+    if current is None:
+        return None
+    if previous is None:
+        return current
+    return (current + float(previous)) / 2.0
+
+
+def report_period_days(row_values: dict[str, dict[str, Any]]) -> int:
+    report_period = row_values.get("_meta", {}).get("report_period")
+    if report_period is None:
+        return 365
+    if report_period.endswith("Q1"):
+        return 90
+    if report_period.endswith("H1"):
+        return 181
+    if report_period.endswith("Q3"):
+        return 273
+    if report_period.endswith("FY"):
+        return 365
+    return 365
 
 
 def current_value(row_values: dict[str, dict[str, Any]], field: str) -> float | None:
