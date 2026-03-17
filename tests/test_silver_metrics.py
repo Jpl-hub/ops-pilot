@@ -11,6 +11,7 @@ from opspilot.ingest.silver_metrics import (
     apply_unit_scale,
     detect_unit_scale,
     derive_metric_codes,
+    extract_balance_field,
     infer_report_period,
     parse_value_segment,
     select_summary_page,
@@ -97,6 +98,53 @@ class SilverMetricsTestCase(unittest.TestCase):
             unit_scale,
         )
         self.assertEqual(scaled["revenue"]["current"], 423701834000.0)
+
+    def test_extract_balance_field_skips_note_numbers(self) -> None:
+        text = "一年内到期的非流动负债 七、43 1,508,150,285.79 1,902,000,262.18 其他流动负债"
+        extracted = extract_balance_field(text, "一年内到期的非流动负债")
+        self.assertIsNotNone(extracted)
+        self.assertEqual(extracted["current"], 1508150285.79)
+        self.assertEqual(extracted["previous"], 1902000262.18)
+
+    def test_derive_metric_codes_builds_balance_sheet_ratios(self) -> None:
+        row_values = {
+            "assets": {"current": 1000.0, "previous": 900.0, "change_pct": 11.0, "tokens": []},
+            "total_liabilities": {
+                "current": 600.0,
+                "previous": 550.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "current_assets": {
+                "current": 400.0,
+                "previous": 380.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "current_liabilities": {
+                "current": 200.0,
+                "previous": 210.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "cash_funds": {"current": 180.0, "previous": 150.0, "change_pct": None, "tokens": []},
+            "short_term_borrowings": {
+                "current": 50.0,
+                "previous": 40.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "due_within_one_year_noncurrent_liabilities": {
+                "current": 10.0,
+                "previous": 12.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+        }
+        derived = derive_metric_codes(row_values)
+        self.assertEqual(derived["S1"], 2.0)
+        self.assertEqual(derived["S2"], 60.0)
+        self.assertEqual(derived["S4"], 3.0)
 
     def test_infer_report_period_supports_standard_report_types(self) -> None:
         self.assertEqual(infer_report_period("2025年半年度报告", "2025-08-23"), "2025H1")

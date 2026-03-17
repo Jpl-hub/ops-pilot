@@ -24,6 +24,14 @@ FIELD_LABELS = {
     "assets": ("总资产", "资产总额"),
     "equity_parent": ("归属于上市公司股东的净资产", "归属于上市公司股东的所有者权益"),
 }
+BALANCE_FIELD_LABELS = {
+    "cash_funds": ("货币资金",),
+    "current_assets": ("流动资产合计",),
+    "current_liabilities": ("流动负债合计",),
+    "total_liabilities": ("负债合计",),
+    "short_term_borrowings": ("短期借款",),
+    "due_within_one_year_noncurrent_liabilities": ("一年内到期的非流动负债",),
+}
 
 FIELD_ORDER = list(FIELD_LABELS)
 CORE_SUMMARY_LABELS = (
@@ -41,6 +49,12 @@ MONETARY_FIELDS = {
     "operating_cash_flow",
     "assets",
     "equity_parent",
+    "cash_funds",
+    "current_assets",
+    "current_liabilities",
+    "total_liabilities",
+    "short_term_borrowings",
+    "due_within_one_year_noncurrent_liabilities",
 }
 Q3_CUMULATIVE_FIELDS = {
     "revenue",
@@ -50,6 +64,8 @@ Q3_CUMULATIVE_FIELDS = {
     "diluted_eps",
     "roe",
 }
+ASSET_PAGE_ANCHORS = ("流动资产合计", "合并资产负债表", "资产负债表", "流动资产：")
+LIABILITY_PAGE_ANCHORS = ("流动负债合计", "负债合计", "所有者权益合计", "流动负债：")
 UNIT_SCALE_BY_TEXT = {
     "单位：元": 1.0,
     "单位：千元": 1_000.0,
@@ -138,14 +154,16 @@ def main() -> None:
 
 def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, Any]:
     page_payload = json.loads(Path(record["page_json_path"]).read_text(encoding="utf-8"))
-    summary_page = select_summary_page(page_payload.get("pages", []), max_pages=max_pages)
+    pages = page_payload.get("pages", [])
+    summary_page = select_summary_page(pages, max_pages=max_pages)
     summary_text = normalize_page_text(summary_page)
     row_values = extract_row_values(summary_text)
     report_period = infer_report_period(record["title"], record["publish_date"])
     row_values = apply_period_selection(row_values, report_period)
     unit_text, unit_scale = detect_unit_scale(summary_text)
     row_values = apply_unit_scale(row_values, unit_scale)
-    derived_metrics = derive_metric_codes(row_values)
+    balance_row_values = extract_balance_sheet_values(pages)
+    derived_metrics = derive_metric_codes({**row_values, **balance_row_values})
     summary_chunk_id = f"{record['report_id']}-summary-page-{summary_page['page']:03d}"
 
     return {
@@ -163,7 +181,7 @@ def extract_record(record: dict[str, Any], *, max_pages: int = 20) -> dict[str, 
                 "change_pct": value["change_pct"],
                 "tokens": value["tokens"],
             }
-            for key, value in row_values.items()
+            for key, value in {**row_values, **balance_row_values}.items()
         },
         "derived_metrics": derived_metrics,
     }
@@ -217,7 +235,8 @@ def extract_row_values(text: str) -> dict[str, dict[str, Any]]:
 
 
 def build_label_pattern(label: str) -> re.Pattern[str]:
-    return re.compile(r"\s*".join(re.escape(char) for char in label))
+    body = r"\s*".join(re.escape(char) for char in label)
+    return re.compile(rf"(?<![\u4e00-\u9fffA-Za-z0-9]){body}(?![\u4e00-\u9fffA-Za-z0-9])")
 
 
 def parse_value_segment(segment: str) -> dict[str, Any]:
@@ -244,6 +263,86 @@ def parse_value_segment(segment: str) -> dict[str, Any]:
         "change_pct": change_pct,
         "tokens": [token["raw"] for token in parsed_tokens[:8]],
     }
+
+
+def extract_balance_sheet_values(pages: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    asset_pages = select_candidate_pages(pages, ASSET_PAGE_ANCHORS)
+    liability_pages = select_candidate_pages(pages, LIABILITY_PAGE_ANCHORS)
+
+    values: dict[str, dict[str, Any]] = {}
+    for field in ("cash_funds", "current_assets"):
+        if result := locate_balance_field(field, asset_pages or pages, BALANCE_FIELD_LABELS[field]):
+            values[field] = result
+    for field in (
+        "current_liabilities",
+        "total_liabilities",
+        "short_term_borrowings",
+        "due_within_one_year_noncurrent_liabilities",
+    ):
+        if result := locate_balance_field(field, liability_pages or pages, BALANCE_FIELD_LABELS[field]):
+            values[field] = result
+    return values
+
+
+def select_candidate_pages(
+    pages: list[dict[str, Any]], anchors: tuple[str, ...]
+) -> list[dict[str, Any]]:
+    candidates = []
+    for page in pages:
+        text = normalize_page_text(page)
+        if any(anchor in text for anchor in anchors):
+            candidates.append(page)
+    return candidates
+
+
+def locate_balance_field(
+    field_name: str, pages: list[dict[str, Any]], labels: tuple[str, ...]
+) -> dict[str, Any] | None:
+    for page in pages:
+        text = normalize_page_text(page)
+        unit_text, unit_scale = detect_unit_scale(text)
+        for label in labels:
+            extracted = extract_balance_field(text, label)
+            if extracted is None:
+                continue
+            extracted["page"] = page["page"]
+            extracted["unit_text"] = unit_text
+            if unit_scale != 1.0:
+                extracted = apply_unit_scale({field_name: extracted}, unit_scale)[field_name]
+                extracted["page"] = page["page"]
+                extracted["unit_text"] = unit_text
+            return extracted
+    return None
+
+
+def extract_balance_field(text: str, label: str) -> dict[str, Any] | None:
+    match = build_label_pattern(label).search(text)
+    if match is None:
+        return None
+
+    segment = text[match.end() : match.end() + 180]
+    parsed_tokens = []
+    for raw in NUMBER_RE.findall(segment):
+        if raw.endswith("%"):
+            continue
+        value = parse_numeric_token(raw)
+        if not is_plausible_balance_number(raw, value):
+            continue
+        parsed_tokens.append({"raw": raw, "value": value})
+
+    if not parsed_tokens:
+        return None
+    return {
+        "current": parsed_tokens[0]["value"],
+        "previous": parsed_tokens[1]["value"] if len(parsed_tokens) >= 2 else None,
+        "change_pct": None,
+        "tokens": [token["raw"] for token in parsed_tokens[:6]],
+    }
+
+
+def is_plausible_balance_number(raw: str, value: float) -> bool:
+    digits = re.sub(r"\D", "", raw)
+    return "," in raw or len(digits) >= 5 or abs(value) >= 10000
 
 
 def apply_period_selection(
@@ -347,10 +446,41 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
 
     assets = current_value(row_values, "assets")
     equity_parent = current_value(row_values, "equity_parent")
+    cash_funds = current_value(row_values, "cash_funds")
+    current_assets = current_value(row_values, "current_assets")
+    current_liabilities = current_value(row_values, "current_liabilities")
+    total_liabilities = current_value(row_values, "total_liabilities")
+    short_term_borrowings = current_value(row_values, "short_term_borrowings") or 0.0
+    due_within_one_year = (
+        current_value(row_values, "due_within_one_year_noncurrent_liabilities") or 0.0
+    )
+
+    if current_assets not in (None, 0) and current_liabilities not in (None, 0):
+        derived["S1"] = round(current_assets / current_liabilities, 4)
+    if assets not in (None, 0) and total_liabilities is not None:
+        derived["S2"] = round(total_liabilities / assets * 100.0, 2)
+    short_debt = short_term_borrowings + due_within_one_year
+    if cash_funds is not None and short_debt > 0:
+        derived["S4"] = round(cash_funds / short_debt, 4)
+
     if assets is not None:
         derived["RAW_TOTAL_ASSETS"] = round(assets, 2)
     if equity_parent is not None:
         derived["RAW_PARENT_EQUITY"] = round(equity_parent, 2)
+    if cash_funds is not None:
+        derived["RAW_CASH_FUNDS"] = round(cash_funds, 2)
+    if current_assets is not None:
+        derived["RAW_CURRENT_ASSETS"] = round(current_assets, 2)
+    if current_liabilities is not None:
+        derived["RAW_CURRENT_LIABILITIES"] = round(current_liabilities, 2)
+    if total_liabilities is not None:
+        derived["RAW_TOTAL_LIABILITIES"] = round(total_liabilities, 2)
+    if short_term_borrowings > 0:
+        derived["RAW_SHORT_TERM_BORROWINGS"] = round(short_term_borrowings, 2)
+    if due_within_one_year > 0:
+        derived["RAW_DUE_WITHIN_ONE_YEAR_NONCURRENT_LIABILITIES"] = round(
+            due_within_one_year, 2
+        )
 
     return derived
 
