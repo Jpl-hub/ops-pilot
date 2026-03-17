@@ -49,11 +49,13 @@ class ServicesTestCase(unittest.TestCase):
         self.assertEqual(cards[0]["metrics"][0]["metric_code"], "C3")
         self.assertEqual(cards[0]["formula_metric_codes"], ["C3"])
         self.assertEqual(cards[0]["evidence_refs"], ["c3-evidence"])
+        self.assertEqual(cards[0]["anchor_terms"], ["应收账款", "营业收入"])
 
         self.assertEqual(cards[1]["code"], "R5")
         self.assertEqual(cards[1]["metrics"][0]["metric_code"], "I1")
         self.assertEqual(cards[1]["formula_metric_codes"], [])
         self.assertEqual(cards[1]["evidence_refs"], ["i1-evidence"])
+        self.assertEqual(cards[1]["anchor_terms"], ["政府补助"])
 
     def test_build_evidence_groups_prioritizes_label_and_formula_sections(self) -> None:
         label_cards = [
@@ -65,6 +67,7 @@ class ServicesTestCase(unittest.TestCase):
                 "evidence_refs": ["c3-evidence"],
                 "metrics": [],
                 "formula_metric_codes": ["C3"],
+                "anchor_terms": ["应收账款", "营业收入"],
             }
         ]
         formula_cards = [
@@ -75,6 +78,7 @@ class ServicesTestCase(unittest.TestCase):
                 "value": 27.43,
                 "lines": [],
                 "evidence_refs": ["c3-evidence", "revenue-evidence"],
+                "anchor_terms": ["应收账款", "营业收入"],
             }
         ]
         evidence = [
@@ -86,11 +90,13 @@ class ServicesTestCase(unittest.TestCase):
 
         self.assertEqual(groups[0]["code"], "R2")
         self.assertEqual([item["chunk_id"] for item in groups[0]["items"]], ["c3-evidence"])
+        self.assertEqual(groups[0]["anchor_terms"], ["应收账款", "营业收入"])
         self.assertEqual(groups[1]["code"], "C3")
         self.assertEqual(
             [item["chunk_id"] for item in groups[1]["items"]],
             ["c3-evidence", "revenue-evidence"],
         )
+        self.assertEqual(groups[1]["anchor_terms"], ["应收账款", "营业收入"])
         self.assertEqual(groups[2]["code"], "ALL")
 
 

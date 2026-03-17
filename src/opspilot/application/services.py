@@ -28,6 +28,23 @@ LABEL_METRIC_CODES = {
     "O4": ("S4",),
     "O5": ("G3",),
 }
+METRIC_ANCHOR_TERMS = {
+    "C1": ("经营活动产生的现金流量净额", "净利润"),
+    "C3": ("应收账款", "营业收入"),
+    "G1": ("营业收入",),
+    "G2": ("扣非净利润", "净利润"),
+    "G3": ("研发费用",),
+    "I1": ("政府补助",),
+    "I2": ("审计", "未经审计", "无保留意见"),
+    "I3": ("诉讼", "处罚"),
+    "I4": ("减值", "关联交易"),
+    "P1": ("毛利率", "营业成本"),
+    "P4": ("存货",),
+    "P5": ("应收账款",),
+    "S1": ("流动资产合计", "流动负债合计"),
+    "S3": ("利润总额", "利息费用"),
+    "S4": ("货币资金", "短期借款"),
+}
 
 
 class OpsPilotService:
@@ -349,6 +366,7 @@ def _build_formula_card(company: dict[str, Any], metric_code: str) -> dict[str, 
                 f"结果：{_format_pct(context.get('value'))}",
             ],
             "evidence_refs": company.get("metric_evidence", {}).get(metric_code, []),
+            "anchor_terms": _anchor_terms_for_metrics((metric_code,)),
         }
     if metric_code == "S3":
         return {
@@ -362,6 +380,7 @@ def _build_formula_card(company: dict[str, Any], metric_code: str) -> dict[str, 
                 f"结果：{_format_number(context.get('value'))}",
             ],
             "evidence_refs": company.get("metric_evidence", {}).get(metric_code, []),
+            "anchor_terms": _anchor_terms_for_metrics((metric_code,)),
         }
     return None
 
@@ -412,6 +431,7 @@ def _build_label_cards(
                 "evidence_refs": label["evidence_refs"],
                 "metrics": metric_rows,
                 "formula_metric_codes": linked_formula_cards,
+                "anchor_terms": _anchor_terms_for_metrics(LABEL_METRIC_CODES.get(label["code"], ())),
             }
         )
     return label_cards
@@ -439,6 +459,7 @@ def _build_evidence_groups(
                 "code": card["code"],
                 "title": f"{card['code']} {card['name']}",
                 "subtitle": "标签触发证据",
+                "anchor_terms": card.get("anchor_terms", []),
                 "items": items,
             }
         )
@@ -457,6 +478,7 @@ def _build_evidence_groups(
                 "code": card["metric_code"],
                 "title": f"{card['metric_code']} {card['title']}",
                 "subtitle": "公式输入证据",
+                "anchor_terms": card.get("anchor_terms", []),
                 "items": items,
             }
         )
@@ -468,10 +490,20 @@ def _build_evidence_groups(
                 "code": "ALL",
                 "title": "全部证据",
                 "subtitle": "当前评分结果涉及的完整证据包",
+                "anchor_terms": [],
                 "items": evidence,
             }
         )
     return groups
+
+
+def _anchor_terms_for_metrics(metric_codes: tuple[str, ...] | list[str]) -> list[str]:
+    terms: list[str] = []
+    for metric_code in metric_codes:
+        for term in METRIC_ANCHOR_TERMS.get(metric_code, (METRIC_BY_CODE[metric_code].name,)):
+            if term not in terms:
+                terms.append(term)
+    return terms
 
 
 def _format_number(value: float | None) -> str:

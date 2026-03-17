@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from html import escape
 from typing import Any
+from urllib.parse import quote_plus
 
+from fastapi import Request
 from opspilot.api.routes import get_service
 
 
@@ -207,6 +210,13 @@ HEAD_HTML = """
     font-size: 13px;
     color: var(--op-muted);
   }
+
+  .op-highlight {
+    background: rgba(15, 118, 110, 0.18);
+    color: #0f5d56;
+    padding: 0 3px;
+    border-radius: 4px;
+  }
  </style>
 """
 
@@ -317,12 +327,31 @@ def run_ui_app() -> None:
                                 _render_pill(ui, label, tone="risk" if label != "暂无高风险标签" else "neutral")
 
     @ui.page("/evidence/{chunk_id}")
-    def evidence_page(chunk_id: str) -> None:
+    def evidence_page(chunk_id: str, request: Request) -> None:
         evidence_item = service.get_evidence(chunk_id)
+        context = request.query_params.get("context", "")
+        anchors = [
+            item
+            for item in request.query_params.get("anchors", "").split("|")
+            if item
+        ]
         with ui.column().classes("op-shell gap-6"):
             with ui.card().classes("op-panel w-full"):
                 ui.label("证据查看器").classes("op-section-title")
-                ui.label(chunk_id).classes("op-subtitle")
+                ui.label(context or chunk_id).classes("op-subtitle")
+                if context and context != chunk_id:
+                    ui.label(chunk_id).classes("op-note")
+                with ui.row().classes("gap-4 wrap"):
+                    _render_stat_card(ui, label="来源", value=evidence_item["source_title"], hint=evidence_item["source_type"])
+                    _render_stat_card(ui, label="页码", value=f"p.{evidence_item['page']}", hint=evidence_item["report_period"])
+                    _render_stat_card(ui, label="公司", value=evidence_item["company_name"], hint=evidence_item["fingerprint"])
+            with ui.card().classes("op-panel w-full"):
+                ui.label("重点片段").classes("op-section-title")
+                if anchors:
+                    ui.label("已按当前上下文高亮关键词。").classes("op-note")
+                ui.html(_highlight_excerpt(evidence_item["excerpt"], anchors)).classes("op-evidence-excerpt")
+            with ui.card().classes("op-panel w-full"):
+                ui.label("原始数据").classes("op-section-title")
                 ui.json_editor({"content": {"json": evidence_item}})
 
     ui.run(title="OpsPilot-X", reload=False, host="0.0.0.0", port=8080)
@@ -426,7 +455,10 @@ def _render_label_card(ui: Any, card: dict[str, Any]) -> None:
             ui.label("证据入口").classes("op-note")
             with ui.row().classes("gap-2 wrap"):
                 for chunk_id in card["evidence_refs"]:
-                    ui.link(chunk_id, f"/evidence/{chunk_id}").classes("op-evidence-link")
+                    ui.link(
+                        chunk_id,
+                        _build_evidence_href(chunk_id, f"{card['metric_code']} {card['title']}", card.get("anchor_terms", [])),
+                    ).classes("op-evidence-link")
 
 
 def _render_formula_section(ui: Any, container: Any, payload: dict[str, Any]) -> None:
@@ -462,7 +494,10 @@ def _render_formula_card(ui: Any, card: dict[str, Any]) -> None:
             ui.label("证据入口").classes("op-note")
             with ui.row().classes("gap-2 wrap"):
                 for chunk_id in card["evidence_refs"]:
-                    ui.link(chunk_id, f"/evidence/{chunk_id}").classes("op-evidence-link")
+                    ui.link(
+                        chunk_id,
+                        _build_evidence_href(chunk_id, f"{card['code']} {card['name']}", card.get("anchor_terms", [])),
+                    ).classes("op-evidence-link")
 
 
 def _render_evidence_section(ui: Any, container: Any, payload: dict[str, Any]) -> None:
@@ -478,7 +513,14 @@ def _render_evidence_section(ui: Any, container: Any, payload: dict[str, Any]) -
                     for item in group["items"]:
                         with ui.column().classes("w-full gap-2"):
                             with ui.row().classes("w-full items-center justify-between gap-3 wrap"):
-                                ui.link(item["chunk_id"], f"/evidence/{item['chunk_id']}").classes("op-evidence-link")
+                                ui.link(
+                                    item["chunk_id"],
+                                    _build_evidence_href(
+                                        item["chunk_id"],
+                                        group["title"],
+                                        group.get("anchor_terms", []),
+                                    ),
+                                ).classes("op-evidence-link")
                                 ui.label(f"{item['source_title']} | p.{item['page']}").classes("op-note")
                             ui.label(item["excerpt"]).classes("op-evidence-excerpt")
 
@@ -523,3 +565,24 @@ def _format_signal_value(value: float | None) -> str:
     if abs(value) >= 1:
         return f"{value:.2f}"
     return f"{value:.4f}"
+
+
+def _build_evidence_href(chunk_id: str, context: str, anchor_terms: list[str]) -> str:
+    params = []
+    if context:
+        params.append(f"context={quote_plus(context)}")
+    if anchor_terms:
+        params.append(f"anchors={quote_plus('|'.join(anchor_terms))}")
+    suffix = f"?{'&'.join(params)}" if params else ""
+    return f"/evidence/{chunk_id}{suffix}"
+
+
+def _highlight_excerpt(text: str, anchors: list[str]) -> str:
+    highlighted = escape(text)
+    for term in anchors:
+        escaped_term = escape(term)
+        highlighted = highlighted.replace(
+            escaped_term,
+            f"<mark class='op-highlight'>{escaped_term}</mark>",
+        )
+    return highlighted.replace("\n", "<br>")
