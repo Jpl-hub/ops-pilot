@@ -229,9 +229,9 @@ def run_ui_app() -> None:
         with ui.column().classes("op-shell gap-6"):
             with ui.card().classes("op-hero w-full"):
                 ui.label("OpsPilot-X").classes("op-kicker")
-                ui.label("新能源运营体检与证据回放驾驶舱").classes("op-title")
+                ui.label("新能源运营体检与证据分析平台").classes("op-title")
                 ui.label(
-                    "当前版本优先展示真实财报口径、评分闭环、公式回放与证据穿透。"
+                    "基于真实财报提供评分、风险识别、公式解释与证据追溯。"
                 ).classes("op-subtitle")
                 with ui.row().classes("gap-3 wrap"):
                     ui.link("进入企业体检页", "/score")
@@ -285,7 +285,7 @@ def run_ui_app() -> None:
                 _render_label_section(ui, label_section, payload)
                 _render_charts(ui, charts_section, payload)
                 _render_formula_section(ui, formula_section, payload)
-                _render_evidence_section(ui, evidence_section, payload["evidence"])
+                _render_evidence_section(ui, evidence_section, payload)
 
             refresh()
 
@@ -465,18 +465,22 @@ def _render_formula_card(ui: Any, card: dict[str, Any]) -> None:
                     ui.link(chunk_id, f"/evidence/{chunk_id}").classes("op-evidence-link")
 
 
-def _render_evidence_section(ui: Any, container: Any, evidence: list[dict[str, Any]]) -> None:
+def _render_evidence_section(ui: Any, container: Any, payload: dict[str, Any]) -> None:
     container.clear()
     with container:
         with ui.card().classes("op-panel w-full"):
-            ui.label("证据包").classes("op-section-title")
-            ui.label("点击证据编号可进入明细查看原文、页码和来源。").classes("op-subtitle")
-            for item in evidence:
-                with ui.column().classes("w-full gap-2"):
-                    with ui.row().classes("w-full items-center justify-between gap-3 wrap"):
-                        ui.link(item["chunk_id"], f"/evidence/{item['chunk_id']}").classes("op-evidence-link")
-                        ui.label(f"{item['source_title']} | p.{item['page']}").classes("op-note")
-                    ui.label(item["excerpt"]).classes("op-evidence-excerpt")
+            ui.label("证据聚焦").classes("op-section-title")
+            ui.label("优先查看当前标签和公式对应的关键证据，必要时再展开完整证据包。").classes("op-subtitle")
+            for group in payload["evidence_groups"]:
+                with ui.card().classes("op-mini-card"):
+                    ui.label(group["title"]).classes("text-lg font-semibold")
+                    ui.label(group["subtitle"]).classes("op-note")
+                    for item in group["items"]:
+                        with ui.column().classes("w-full gap-2"):
+                            with ui.row().classes("w-full items-center justify-between gap-3 wrap"):
+                                ui.link(item["chunk_id"], f"/evidence/{item['chunk_id']}").classes("op-evidence-link")
+                                ui.label(f"{item['source_title']} | p.{item['page']}").classes("op-note")
+                            ui.label(item["excerpt"]).classes("op-evidence-excerpt")
 
 
 def _render_stat_card(ui: Any, *, label: str, value: str, hint: str) -> None:

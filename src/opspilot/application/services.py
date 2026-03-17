@@ -85,6 +85,7 @@ class OpsPilotService:
         label_cards = _build_label_cards(company, risks, opportunities, formula_cards)
         evidence_ids = _collect_evidence_ids(company, score_result, risks, opportunities)
         evidence = self.repository.resolve_evidence(evidence_ids)
+        evidence_groups = _build_evidence_groups(label_cards, formula_cards, evidence)
         key_numbers = [
             {"label": "总分", "value": score_result["total_score"], "unit": "分"},
             {"label": "子行业分位", "value": score_result["subindustry_percentile"], "unit": "pct"},
@@ -105,6 +106,7 @@ class OpsPilotService:
             "key_numbers": key_numbers,
             "charts": _build_company_charts(company, score_result),
             "evidence": evidence,
+            "evidence_groups": evidence_groups,
             "calculations": calculations,
             "formula_cards": formula_cards,
             "label_cards": label_cards,
@@ -413,6 +415,63 @@ def _build_label_cards(
             }
         )
     return label_cards
+
+
+def _build_evidence_groups(
+    label_cards: list[dict[str, Any]],
+    formula_cards: list[dict[str, Any]],
+    evidence: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    evidence_by_id = {item["chunk_id"]: item for item in evidence}
+    groups: list[dict[str, Any]] = []
+
+    for card in label_cards:
+        items = [
+            evidence_by_id[chunk_id]
+            for chunk_id in card["evidence_refs"]
+            if chunk_id in evidence_by_id
+        ]
+        if not items:
+            continue
+        groups.append(
+            {
+                "group_type": "label",
+                "code": card["code"],
+                "title": f"{card['code']} {card['name']}",
+                "subtitle": "标签触发证据",
+                "items": items,
+            }
+        )
+
+    for card in formula_cards:
+        items = [
+            evidence_by_id[chunk_id]
+            for chunk_id in card["evidence_refs"]
+            if chunk_id in evidence_by_id
+        ]
+        if not items:
+            continue
+        groups.append(
+            {
+                "group_type": "formula",
+                "code": card["metric_code"],
+                "title": f"{card['metric_code']} {card['title']}",
+                "subtitle": "公式输入证据",
+                "items": items,
+            }
+        )
+
+    if evidence:
+        groups.append(
+            {
+                "group_type": "all",
+                "code": "ALL",
+                "title": "全部证据",
+                "subtitle": "当前评分结果涉及的完整证据包",
+                "items": evidence,
+            }
+        )
+    return groups
 
 
 def _format_number(value: float | None) -> str:
