@@ -111,12 +111,15 @@ class ServicesTestCase(unittest.TestCase):
             audit_min_evidence = 0
 
             def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
                 self.official_data_path = root / "raw"
                 self.bronze_data_path = root / "bronze"
                 self.silver_data_path = root / "silver"
 
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            (root / "bootstrap").mkdir(parents=True, exist_ok=True)
+            (root / "universe").mkdir(parents=True, exist_ok=True)
             for prefix in ("raw", "bronze", "silver"):
                 (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
             service = OpsPilotService(StubRepository(), StubSettings(root))
@@ -125,8 +128,116 @@ class ServicesTestCase(unittest.TestCase):
 
             self.assertEqual(payload["health"]["status"], "ok")
             self.assertEqual(payload["data_status"]["periodic_reports"]["record_count"], 0)
+            self.assertEqual(payload["quality_overview"]["coverage"]["pool_companies"], 0)
             self.assertEqual(payload["job_catalog"][0]["job_id"], "fetch_real_data")
             self.assertIn("企业评分", payload["capabilities"])
+
+    def test_admin_overview_reports_company_coverage_gaps(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return []
+
+            def list_company_names(self) -> list[str]:
+                return []
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+
+            def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bootstrap").mkdir(parents=True, exist_ok=True)
+            (root / "universe").mkdir(parents=True, exist_ok=True)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+
+            (root / "universe" / "formal_company_pool.json").write_text(
+                json.dumps(
+                    [
+                        {"company_name": "甲公司", "subindustry": "储能"},
+                        {"company_name": "乙公司", "subindustry": "光伏"},
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "raw" / "manifests" / "periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {"company_name": "甲公司"},
+                            {"company_name": "乙公司"},
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "raw" / "manifests" / "research_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {"company_name": "甲公司"},
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "bronze" / "manifests" / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {"company_name": "甲公司"},
+                            {"company_name": "乙公司"},
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "silver" / "manifests" / "financial_metrics_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {"company_name": "甲公司", "report_period": "2025Q3"},
+                            {"company_name": "甲公司", "report_period": "2025H1"},
+                            {"company_name": "乙公司", "report_period": "2025H1"},
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+            payload = service.admin_overview()
+            coverage = payload["quality_overview"]["coverage"]
+            issue_buckets = {
+                item["code"]: item for item in payload["quality_overview"]["issue_buckets"]
+            }
+            company_rows = {
+                item["company_name"]: item for item in payload["quality_overview"]["companies"]
+            }
+
+            self.assertEqual(coverage["pool_companies"], 2)
+            self.assertEqual(coverage["preferred_period_ready"], 1)
+            self.assertEqual(coverage["research_ready"], 1)
+            self.assertIn("缺主周期", issue_buckets)
+            self.assertIn("缺研报", issue_buckets)
+            self.assertEqual(company_rows["甲公司"]["issues"], [])
+            self.assertEqual(company_rows["乙公司"]["issues"], ["缺研报", "缺主周期"])
 
     def test_build_label_cards_links_formula_metrics_and_evidence(self) -> None:
         company = {

@@ -93,9 +93,11 @@ class OpsPilotService:
     def admin_overview(self) -> dict[str, Any]:
         health = self.health()
         data_status = self.official_data_status()
+        quality_overview = _build_admin_quality_overview(self.settings, health["preferred_period"])
         return {
             "health": health,
             "data_status": data_status,
+            "quality_overview": quality_overview,
             "job_catalog": _build_admin_job_catalog(),
             "capabilities": [
                 "企业评分",
@@ -1838,6 +1840,138 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         "generated_at": payload.get("generated_at"),
         "manifest_path": str(path),
     }
+
+
+def _build_admin_quality_overview(settings: Settings, preferred_period: str | None) -> dict[str, Any]:
+    company_pool = _load_json_records(settings.sample_data_path.parent / "universe" / "formal_company_pool.json")
+    raw_reports = _load_manifest_records(settings.official_data_path / "manifests" / "periodic_reports_manifest.json")
+    research_reports = _load_manifest_records(
+        settings.official_data_path / "manifests" / "research_reports_manifest.json"
+    )
+    bronze_reports = _load_manifest_records(
+        settings.bronze_data_path / "manifests" / "parsed_periodic_reports_manifest.json"
+    )
+    silver_records = _load_manifest_records(
+        settings.silver_data_path / "manifests" / "financial_metrics_manifest.json"
+    )
+
+    raw_by_company = _index_records_by_company(raw_reports)
+    research_by_company = _index_records_by_company(research_reports)
+    bronze_by_company = _index_records_by_company(bronze_reports)
+    silver_by_company = _index_records_by_company(silver_records)
+
+    company_rows: list[dict[str, Any]] = []
+    for company in company_pool:
+        company_name = company["company_name"]
+        raw_items = raw_by_company.get(company_name, [])
+        bronze_items = bronze_by_company.get(company_name, [])
+        silver_items = silver_by_company.get(company_name, [])
+        research_items = research_by_company.get(company_name, [])
+        silver_periods = sorted(
+            {
+                item.get("report_period")
+                for item in silver_items
+                if item.get("report_period")
+            },
+            key=_period_order_key,
+            reverse=True,
+        )
+        latest_period = silver_periods[0] if silver_periods else None
+        preferred_period_ready = bool(preferred_period and preferred_period in silver_periods)
+        issues: list[str] = []
+        if not raw_items:
+            issues.append("缺定期报告")
+        if raw_items and not bronze_items:
+            issues.append("缺页级解析")
+        if bronze_items and not silver_items:
+            issues.append("缺结构化指标")
+        if not research_items:
+            issues.append("缺研报")
+        if preferred_period and not preferred_period_ready:
+            issues.append("缺主周期")
+        company_rows.append(
+            {
+                "company_name": company_name,
+                "subindustry": company.get("subindustry", "未分类"),
+                "raw_report_count": len(raw_items),
+                "bronze_report_count": len(bronze_items),
+                "silver_record_count": len(silver_items),
+                "research_report_count": len(research_items),
+                "latest_silver_period": latest_period,
+                "preferred_period_ready": preferred_period_ready,
+                "issues": issues,
+            }
+        )
+
+    issue_buckets = [
+        {
+            "code": issue_code,
+            "label": issue_code,
+            "count": sum(1 for row in company_rows if issue_code in row["issues"]),
+            "companies": [row["company_name"] for row in company_rows if issue_code in row["issues"]][:12],
+        }
+        for issue_code in ("缺主周期", "缺研报", "缺定期报告", "缺页级解析", "缺结构化指标")
+    ]
+    issue_buckets = [item for item in issue_buckets if item["count"] > 0]
+    company_rows.sort(
+        key=lambda item: (
+            len(item["issues"]) == 0,
+            len(item["issues"]),
+            not item["preferred_period_ready"],
+            item["company_name"],
+        )
+    )
+    return {
+        "preferred_period": preferred_period,
+        "coverage": {
+            "pool_companies": len(company_rows),
+            "preferred_period_ready": sum(1 for row in company_rows if row["preferred_period_ready"]),
+            "research_ready": sum(1 for row in company_rows if row["research_report_count"] > 0),
+            "raw_ready": sum(1 for row in company_rows if row["raw_report_count"] > 0),
+            "bronze_ready": sum(1 for row in company_rows if row["bronze_report_count"] > 0),
+            "silver_ready": sum(1 for row in company_rows if row["silver_record_count"] > 0),
+        },
+        "issue_buckets": issue_buckets,
+        "companies": company_rows,
+    }
+
+
+def _index_records_by_company(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    indexed: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        company_name = record.get("company_name")
+        if not company_name:
+            continue
+        indexed.setdefault(company_name, []).append(record)
+    return indexed
+
+
+def _load_json_records(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    if isinstance(payload, list):
+        return payload
+    return payload.get("records", [])
+
+
+def _load_manifest_records(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return payload.get("records", [])
+
+
+def _period_order_key(period: str | None) -> tuple[int, int]:
+    if not period:
+        return (0, 0)
+    match = re.fullmatch(r"(\d{4})(Q1|H1|Q3|FY)", period)
+    if match is None:
+        return (0, 0)
+    suffix_rank = {"Q1": 1, "H1": 2, "Q3": 3, "FY": 4}
+    return (int(match.group(1)), suffix_rank[match.group(2)])
 
 
 def _build_admin_job_catalog() -> list[dict[str, Any]]:

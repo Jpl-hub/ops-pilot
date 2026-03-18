@@ -728,10 +728,12 @@ def run_ui_app() -> None:
             payload = service.admin_overview()
             health = payload["health"]
             data_status = payload["data_status"]
+            quality_overview = payload["quality_overview"]
+            coverage = quality_overview["coverage"]
             with ui.row().classes("items-end justify-between w-full gap-4 wrap"):
                 with ui.column().classes("gap-1"):
                     ui.label("系统管理台").classes("op-section-title")
-                    ui.label("统一查看系统健康、真实数据状态与标准作业命令。").classes("op-subtitle")
+                    ui.label("统一查看系统健康、真实数据状态、覆盖缺口与标准作业命令。").classes("op-subtitle")
                 ui.link("返回首页", "/").classes("op-evidence-link")
 
             with ui.row().classes("w-full gap-4 wrap"):
@@ -767,6 +769,54 @@ def run_ui_app() -> None:
                         _render_pill(ui, capability, tone="neutral")
 
             with ui.card().classes("op-panel w-full"):
+                ui.label("覆盖诊断").classes("op-section-title")
+                with ui.row().classes("w-full gap-4 wrap"):
+                    _render_stat_card(
+                        ui,
+                        label="正式公司池",
+                        value=str(coverage["pool_companies"]),
+                        hint="当前冻结正式公司范围",
+                    )
+                    _render_stat_card(
+                        ui,
+                        label="主周期可评估",
+                        value=str(coverage["preferred_period_ready"]),
+                        hint=quality_overview["preferred_period"] or "未识别主周期",
+                    )
+                    _render_stat_card(
+                        ui,
+                        label="研报已覆盖",
+                        value=str(coverage["research_ready"]),
+                        hint="有真实研报详情页",
+                    )
+                    _render_stat_card(
+                        ui,
+                        label="页级解析完成",
+                        value=str(coverage["bronze_ready"]),
+                        hint="raw -> bronze 已打通",
+                    )
+                    _render_stat_card(
+                        ui,
+                        label="结构化完成",
+                        value=str(coverage["silver_ready"]),
+                        hint="bronze -> silver 已打通",
+                    )
+
+            with ui.card().classes("op-panel w-full"):
+                ui.label("问题分桶").classes("op-section-title")
+                ui.label("直接暴露真实数据链路的缺口，优先处理主周期、研报和解析断点。").classes("op-note")
+                issue_buckets = quality_overview["issue_buckets"]
+                if not issue_buckets:
+                    ui.label("当前正式公司池未发现覆盖缺口。").classes("op-note")
+                else:
+                    with ui.row().classes("w-full gap-4 wrap items-stretch"):
+                        for bucket in issue_buckets:
+                            with ui.card().classes("op-mini-card"):
+                                ui.label(bucket["label"]).classes("text-lg font-semibold")
+                                ui.label(f"{bucket['count']} 家").classes("op-stat-hint")
+                                ui.label("、".join(bucket["companies"])).classes("op-evidence-excerpt")
+
+            with ui.card().classes("op-panel w-full"):
                 ui.label("数据状态").classes("op-section-title")
                 with ui.row().classes("w-full gap-4 wrap items-stretch"):
                     for label, item in (
@@ -787,6 +837,38 @@ def run_ui_app() -> None:
                                     with ui.row().classes("op-detail-row w-full items-center justify-between gap-3"):
                                         ui.label(detail_label).classes("text-sm")
                                         ui.label(detail_value).classes("text-sm font-medium")
+
+            with ui.card().classes("op-panel w-full"):
+                ui.label("公司覆盖明细").classes("op-section-title")
+                ui.label("优先显示存在缺口的公司，便于直接定位下一步数据作业目标。").classes("op-note")
+                with ui.row().classes("w-full gap-4 wrap items-stretch"):
+                    for item in quality_overview["companies"][:18]:
+                        with ui.card().classes("op-mini-card"):
+                            ui.label(item["company_name"]).classes("text-lg font-semibold")
+                            ui.label(item["subindustry"]).classes("op-stat-hint")
+                            with ui.column().classes("w-full gap-0"):
+                                for detail_label, detail_value in (
+                                    ("最新结构化报期", item["latest_silver_period"] or "未构建"),
+                                    ("定期报告", str(item["raw_report_count"])),
+                                    ("页级解析", str(item["bronze_report_count"])),
+                                    ("结构化记录", str(item["silver_record_count"])),
+                                    ("研报", str(item["research_report_count"])),
+                                ):
+                                    with ui.row().classes("op-detail-row w-full items-center justify-between gap-3"):
+                                        ui.label(detail_label).classes("text-sm")
+                                        ui.label(detail_value).classes("text-sm font-medium")
+                            with ui.row().classes("gap-2 wrap"):
+                                if item["preferred_period_ready"]:
+                                    _render_pill(ui, "主周期已就绪", tone="opportunity")
+                                else:
+                                    _render_pill(ui, "缺主周期", tone="risk")
+                                if item["issues"]:
+                                    for issue in item["issues"]:
+                                        if issue == "缺主周期":
+                                            continue
+                                        _render_pill(ui, issue, tone="risk")
+                                else:
+                                    _render_pill(ui, "链路完整", tone="neutral")
 
             with ui.card().classes("op-panel w-full"):
                 ui.label("标准作业").classes("op-section-title")
