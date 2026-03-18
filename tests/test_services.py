@@ -695,11 +695,14 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(timeline["key_numbers"][1]["value"], 1)
             self.assertEqual(timeline["institutions"][0]["institution"], "乙证券")
             self.assertEqual(timeline["institutions"][0]["report_count"], 2)
-            self.assertEqual(timeline["institutions"][0]["rating_stability"], 100.0)
+            self.assertIsNone(timeline["institutions"][0]["rating_stability"])
             self.assertEqual(
                 timeline["institutions"][0]["latest_transition"]["transition_kind"],
-                "target_changed",
+                "not_comparable",
             )
+            self.assertFalse(timeline["institutions"][0]["latest_transition"]["is_rating_comparable"])
+            self.assertTrue(timeline["institutions"][0]["latest_transition"]["is_forecast_comparable"])
+            self.assertEqual(timeline["institutions"][0]["latest_transition"]["forecast_delta"], 1.0)
 
 
 if __name__ == "__main__":

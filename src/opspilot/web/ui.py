@@ -670,6 +670,11 @@ def run_ui_app() -> None:
                                                         with ui.row().classes("gap-2 wrap"):
                                                             _render_pill(
                                                                 ui,
+                                                                "同报期可比" if transition["is_rating_comparable"] else "跨报期不可比",
+                                                                tone="neutral" if transition["is_rating_comparable"] else "risk",
+                                                            )
+                                                            _render_pill(
+                                                                ui,
                                                                 transition["rating_to"],
                                                                 tone="neutral",
                                                             )
@@ -684,6 +689,12 @@ def run_ui_app() -> None:
                                                                     ui,
                                                                     f"首年利润变动 {transition['forecast_delta']:.2f} 亿元",
                                                                     tone="risk" if transition["forecast_delta"] < 0 else "opportunity",
+                                                                )
+                                                            elif not transition["is_forecast_comparable"]:
+                                                                _render_pill(
+                                                                    ui,
+                                                                    "首年预测口径不同",
+                                                                    tone="risk",
                                                                 )
                 _render_evidence_section(ui, evidence_section, payload)
 

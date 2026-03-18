@@ -1424,7 +1424,11 @@ def _build_research_timeline_groups(rows: list[dict[str, Any]]) -> list[dict[str
         for previous, current in zip(ordered_items, ordered_items[1:]):
             transition = _build_research_transition(previous, current)
             transitions.append(transition)
-            if transition["rating_from"] != "未披露" and transition["rating_to"] != "未披露":
+            if (
+                transition["is_rating_comparable"]
+                and transition["rating_from"] != "未披露"
+                and transition["rating_to"] != "未披露"
+            ):
                 comparable_pairs += 1
                 if transition["rating_from"] == transition["rating_to"]:
                     same_rating_pairs += 1
@@ -1459,9 +1463,20 @@ def _build_research_timeline_groups(rows: list[dict[str, Any]]) -> list[dict[str
 
 
 def _build_research_transition(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    is_same_period = (
+        previous.get("report_period")
+        and previous.get("report_period") == current.get("report_period")
+    )
+    is_same_forecast_year = (
+        previous.get("headline_forecast_year")
+        and previous.get("headline_forecast_year") == current.get("headline_forecast_year")
+    )
     rating_from = previous.get("rating_text") or "未披露"
     rating_to = current.get("rating_text") or "未披露"
-    if rating_from != "未披露" and rating_to != "未披露" and rating_from != rating_to:
+    if not is_same_period:
+        transition_kind = "not_comparable"
+        summary = "报期不同，不直接比较评级和目标价"
+    elif rating_from != "未披露" and rating_to != "未披露" and rating_from != rating_to:
         transition_kind = "rating_changed"
         summary = f"评级由 {rating_from} 调整为 {rating_to}"
     else:
@@ -1469,7 +1484,11 @@ def _build_research_transition(previous: dict[str, Any], current: dict[str, Any]
         summary = f"评级维持 {rating_to}"
 
     target_delta = None
-    if previous.get("target_price") is not None and current.get("target_price") is not None:
+    if (
+        is_same_period
+        and previous.get("target_price") is not None
+        and current.get("target_price") is not None
+    ):
         target_delta = round(current["target_price"] - previous["target_price"], 2)
         if target_delta != 0:
             transition_kind = "target_changed"
@@ -1478,8 +1497,7 @@ def _build_research_transition(previous: dict[str, Any], current: dict[str, Any]
 
     forecast_delta = None
     if (
-        previous.get("headline_forecast_year")
-        and previous.get("headline_forecast_year") == current.get("headline_forecast_year")
+        is_same_forecast_year
         and previous.get("headline_forecast_value") is not None
         and current.get("headline_forecast_value") is not None
     ):
@@ -1492,12 +1510,16 @@ def _build_research_transition(previous: dict[str, Any], current: dict[str, Any]
         "publish_date": current.get("publish_date"),
         "title": current.get("title"),
         "report_period": current.get("report_period"),
+        "previous_report_period": previous.get("report_period"),
         "rating_from": rating_from,
         "rating_to": rating_to,
         "target_delta": target_delta,
         "forecast_delta": forecast_delta,
         "transition_kind": transition_kind,
         "summary": summary,
+        "is_rating_comparable": bool(is_same_period),
+        "is_forecast_comparable": bool(is_same_forecast_year),
+        "forecast_year": current.get("headline_forecast_year"),
     }
 
 
