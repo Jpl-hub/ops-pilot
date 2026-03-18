@@ -611,6 +611,80 @@ def run_ui_app() -> None:
                         with ui.card().classes("op-panel w-full"):
                             ui.label("同公司研报横向对比").classes("op-section-title")
                             ui.label("当前筛选条件下没有命中的研报，建议切回“全部研报”或放宽筛选。").classes("op-note")
+                    timeline_payload = payload.get("research_timeline", {})
+                    if timeline_payload.get("institutions"):
+                        with ui.card().classes("op-panel w-full"):
+                            ui.label("机构观点变化轨迹").classes("op-section-title")
+                            ui.label("按机构追踪评级、目标价和首年利润预测的时间序列变化。").classes("op-note")
+                            with ui.row().classes("w-full gap-4 wrap"):
+                                for item in timeline_payload.get("key_numbers", []):
+                                    _render_stat_card(
+                                        ui,
+                                        label=item["label"],
+                                        value=_format_compare_value(item.get("value"), item.get("unit")),
+                                        hint=payload["company_name"],
+                                    )
+                            with ui.row().classes("w-full gap-4 wrap items-stretch"):
+                                for institution in timeline_payload["institutions"]:
+                                    with ui.card().classes("op-mini-card"):
+                                        ui.label(institution["institution"]).classes("text-lg font-semibold")
+                                        ui.label(
+                                            f"共 {institution['report_count']} 篇 | 最新评级 {institution['latest_rating']}"
+                                        ).classes("op-note")
+                                        if institution.get("rating_stability") is not None:
+                                            _render_pill(
+                                                ui,
+                                                f"评级稳定度 {institution['rating_stability']:.2f}%",
+                                                tone="neutral",
+                                            )
+                                        with ui.column().classes("w-full gap-0"):
+                                            for label, value in (
+                                                ("最新目标价", _format_target_price(institution.get("latest_target_price"))),
+                                                (
+                                                    "最新首年利润预测",
+                                                    _format_forecast_value(
+                                                        institution.get("latest_forecast_value"),
+                                                        unit="亿元",
+                                                    ),
+                                                ),
+                                            ):
+                                                with ui.row().classes("op-detail-row w-full items-center justify-between gap-3"):
+                                                    ui.label(label).classes("text-sm")
+                                                    ui.label(value).classes("text-sm font-medium")
+                                        if institution.get("latest_transition"):
+                                            tone = (
+                                                "risk"
+                                                if institution["latest_transition"]["transition_kind"] in {"rating_changed", "target_changed"}
+                                                else "neutral"
+                                            )
+                                            _render_pill(ui, institution["latest_transition"]["summary"], tone=tone)
+                                        if institution.get("transitions"):
+                                            ui.label("时间序列").classes("op-note mt-3")
+                                            with ui.column().classes("w-full gap-2"):
+                                                for transition in reversed(institution["transitions"]):
+                                                    with ui.card().classes("op-panel"):
+                                                        ui.label(
+                                                            f"{transition.get('publish_date') or '日期未知'} | {transition.get('title') or '研报'}"
+                                                        ).classes("text-sm font-semibold")
+                                                        ui.label(transition["summary"]).classes("op-evidence-excerpt")
+                                                        with ui.row().classes("gap-2 wrap"):
+                                                            _render_pill(
+                                                                ui,
+                                                                transition["rating_to"],
+                                                                tone="neutral",
+                                                            )
+                                                            if transition.get("target_delta") not in (None, 0):
+                                                                _render_pill(
+                                                                    ui,
+                                                                    f"目标价变动 {transition['target_delta']:.2f} 元",
+                                                                    tone="risk" if transition["target_delta"] < 0 else "opportunity",
+                                                                )
+                                                            if transition.get("forecast_delta") not in (None, 0):
+                                                                _render_pill(
+                                                                    ui,
+                                                                    f"首年利润变动 {transition['forecast_delta']:.2f} 亿元",
+                                                                    tone="risk" if transition["forecast_delta"] < 0 else "opportunity",
+                                                                )
                 _render_evidence_section(ui, evidence_section, payload)
 
             company_select.on_value_change(lambda _: sync_report_options())

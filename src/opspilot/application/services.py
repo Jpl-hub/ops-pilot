@@ -320,6 +320,34 @@ class OpsPilotService:
             "filtered_reports": len(filtered_rows),
         }
 
+    def summarize_research_timeline(self, company_name: str) -> dict[str, Any]:
+        reports = self.list_research_reports(company_name)
+        if not reports:
+            raise ValueError(f"未找到研报：{company_name}")
+        timeline_groups = _build_research_timeline_groups(reports)
+        return {
+            "company_name": company_name,
+            "institutions": timeline_groups,
+            "key_numbers": [
+                {"label": "覆盖机构", "value": len(timeline_groups), "unit": "家"},
+                {
+                    "label": "持续跟踪机构",
+                    "value": sum(1 for item in timeline_groups if item["report_count"] >= 2),
+                    "unit": "家",
+                },
+                {
+                    "label": "最新观点有调整",
+                    "value": sum(
+                        1
+                        for item in timeline_groups
+                        if item.get("latest_transition")
+                        and item["latest_transition"].get("transition_kind") in {"rating_changed", "target_changed"}
+                    ),
+                    "unit": "家",
+                },
+            ],
+        }
+
     def verify_claim(
         self,
         company_name: str,
@@ -400,6 +428,7 @@ class OpsPilotService:
             "key_numbers": key_numbers,
             "charts": [_build_claim_chart(claim_cards)],
             "evidence": evidence,
+            "evidence_groups": _build_claim_evidence_groups(claim_cards, forecast_cards, evidence),
             "calculations": calculations,
             "audit": audit,
             "claim_cards": claim_cards,
@@ -407,6 +436,7 @@ class OpsPilotService:
             "report_meta": research_meta,
             "available_reports": self.list_research_reports(company_name),
             "research_compare": self.compare_research_reports(company_name),
+            "research_timeline": self.summarize_research_timeline(company_name),
         }
 
     def chat_turn(self, *, query: str, company_name: str | None = None, report_period: str | None = None) -> dict[str, Any]:
@@ -1044,6 +1074,40 @@ def _build_claim_evidence(
     return deduped
 
 
+def _build_claim_evidence_groups(
+    claim_cards: list[dict[str, Any]],
+    forecast_cards: list[dict[str, Any]],
+    evidence: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    evidence_by_id = {item["chunk_id"]: item for item in evidence}
+    groups: list[dict[str, Any]] = []
+    for card in claim_cards:
+        refs = [card["research_chunk_id"], *card.get("evidence_refs", [])]
+        items = [evidence_by_id[chunk_id] for chunk_id in refs if chunk_id in evidence_by_id]
+        groups.append(
+            {
+                "code": card["claim_id"],
+                "title": card["label"],
+                "subtitle": f"核验结果：{card['status']}",
+                "items": items,
+                "anchor_terms": [card["label"]],
+            }
+        )
+    for card in forecast_cards:
+        refs = [card["research_chunk_id"]]
+        items = [evidence_by_id[chunk_id] for chunk_id in refs if chunk_id in evidence_by_id]
+        groups.append(
+            {
+                "code": card["forecast_id"],
+                "title": f"{card['report_period']} 盈利预测",
+                "subtitle": f"预测利润 {card['forecast_value']:.2f} 亿元",
+                "items": items,
+                "anchor_terms": [card["report_period"], "归母净利润"],
+            }
+        )
+    return groups
+
+
 def _render_claim_answer(
     report_meta: dict[str, Any],
     report_period: str,
@@ -1343,6 +1407,98 @@ def _build_research_compare_insights(rows: list[dict[str, Any]]) -> list[dict[st
         )
 
     return insights
+
+
+def _build_research_timeline_groups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        institution = row.get("source_name") or "机构未披露"
+        groups.setdefault(institution, []).append(dict(row))
+
+    timeline_groups: list[dict[str, Any]] = []
+    for institution, items in groups.items():
+        ordered_items = sorted(items, key=lambda item: item.get("publish_date") or "")
+        transitions = []
+        same_rating_pairs = 0
+        comparable_pairs = 0
+        for previous, current in zip(ordered_items, ordered_items[1:]):
+            transition = _build_research_transition(previous, current)
+            transitions.append(transition)
+            if transition["rating_from"] != "未披露" and transition["rating_to"] != "未披露":
+                comparable_pairs += 1
+                if transition["rating_from"] == transition["rating_to"]:
+                    same_rating_pairs += 1
+        latest_item = ordered_items[-1]
+        latest_transition = transitions[-1] if transitions else None
+        timeline_groups.append(
+            {
+                "institution": institution,
+                "report_count": len(ordered_items),
+                "latest_rating": latest_item.get("rating_text") or "未披露",
+                "latest_target_price": latest_item.get("target_price"),
+                "latest_forecast_value": latest_item.get("headline_forecast_value"),
+                "latest_transition": latest_transition,
+                "rating_stability": (
+                    round(same_rating_pairs / comparable_pairs * 100, 2)
+                    if comparable_pairs > 0
+                    else None
+                ),
+                "items": ordered_items,
+                "transitions": transitions,
+            }
+        )
+    return sorted(
+        timeline_groups,
+        key=lambda item: (
+            item["report_count"],
+            item.get("latest_transition", {}).get("publish_date") if item.get("latest_transition") else "",
+            item["institution"],
+        ),
+        reverse=True,
+    )
+
+
+def _build_research_transition(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    rating_from = previous.get("rating_text") or "未披露"
+    rating_to = current.get("rating_text") or "未披露"
+    if rating_from != "未披露" and rating_to != "未披露" and rating_from != rating_to:
+        transition_kind = "rating_changed"
+        summary = f"评级由 {rating_from} 调整为 {rating_to}"
+    else:
+        transition_kind = "stable"
+        summary = f"评级维持 {rating_to}"
+
+    target_delta = None
+    if previous.get("target_price") is not None and current.get("target_price") is not None:
+        target_delta = round(current["target_price"] - previous["target_price"], 2)
+        if target_delta != 0:
+            transition_kind = "target_changed"
+            direction = "上调" if target_delta > 0 else "下调"
+            summary = f"目标价{direction} {abs(target_delta):.2f} 元"
+
+    forecast_delta = None
+    if (
+        previous.get("headline_forecast_year")
+        and previous.get("headline_forecast_year") == current.get("headline_forecast_year")
+        and previous.get("headline_forecast_value") is not None
+        and current.get("headline_forecast_value") is not None
+    ):
+        forecast_delta = round(
+            current["headline_forecast_value"] - previous["headline_forecast_value"],
+            2,
+        )
+
+    return {
+        "publish_date": current.get("publish_date"),
+        "title": current.get("title"),
+        "report_period": current.get("report_period"),
+        "rating_from": rating_from,
+        "rating_to": rating_to,
+        "target_delta": target_delta,
+        "forecast_delta": forecast_delta,
+        "transition_kind": transition_kind,
+        "summary": summary,
+    }
 
 
 def _format_rating_text(report_meta: dict[str, Any]) -> str:

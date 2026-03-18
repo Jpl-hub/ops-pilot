@@ -100,6 +100,14 @@ def company_research_compare(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/company/research-timeline")
+def company_research_timeline(company_name: str) -> dict:
+    try:
+        return get_service().summarize_research_timeline(company_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/industry/risk-scan")
 def industry_risk_scan(report_period: str | None = None) -> dict:
     return get_service().risk_scan(report_period)

@@ -526,6 +526,8 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(payload["report_meta"]["rating_change"], "维持")
             self.assertEqual(payload["report_meta"]["target_price"], 41.0)
             self.assertEqual(len(payload["forecast_cards"]), 3)
+            self.assertTrue(payload["evidence_groups"])
+            self.assertEqual(payload["evidence_groups"][0]["title"], "营收同比")
 
     def test_list_research_reports_returns_ranked_catalog(self) -> None:
         class StubRepository:
@@ -580,11 +582,20 @@ class ServicesTestCase(unittest.TestCase):
             manifests_root = root / "manifests"
             manifests_root.mkdir(parents=True, exist_ok=True)
             sparse_path = root / "sparse.html"
+            prior_path = root / "prior.html"
             rich_path = root / "rich.html"
             sparse_path.write_text(
                 """
                 <script>
                 var zwinfo= {"notice_content":"公司经营平稳，维持\\"买入\\"评级。","notice_title":"简版点评","notice_date":"2025-11-01 00:00:00","source_sample_name":"甲证券","rating":"A"};
+                </script>
+                """,
+                encoding="utf-8",
+            )
+            prior_path.write_text(
+                """
+                <script>
+                var zwinfo= {"notice_content":"预计公司2025/2026/2027年归母净利润分别为10/11/12亿元，对应PE22x/19x/17x，维持\\"买入\\"评级，目标价40元。","notice_title":"上一期点评","notice_date":"2025-10-20 00:00:00","source_sample_name":"乙证券","rating":"A"};
                 </script>
                 """,
                 encoding="utf-8",
@@ -613,6 +624,15 @@ class ServicesTestCase(unittest.TestCase):
                             {
                                 "company_name": "测试公司",
                                 "security_code": "000001",
+                                "title": "上一期点评",
+                                "publish_date": "2025-10-20",
+                                "source_url": "https://example.com/prior",
+                                "detail_url": "https://example.com/prior",
+                                "local_path": str(prior_path),
+                            },
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
                                 "title": "深度点评",
                                 "publish_date": "2025-11-05",
                                 "source_url": "https://example.com/rich",
@@ -629,7 +649,7 @@ class ServicesTestCase(unittest.TestCase):
             service = OpsPilotService(StubRepository(), StubSettings(root))
             reports = service.list_research_reports("测试公司")
 
-            self.assertEqual(len(reports), 2)
+            self.assertEqual(len(reports), 3)
             self.assertEqual(reports[0]["title"], "深度点评")
             self.assertEqual(reports[0]["forecast_count"], 3)
             self.assertEqual(reports[0]["rating_text"], "维持买入")
@@ -644,11 +664,11 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(compare["rows"][0]["headline_forecast_value"], 11.0)
             self.assertEqual(compare["rows"][0]["headline_forecast_pe"], 20.0)
             self.assertIn("信息最完整", compare["rows"][0]["signal_tags"])
-            self.assertEqual(compare["key_numbers"][0]["value"], 2)
+            self.assertEqual(compare["key_numbers"][0]["value"], 3)
             self.assertTrue(compare["insights"])
             self.assertEqual(compare["insights"][0]["kind"], "consensus")
-            self.assertEqual(compare["total_reports"], 2)
-            self.assertEqual(compare["filtered_reports"], 2)
+            self.assertEqual(compare["total_reports"], 3)
+            self.assertEqual(compare["filtered_reports"], 3)
 
             filtered = service.compare_research_reports(
                 "测试公司",
@@ -658,16 +678,28 @@ class ServicesTestCase(unittest.TestCase):
 
             self.assertEqual(filtered["selected_sort"], "target_price_desc")
             self.assertEqual(filtered["selected_filter"], "target_price")
-            self.assertEqual(filtered["filtered_reports"], 1)
+            self.assertEqual(filtered["filtered_reports"], 2)
             self.assertEqual(filtered["rows"][0]["title"], "深度点评")
 
-            no_divergence = service.compare_research_reports(
+            divergence = service.compare_research_reports(
                 "测试公司",
                 filter_mode="divergence",
             )
 
-            self.assertEqual(no_divergence["filtered_reports"], 0)
-            self.assertEqual(no_divergence["rows"], [])
+            self.assertEqual(divergence["filtered_reports"], 2)
+            self.assertEqual(divergence["rows"][0]["title"], "深度点评")
+
+            timeline = service.summarize_research_timeline("测试公司")
+
+            self.assertEqual(timeline["key_numbers"][0]["value"], 2)
+            self.assertEqual(timeline["key_numbers"][1]["value"], 1)
+            self.assertEqual(timeline["institutions"][0]["institution"], "乙证券")
+            self.assertEqual(timeline["institutions"][0]["report_count"], 2)
+            self.assertEqual(timeline["institutions"][0]["rating_stability"], 100.0)
+            self.assertEqual(
+                timeline["institutions"][0]["latest_transition"]["transition_kind"],
+                "target_changed",
+            )
 
 
 if __name__ == "__main__":
