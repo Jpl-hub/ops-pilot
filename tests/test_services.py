@@ -93,6 +93,41 @@ class ServicesTestCase(unittest.TestCase):
         self.assertEqual(payload["company_name"], "测试公司")
         self.assertEqual(payload["report_period"], "2024FY")
 
+    def test_admin_overview_returns_health_data_and_job_catalog(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [{"company_name": "测试公司", "report_period": report_period or "2025Q3"}]
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+
+            def __init__(self, root: Path) -> None:
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+
+            payload = service.admin_overview()
+
+            self.assertEqual(payload["health"]["status"], "ok")
+            self.assertEqual(payload["data_status"]["periodic_reports"]["record_count"], 0)
+            self.assertEqual(payload["job_catalog"][0]["job_id"], "fetch_real_data")
+            self.assertIn("企业评分", payload["capabilities"])
+
     def test_build_label_cards_links_formula_metrics_and_evidence(self) -> None:
         company = {
             "metrics": {

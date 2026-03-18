@@ -38,6 +38,11 @@ def official_data_status() -> dict:
     return get_service().official_data_status()
 
 
+@router.get("/admin/overview")
+def admin_overview() -> dict:
+    return get_service().admin_overview()
+
+
 @router.post("/chat/turn")
 def chat_turn(request: ChatTurnRequest) -> dict:
     try:

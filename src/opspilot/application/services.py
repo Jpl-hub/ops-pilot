@@ -90,6 +90,23 @@ class OpsPilotService:
             "silver_financial_metrics": silver_metrics_manifest,
         }
 
+    def admin_overview(self) -> dict[str, Any]:
+        health = self.health()
+        data_status = self.official_data_status()
+        return {
+            "health": health,
+            "data_status": data_status,
+            "job_catalog": _build_admin_job_catalog(),
+            "capabilities": [
+                "企业评分",
+                "行业风险扫描",
+                "研报观点核验",
+                "研报横向对比",
+                "机构观点轨迹",
+                "证据查看",
+            ],
+        }
+
     def list_company_names(self) -> list[str]:
         return self.repository.list_company_names()
 
@@ -1821,3 +1838,36 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         "generated_at": payload.get("generated_at"),
         "manifest_path": str(path),
     }
+
+
+def _build_admin_job_catalog() -> list[dict[str, Any]]:
+    return [
+        {
+            "job_id": "fetch_real_data",
+            "title": "抓取真实数据",
+            "description": "从交易所与研报源抓取原始公告、研报详情页与补源快照。",
+            "command": "ops-pilot-fetch-real-data --codes 601012,002129,300750,300014,300274,002202",
+            "output_stage": "raw",
+        },
+        {
+            "job_id": "parse_official_reports",
+            "title": "解析官方报告",
+            "description": "把 PDF 和原始页面解析成页级文本与 chunk。",
+            "command": "ops-pilot-parse-official-reports --codes 601012,002129,300750,300014,300274,002202",
+            "output_stage": "bronze",
+        },
+        {
+            "job_id": "build_silver_metrics",
+            "title": "构建结构化指标",
+            "description": "从 bronze 结果抽取财务指标、事件指标和证据引用。",
+            "command": "ops-pilot-build-silver-metrics --codes 601012,002129,300750,300014,300274,002202",
+            "output_stage": "silver",
+        },
+        {
+            "job_id": "run_tests",
+            "title": "运行系统回归",
+            "description": "执行单元测试并验证核心业务链路可用。",
+            "command": "python -m unittest discover -s tests -t .",
+            "output_stage": "qa",
+        },
+    ]

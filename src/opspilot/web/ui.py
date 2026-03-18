@@ -233,6 +233,7 @@ def run_ui_app() -> None:
     default_company = service.list_company_names()[0]
     initial_score = service.score_company(default_company)
     initial_risk = service.risk_scan()
+    initial_admin = service.admin_overview()
     initial_claim_company = default_company
     initial_claim_reports: list[dict[str, Any]] = []
     initial_claim = None
@@ -264,6 +265,7 @@ def run_ui_app() -> None:
                     ui.link("进入企业体检页", "/score")
                     ui.link("进入行业风险页", "/risk")
                     ui.link("进入研报核验页", "/verify")
+                    ui.link("进入管理台", "/admin")
                     ui.link("打开证据查看器", f"/evidence/{initial_score['evidence'][0]['chunk_id']}")
 
             with ui.row().classes("w-full gap-4 wrap"):
@@ -290,6 +292,12 @@ def run_ui_app() -> None:
                     label="研报核验",
                     value=str(len(initial_claim.get("claim_cards", []))),
                     hint="最新研报中的可核验观点数",
+                )
+                _render_stat_card(
+                    ui,
+                    label="管理台",
+                    value=str(len(initial_admin["job_catalog"])),
+                    hint="数据作业与系统状态入口",
                 )
 
     @ui.page("/score")
@@ -713,6 +721,83 @@ def run_ui_app() -> None:
 
             company_select.on_value_change(lambda _: sync_report_options())
             refresh()
+
+    @ui.page("/admin")
+    def admin_page() -> None:
+        with ui.column().classes("op-shell gap-6"):
+            payload = service.admin_overview()
+            health = payload["health"]
+            data_status = payload["data_status"]
+            with ui.row().classes("items-end justify-between w-full gap-4 wrap"):
+                with ui.column().classes("gap-1"):
+                    ui.label("系统管理台").classes("op-section-title")
+                    ui.label("统一查看系统健康、真实数据状态与标准作业命令。").classes("op-subtitle")
+                ui.link("返回首页", "/").classes("op-evidence-link")
+
+            with ui.row().classes("w-full gap-4 wrap"):
+                _render_stat_card(
+                    ui,
+                    label="系统状态",
+                    value=health["status"],
+                    hint=health["env"],
+                )
+                _render_stat_card(
+                    ui,
+                    label="默认主周期",
+                    value=health["preferred_period"] or health["default_period"],
+                    hint=f"公司 {health['companies']} 家",
+                )
+                _render_stat_card(
+                    ui,
+                    label="原始报告",
+                    value=str(data_status["periodic_reports"]["record_count"]),
+                    hint=f"公司 {data_status['periodic_reports']['company_count']} 家",
+                )
+                _render_stat_card(
+                    ui,
+                    label="结构化指标",
+                    value=str(data_status["silver_financial_metrics"]["record_count"]),
+                    hint=f"公司 {data_status['silver_financial_metrics']['company_count']} 家",
+                )
+
+            with ui.card().classes("op-panel w-full"):
+                ui.label("系统能力").classes("op-section-title")
+                with ui.row().classes("gap-2 wrap"):
+                    for capability in payload["capabilities"]:
+                        _render_pill(ui, capability, tone="neutral")
+
+            with ui.card().classes("op-panel w-full"):
+                ui.label("数据状态").classes("op-section-title")
+                with ui.row().classes("w-full gap-4 wrap items-stretch"):
+                    for label, item in (
+                        ("定期报告", data_status["periodic_reports"]),
+                        ("研报详情页", data_status["research_reports"]),
+                        ("官方快照", data_status["company_snapshots"]),
+                        ("页级解析", data_status["bronze_periodic_reports"]),
+                        ("结构化指标", data_status["silver_financial_metrics"]),
+                    ):
+                        with ui.card().classes("op-mini-card"):
+                            ui.label(label).classes("text-lg font-semibold")
+                            with ui.column().classes("w-full gap-0"):
+                                for detail_label, detail_value in (
+                                    ("记录数", str(item["record_count"])),
+                                    ("公司数", str(item["company_count"])),
+                                    ("Manifest", item["manifest_path"]),
+                                ):
+                                    with ui.row().classes("op-detail-row w-full items-center justify-between gap-3"):
+                                        ui.label(detail_label).classes("text-sm")
+                                        ui.label(detail_value).classes("text-sm font-medium")
+
+            with ui.card().classes("op-panel w-full"):
+                ui.label("标准作业").classes("op-section-title")
+                ui.label("当前管理台先冻结标准命令目录，保持数据构建链路清晰可复现。").classes("op-note")
+                with ui.row().classes("w-full gap-4 wrap items-stretch"):
+                    for job in payload["job_catalog"]:
+                        with ui.card().classes("op-mini-card"):
+                            ui.label(job["title"]).classes("text-lg font-semibold")
+                            ui.label(job["description"]).classes("op-evidence-excerpt")
+                            _render_pill(ui, job["output_stage"], tone="neutral")
+                            ui.label(job["command"]).classes("op-formula")
 
     @ui.page("/evidence/{chunk_id}")
     def evidence_page(chunk_id: str, request: Request) -> None:
