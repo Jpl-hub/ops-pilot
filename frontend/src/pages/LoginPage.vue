@@ -38,9 +38,9 @@ async function submit() {
 
 <template>
   <AppShell
-    kicker="认证入口"
+    kicker="账号登录"
     title="登录 OpsPilot-X"
-    subtitle="使用正式账号进入工作台。登录后才开放企业体检、行业风险、研报核验与系统管理。"
+    subtitle="登录后即可查看企业体检、行业风险、研报核验和证据详情。"
   >
     <section class="auth-grid">
       <article class="panel auth-panel">
@@ -64,11 +64,9 @@ async function submit() {
       </article>
 
       <article class="panel auth-aside">
-        <div class="eyebrow">尚未注册</div>
-        <h3>先创建角色账号</h3>
-        <p class="hero-text">
-          注册时需要选择使用角色，系统会把你的入口文案和默认分析视角收敛到对应业务场景。
-        </p>
+        <div class="eyebrow">没有账号</div>
+        <h3>先完成注册</h3>
+        <p class="hero-text">注册后选择使用身份，即可进入对应视角下的分析界面。</p>
         <RouterLink class="button-secondary" to="/register">去注册</RouterLink>
       </article>
     </section>

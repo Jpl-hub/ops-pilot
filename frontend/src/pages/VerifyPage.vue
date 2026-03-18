@@ -58,7 +58,7 @@ watch(selectedReportTitle, async (value, oldValue) => {
 <template>
   <AppShell
     title="研报观点核验"
-    subtitle="把研究观点和真实财报放到同一层面比较，不让用户自己拆标题、报期、评级和证据。"
+    subtitle="对照研报观点、评级和真实财报数据。"
   >
     <section class="toolbar panel multi">
       <label class="field">
@@ -131,7 +131,7 @@ watch(selectedReportTitle, async (value, oldValue) => {
             </div>
             <div class="metric-list">
               <div class="metric-row"><span>研报值</span><strong>{{ card.claimed_value }}</strong></div>
-              <div class="metric-row"><span>系统值</span><strong>{{ card.actual_value }}</strong></div>
+              <div class="metric-row"><span>财报值</span><strong>{{ card.actual_value }}</strong></div>
               <div class="metric-row"><span>差值</span><strong>{{ card.delta }}</strong></div>
             </div>
             <p class="evidence-excerpt">{{ card.excerpt }}</p>

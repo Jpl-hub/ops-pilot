@@ -20,7 +20,7 @@ onMounted(() => {
 <template>
   <AppShell
     title="行业风险与机会"
-    subtitle="把正式公司池放到一个主周期里，看风险密度、公司分布和行业研报背景，而不是盯着单个点位。"
+    subtitle="查看主周期下的风险分布、行业差异和研究背景。"
   >
     <LoadingState v-if="state.loading.value" />
     <ErrorState v-else-if="state.error.value" :message="state.error.value" />

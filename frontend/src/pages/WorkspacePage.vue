@@ -59,14 +59,14 @@ onMounted(async () => {
 <template>
   <AppShell
     title="对话分析台"
-    subtitle="围绕一个问题组织回答、图表、证据和计算步骤。这里是用户进入系统后的第一工作屏。"
+    subtitle="输入公司和问题后，直接查看结果、图表、公式和证据。"
   >
     <section class="workspace-grid">
       <article class="panel workspace-main">
         <div class="panel-header">
           <div>
             <div class="eyebrow">问题输入</div>
-            <h3>当前角色：{{ roleLabel }}</h3>
+            <h3>{{ roleLabel }}</h3>
           </div>
         </div>
         <div class="toolbar multi workspace-toolbar">
@@ -86,7 +86,7 @@ onMounted(async () => {
         <ErrorState v-else-if="workspaceState.error.value" :message="workspaceState.error.value" />
         <template v-else-if="workspaceState.data.value">
           <div class="analysis-answer">
-            <div class="eyebrow">系统回答</div>
+            <div class="eyebrow">分析结果</div>
             <div class="analysis-copy">{{ workspaceState.data.value.answer_markdown }}</div>
           </div>
           <div class="metrics-grid">

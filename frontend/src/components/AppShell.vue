@@ -38,7 +38,7 @@ async function logout() {
         <RouterLink v-if="session.isAuthenticated.value" to="/score">企业体检</RouterLink>
         <RouterLink v-if="session.isAuthenticated.value" to="/risk">行业风险</RouterLink>
         <RouterLink v-if="session.isAuthenticated.value" to="/verify">研报核验</RouterLink>
-        <RouterLink v-if="session.isAuthenticated.value" to="/admin">系统管理</RouterLink>
+        <RouterLink v-if="session.isAuthenticated.value" to="/admin">管理台</RouterLink>
         <RouterLink v-if="!session.isAuthenticated.value" to="/login">登录</RouterLink>
         <RouterLink v-if="!session.isAuthenticated.value" to="/register">注册</RouterLink>
         <button v-if="session.isAuthenticated.value" class="button-secondary" @click="logout">

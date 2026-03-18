@@ -35,7 +35,7 @@ class ServicesTestCase(unittest.TestCase):
                         "company_name": "测试公司",
                         "report_period": "2024FY",
                         "subindustry": "储能",
-                        "metrics": {"G1": 12.0, "P2": 8.0},
+                        "metrics": {"G1": 12.0, "P2": 8.0, "C3": 11.2, "S4": 0.72, "S1": 1.08},
                         "history": [],
                         "metric_evidence": {},
                         "formula_context": {},
@@ -44,13 +44,36 @@ class ServicesTestCase(unittest.TestCase):
                 return None
 
             def list_companies(self, report_period: str | None = None) -> list[dict]:
+                if report_period is None:
+                    return [
+                        {
+                            "company_name": "测试公司",
+                            "report_period": "2024FY",
+                            "subindustry": "储能",
+                            "metrics": {"G1": 12.0, "P2": 8.0, "C3": 11.2, "S4": 0.72, "S1": 1.08},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        },
+                        {
+                            "company_name": "测试公司",
+                            "report_period": "2025Q3",
+                            "subindustry": "储能",
+                            "metrics": {"G1": 9.0, "P2": 6.0},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        },
+                    ]
                 if report_period == "2024FY":
                     return [
                         {
                             "company_name": "测试公司",
                             "report_period": "2024FY",
                             "subindustry": "储能",
-                            "metrics": {"G1": 12.0, "P2": 8.0},
+                            "metrics": {"G1": 12.0, "P2": 8.0, "C3": 11.2, "S4": 0.72, "S1": 1.08},
                             "history": [],
                             "metric_evidence": {},
                             "formula_context": {},
@@ -60,7 +83,7 @@ class ServicesTestCase(unittest.TestCase):
                             "company_name": "对标公司",
                             "report_period": "2024FY",
                             "subindustry": "储能",
-                            "metrics": {"G1": 10.0, "P2": 7.0},
+                            "metrics": {"G1": 10.0, "P2": 7.0, "C3": 2.0, "S4": 1.15, "S1": 1.48},
                             "history": [],
                             "metric_evidence": {},
                             "formula_context": {},
@@ -92,6 +115,9 @@ class ServicesTestCase(unittest.TestCase):
 
         self.assertEqual(payload["company_name"], "测试公司")
         self.assertEqual(payload["report_period"], "2024FY")
+        self.assertEqual(payload["available_periods"], ["2025Q3", "2024FY"])
+        self.assertTrue(payload["action_cards"])
+        self.assertEqual(payload["action_cards"][0]["priority"], "P1")
 
     def test_admin_overview_returns_health_data_and_job_catalog(self) -> None:
         class StubRepository:

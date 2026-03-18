@@ -13,6 +13,7 @@ import { buildEvidenceLink } from '@/lib/format'
 
 const companies = ref<string[]>([])
 const selectedCompany = ref('TCL中环')
+const selectedPeriod = ref<string>('')
 const scoreState = useAsyncState<any>()
 
 const summaryBullets = computed(() => {
@@ -31,7 +32,12 @@ async function loadCompanies() {
 }
 
 async function loadScore() {
-  await scoreState.execute(() => post('/company/score', { company_name: selectedCompany.value }))
+  await scoreState.execute(() =>
+    post('/company/score', {
+      company_name: selectedCompany.value,
+      report_period: selectedPeriod.value || null,
+    }),
+  )
 }
 
 onMounted(async () => {
@@ -40,10 +46,19 @@ onMounted(async () => {
     selectedCompany.value = companies.value[0]
   }
   await loadScore()
+  selectedPeriod.value = scoreState.data.value?.report_period || ''
 })
 
 watch(selectedCompany, async (_, oldValue) => {
   if (oldValue && selectedCompany.value !== oldValue) {
+    selectedPeriod.value = ''
+    await loadScore()
+    selectedPeriod.value = scoreState.data.value?.report_period || ''
+  }
+})
+
+watch(selectedPeriod, async (_, oldValue) => {
+  if (oldValue && selectedPeriod.value !== oldValue) {
     await loadScore()
   }
 })
@@ -52,13 +67,25 @@ watch(selectedCompany, async (_, oldValue) => {
 <template>
   <AppShell
     title="企业运营体检"
-    subtitle="先给经营结论，再给指标拆解、公式回放和证据定位。页面只保留对判断有用的层次。"
+    subtitle="查看经营结论、关键指标、建议动作和证据来源。"
   >
     <section class="toolbar panel">
       <label class="field">
         <span>选择公司</span>
         <select v-model="selectedCompany">
           <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>报告期</span>
+        <select v-model="selectedPeriod">
+          <option
+            v-for="period in scoreState.data.value?.available_periods || []"
+            :key="period"
+            :value="period"
+          >
+            {{ period }}
+          </option>
         </select>
       </label>
       <button class="button-primary" @click="loadScore">刷新评分</button>
@@ -125,6 +152,22 @@ watch(selectedCompany, async (_, oldValue) => {
                 证据
               </RouterLink>
             </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><h3>建议动作</h3></div>
+        <div class="stack-grid">
+          <article v-for="action in scoreState.data.value.action_cards" :key="action.title" class="company-card">
+            <div class="signal-top">
+              <div>
+                <div class="signal-code">{{ action.priority }}</div>
+                <h4>{{ action.title }}</h4>
+              </div>
+            </div>
+            <p class="command-copy">{{ action.reason }}</p>
+            <div class="analysis-copy">{{ action.action }}</div>
           </article>
         </div>
       </section>

@@ -46,16 +46,16 @@ async function submit() {
 
 <template>
   <AppShell
-    kicker="认证入口"
+    kicker="账号注册"
     title="创建 OpsPilot-X 账号"
-    subtitle="账号是用户进入系统的正式起点。角色不是装饰字段，它决定默认业务视角和界面文案。"
+    subtitle="完成注册后即可进入分析界面。请选择最符合自己使用场景的身份。"
   >
     <section class="auth-grid">
       <article class="panel auth-panel">
         <div class="panel-header">
           <div>
             <div class="eyebrow">注册</div>
-            <h3>创建正式用户</h3>
+            <h3>创建账号</h3>
           </div>
         </div>
         <label class="field">
@@ -85,7 +85,7 @@ async function submit() {
             </button>
           </div>
         </div>
-        <button class="button-primary auth-submit" :disabled="loading" @click="submit">注册并进入系统</button>
+        <button class="button-primary auth-submit" :disabled="loading" @click="submit">注册并进入</button>
         <LoadingState v-if="loading" />
         <ErrorState v-else-if="errorMessage" :message="errorMessage" />
       </article>
@@ -93,7 +93,7 @@ async function submit() {
       <article class="panel auth-aside">
         <div class="eyebrow">已有账号</div>
         <h3>直接登录</h3>
-        <p class="hero-text">如果你已经注册过账号，直接进入登录页即可，现有角色信息会自动保留。</p>
+        <p class="hero-text">如果你已经注册过账号，直接登录即可继续使用。</p>
         <RouterLink class="button-secondary" to="/login">去登录</RouterLink>
       </article>
     </section>

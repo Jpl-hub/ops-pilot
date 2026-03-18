@@ -128,6 +128,7 @@ class OpsPilotService:
         opportunities = evaluate_opportunity_labels(company)
         formula_cards = _build_formula_cards(company)
         label_cards = _build_label_cards(company, risks, opportunities, formula_cards)
+        action_cards = _build_action_cards(company, score_result, risks, opportunities)
         evidence_ids = _collect_evidence_ids(company, score_result, risks, opportunities)
         evidence = self.repository.resolve_evidence(evidence_ids)
         evidence_groups = _build_evidence_groups(label_cards, formula_cards, evidence)
@@ -156,8 +157,15 @@ class OpsPilotService:
             "calculations": calculations,
             "formula_cards": formula_cards,
             "label_cards": label_cards,
+            "action_cards": action_cards,
+            "available_periods": _list_company_periods(self.repository, company_name),
             "audit": audit,
-            "scorecard": {**score_result, "risk_labels": risks, "opportunity_labels": opportunities},
+            "scorecard": {
+                **score_result,
+                "risk_labels": risks,
+                "opportunity_labels": opportunities,
+                "action_cards": action_cards,
+            },
         }
 
     def benchmark_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
@@ -290,7 +298,8 @@ class OpsPilotService:
                 f"- 强项：{', '.join(item['name'] for item in scorecard['strengths'])}\n"
                 f"- 弱项：{', '.join(item['name'] for item in scorecard['weaknesses'])}\n"
                 f"- 风险：{', '.join(item['name'] for item in scorecard['risk_labels']) or '暂无高风险标签'}\n"
-                f"- 机会：{', '.join(item['name'] for item in scorecard['opportunity_labels']) or '暂无显著机会标签'}"
+                f"- 机会：{', '.join(item['name'] for item in scorecard['opportunity_labels']) or '暂无显著机会标签'}\n"
+                f"- 建议动作：{'; '.join(item['title'] for item in scorecard['action_cards']) or '保持当前经营节奏'}"
             ),
             "scorecard": scorecard,
             "evidence": score_payload["evidence"],
@@ -620,6 +629,85 @@ def _render_score_answer(company: dict[str, Any], score_result: dict[str, Any], 
         f"- 风险标签：{risk_names}\n"
         f"- 机会标签：{opportunity_names}"
     )
+
+
+def _build_action_cards(
+    company: dict[str, Any],
+    score_result: dict[str, Any],
+    risks: list[dict[str, Any]],
+    opportunities: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    metrics = company.get("metrics", {})
+    risk_map = {item["code"]: item for item in risks}
+    opportunity_map = {item["code"]: item for item in opportunities}
+
+    if "R1" in risk_map:
+        cards.append(
+            {
+                "priority": "P1",
+                "title": "优先修复现金回款链",
+                "reason": f"经营现金流/净利润仅为 {metrics.get('C1')}，利润兑现没有跟上现金回流。",
+                "action": "复盘应收回款节奏、压缩赊销账期，并把大额订单回款节点纳入月度经营例会。",
+            }
+        )
+    if "R2" in risk_map:
+        cards.append(
+            {
+                "priority": "P1",
+                "title": "压降应收扩张速度",
+                "reason": f"应收增速-收入增速差达到 {metrics.get('C3')}，应收扩张快于业务增长。",
+                "action": "按客户分层重做信用政策，停止低质量放量，先把存量应收回款和坏账边界看清。",
+            }
+        )
+    if "R4" in risk_map:
+        cards.append(
+            {
+                "priority": "P1",
+                "title": "重排短债与现金储备",
+                "reason": f"现金短债比/流动比率承压，当前 S4={metrics.get('S4')}，S1={metrics.get('S1')}。",
+                "action": "把未来 12 个月债务到期结构和可动用现金池拉成一张表，优先处理高成本短债续作。",
+            }
+        )
+    if "R8" in risk_map:
+        cards.append(
+            {
+                "priority": "P1",
+                "title": "复核减值与异常资产",
+                "reason": "系统识别到重大减值/关联交易风险，当前资产质量判断需要更谨慎。",
+                "action": "对减值资产逐项做成因复盘，拆分一次性冲击和持续性压力，避免后续继续侵蚀利润。",
+            }
+        )
+    if "R6" in risk_map or "R7" in risk_map:
+        cards.append(
+            {
+                "priority": "P2",
+                "title": "治理与合规事项闭环",
+                "reason": "审计、处罚或诉讼信号已经进入评分链，会持续压制外部信任。",
+                "action": "建立专项整改台账，明确责任部门、关闭时间和对外披露口径，避免事件持续发酵。",
+            }
+        )
+    if "O1" in opportunity_map or "O2" in opportunity_map:
+        cards.append(
+            {
+                "priority": "P3",
+                "title": "放大盈利与现金改善窗口",
+                "reason": "系统识别到毛利或现金质量改善信号，这部分正向变化值得继续验证并扩大。",
+                "action": "把改善来源拆到产品、客户和区域三层，确认是结构性修复还是短期波动，再决定资源倾斜。",
+            }
+        )
+
+    if not cards:
+        weakest_metric = score_result["weaknesses"][0]["name"] if score_result["weaknesses"] else "关键弱项"
+        cards.append(
+            {
+                "priority": "P2",
+                "title": "围绕最弱指标做季度整改",
+                "reason": f"当前最弱项集中在 {weakest_metric}，需要把指标问题转成经营动作。",
+                "action": "把该指标拆成业务责任项、月度跟踪项和结果验收项，连续两个经营周期跟踪闭环。",
+            }
+        )
+    return cards[:3]
 
 
 def _build_company_charts(company: dict[str, Any], score_result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1623,6 +1711,11 @@ def _get_company_periods(repository: Any, company_name: str) -> set[str]:
         for company in repository.list_companies()
         if company.get("company_name") == company_name and company.get("report_period")
     }
+
+
+def _list_company_periods(repository: Any, company_name: str) -> list[str]:
+    periods = _get_company_periods(repository, company_name)
+    return sorted(periods, key=_period_order_key, reverse=True)
 
 
 def _research_report_bucket(report: dict[str, Any], available_periods: set[str] | None) -> int:

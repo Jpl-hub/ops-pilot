@@ -18,15 +18,15 @@ onMounted(() => {
 
 <template>
   <AppShell
-    title="系统管理台"
-    subtitle="把系统健康、覆盖缺口和标准作业放到一个视图里，数据链哪里断，一眼能看见。"
+    title="管理台"
+    subtitle="查看数据覆盖、异常缺口和作业入口。"
   >
     <LoadingState v-if="state.loading.value" />
     <ErrorState v-else-if="state.error.value" :message="state.error.value" />
     <template v-else-if="state.data.value">
       <section class="metrics-grid">
-        <StatCard label="系统状态" :value="state.data.value.health.status" :hint="state.data.value.health.env" tone="success" />
-        <StatCard label="默认主周期" :value="state.data.value.health.preferred_period" :hint="`公司 ${state.data.value.health.companies} 家`" />
+        <StatCard label="运行状态" :value="state.data.value.health.status" :hint="state.data.value.health.env" tone="success" />
+        <StatCard label="主周期" :value="state.data.value.health.preferred_period" :hint="`公司 ${state.data.value.health.companies} 家`" />
         <StatCard label="原始报告" :value="String(state.data.value.data_status.periodic_reports.record_count)" :hint="`公司 ${state.data.value.data_status.periodic_reports.company_count} 家`" />
         <StatCard label="结构化指标" :value="String(state.data.value.data_status.silver_financial_metrics.record_count)" :hint="`公司 ${state.data.value.data_status.silver_financial_metrics.company_count} 家`" tone="accent" />
       </section>
