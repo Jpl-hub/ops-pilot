@@ -668,6 +668,19 @@ def run_ui_app() -> None:
                                                         ).classes("text-sm font-semibold")
                                                         ui.label(transition["summary"]).classes("op-evidence-excerpt")
                                                         with ui.row().classes("gap-2 wrap"):
+                                                            if transition.get("source_url"):
+                                                                ui.link(
+                                                                    "打开研报详情",
+                                                                    transition["source_url"],
+                                                                    new_tab=True,
+                                                                ).classes("op-evidence-link")
+                                                            if transition.get("attachment_url"):
+                                                                ui.link(
+                                                                    "打开研报附件",
+                                                                    transition["attachment_url"],
+                                                                    new_tab=True,
+                                                                ).classes("op-evidence-link")
+                                                        with ui.row().classes("gap-2 wrap"):
                                                             _render_pill(
                                                                 ui,
                                                                 "同报期可比" if transition["is_rating_comparable"] else "跨报期不可比",

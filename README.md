@@ -69,11 +69,12 @@ ops-pilot-build-silver-metrics --codes 601012,002129,300750,300014,300274,002202
 - 企业评分：`/api/v1/company/score`
 - 行业风险扫描：`/api/v1/industry/risk-scan`
 - 研报观点核验：`/api/v1/claim/verify`
+- 机构观点轨迹：`/api/v1/company/research-timeline`
 - 问答入口：`/api/v1/chat/turn`
 - 证据查看：`/api/v1/evidence/{chunk_id}`
 - 当前正式数据规模：`50` 家公司，`154` 份定期报告 PDF，`96` 份研报详情页，`28` 份巨潮官方快照，`365` 条 silver 指标记录
 - 真实指标已覆盖：`G1 / G2 / G3 / P1 / P2 / P3 / P4 / P5 / C1 / C2 / C3 / S1 / S2 / S3 / S4 / I1 / I2 / I3 / I4`
-- UI 已支持标签拆解、公式回放和证据聚焦
+- UI 已支持标签拆解、公式回放、证据聚焦、研报横向对比与机构观点轨迹
 
 ## 开发验证
 

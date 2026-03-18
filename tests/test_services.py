@@ -655,6 +655,7 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(reports[0]["rating_text"], "维持买入")
             self.assertEqual(reports[0]["rating_change"], "维持")
             self.assertEqual(reports[0]["target_price"], 43.5)
+            self.assertEqual(reports[0]["source_url"], "https://example.com/rich")
 
             compare = service.compare_research_reports("测试公司")
 
@@ -703,6 +704,10 @@ class ServicesTestCase(unittest.TestCase):
             self.assertFalse(timeline["institutions"][0]["latest_transition"]["is_rating_comparable"])
             self.assertTrue(timeline["institutions"][0]["latest_transition"]["is_forecast_comparable"])
             self.assertEqual(timeline["institutions"][0]["latest_transition"]["forecast_delta"], 1.0)
+            self.assertEqual(
+                timeline["institutions"][0]["latest_transition"]["source_url"],
+                "https://example.com/rich",
+            )
 
 
 if __name__ == "__main__":

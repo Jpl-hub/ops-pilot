@@ -257,6 +257,8 @@ class OpsPilotService:
                     "headline_forecast_pe": forecast_summary.get("headline_pe"),
                     "claim_signal_count": insight["claim_signal_count"],
                     "source_name": insight["report_meta"].get("source_name"),
+                    "source_url": insight["report_meta"].get("source_url"),
+                    "attachment_url": insight["report_meta"].get("attachment_url"),
                     "is_period_supported": (
                         inferred_period in available_periods if inferred_period is not None else True
                     ),
@@ -1511,6 +1513,8 @@ def _build_research_transition(previous: dict[str, Any], current: dict[str, Any]
         "title": current.get("title"),
         "report_period": current.get("report_period"),
         "previous_report_period": previous.get("report_period"),
+        "source_url": current.get("source_url"),
+        "attachment_url": current.get("attachment_url"),
         "rating_from": rating_from,
         "rating_to": rating_to,
         "target_delta": target_delta,
