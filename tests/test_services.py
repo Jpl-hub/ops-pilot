@@ -855,6 +855,89 @@ class ServicesTestCase(unittest.TestCase):
                 "https://example.com/rich",
             )
 
+    def test_industry_research_brief_returns_grouped_reports(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 10.0},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    }
+                ]
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+
+            def __init__(self, official_data_path: Path) -> None:
+                self.official_data_path = official_data_path
+                self.bronze_data_path = official_data_path
+                self.silver_data_path = official_data_path
+                self.sample_data_path = official_data_path
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifests_root = root / "manifests"
+            manifests_root.mkdir(parents=True, exist_ok=True)
+            report_path = root / "industry.html"
+            report_path.write_text(
+                """
+                <script>
+                var zwinfo= {
+                    "notice_content":"光伏设备行业景气延续，组件价格企稳，维持行业推荐评级。",
+                    "notice_title":"光伏设备行业周报：景气延续",
+                    "notice_date":"2025-11-08 00:00:00",
+                    "source_sample_name":"测试证券",
+                    "attach_url":"https://example.com/industry.pdf",
+                    "rating":"A"
+                };
+                </script>
+                """,
+                encoding="utf-8",
+            )
+            (manifests_root / "industry_research_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "company_name": "光伏设备",
+                                "industry_name": "光伏设备",
+                                "security_code": "INDUSTRY",
+                                "title": "光伏设备行业周报：景气延续",
+                                "publish_date": "2025-11-08",
+                                "source_url": "https://example.com/industry",
+                                "detail_url": "https://example.com/industry",
+                                "local_path": str(report_path),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+            payload = service.industry_research_brief()
+
+            self.assertEqual(payload["key_numbers"][0]["value"], 1)
+            self.assertEqual(payload["groups"][0]["industry_name"], "光伏设备")
+            self.assertEqual(payload["groups"][0]["latest_report"]["source_name"], "测试证券")
+            self.assertEqual(payload["groups"][0]["reports"][0]["rating_text"], "未披露")
+
 
 if __name__ == "__main__":
     unittest.main()

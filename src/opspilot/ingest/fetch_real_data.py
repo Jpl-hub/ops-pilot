@@ -15,6 +15,7 @@ from opspilot.ingest.official_clients import (
     download_binary,
     download_text,
     load_company_pool,
+    sanitize_filename,
     write_manifest,
 )
 from opspilot.ingest.manifest_utils import load_manifest_records, merge_manifest_records
@@ -50,6 +51,12 @@ def build_parser() -> ArgumentParser:
         help="Max Eastmoney research pages to download per company.",
     )
     parser.add_argument(
+        "--max-industry-research",
+        type=int,
+        default=3,
+        help="Max Eastmoney industry research pages to download per tracked industry.",
+    )
+    parser.add_argument(
         "--codes",
         default="",
         help="Comma-separated security codes to limit execution.",
@@ -77,6 +84,7 @@ def main() -> None:
     output_root = Path(args.output_root)
     periodic_root = output_root / "periodic_reports"
     research_root = output_root / "research_reports"
+    industry_research_root = output_root / "industry_research_reports"
     snapshot_root = output_root / "company_snapshots"
     manifests_root = output_root / "manifests"
 
@@ -87,8 +95,49 @@ def main() -> None:
 
     periodic_manifest: list[dict[str, Any]] = []
     research_manifest: list[dict[str, Any]] = []
+    industry_research_manifest: list[dict[str, Any]] = []
     snapshot_manifest: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
+
+    try:
+        industry_reports = eastmoney_client.list_industry_reports(
+            since_date=args.since_date,
+            max_items_per_industry=args.max_industry_research,
+        )
+    except Exception as exc:
+        failures.append(
+            {
+                "security_code": "INDUSTRY",
+                "company_name": "行业研报",
+                "stage": "industry_research_reports",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        )
+        print(f"[warn] industry research fetch failed: {exc}")
+        industry_reports = []
+    for report in industry_reports:
+        local_path = (
+            industry_research_root
+            / sanitize_filename(report.industry_name or report.company_name)
+            / build_research_filename(report)
+        )
+        try:
+            if not args.skip_download and report.detail_url:
+                download_text(report.detail_url, local_path, force=args.refresh)
+        except Exception as exc:
+            failures.append(
+                {
+                    "security_code": "INDUSTRY",
+                    "company_name": report.industry_name or report.company_name,
+                    "stage": "industry_research_download",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            print(f"[warn] industry research download failed for {report.title}: {exc}")
+            continue
+        record = report.to_dict()
+        record["local_path"] = str(local_path)
+        industry_research_manifest.append(record)
 
     for company in company_pool:
         try:
@@ -224,6 +273,12 @@ def main() -> None:
         company_codes=selected_company_codes,
         key_fields=("source", "security_code", "publish_date", "title"),
     )
+    industry_research_manifest = merge_manifest_records(
+        load_manifest_records(manifests_root / "industry_research_reports_manifest.json"),
+        industry_research_manifest,
+        company_codes={"INDUSTRY"},
+        key_fields=("source", "industry_name", "publish_date", "title"),
+    )
     snapshot_manifest = merge_manifest_records(
         load_manifest_records(manifests_root / "company_snapshots_manifest.json"),
         snapshot_manifest,
@@ -233,11 +288,13 @@ def main() -> None:
 
     write_manifest(manifests_root / "periodic_reports_manifest.json", periodic_manifest)
     write_manifest(manifests_root / "research_reports_manifest.json", research_manifest)
+    write_manifest(manifests_root / "industry_research_reports_manifest.json", industry_research_manifest)
     write_manifest(manifests_root / "company_snapshots_manifest.json", snapshot_manifest)
 
     print(f"companies={len(company_pool)}")
     print(f"periodic_reports={len(periodic_manifest)}")
     print(f"research_reports={len(research_manifest)}")
+    print(f"industry_research_reports={len(industry_research_manifest)}")
     print(f"company_snapshots={len(snapshot_manifest)}")
     print(f"failures={len(failures)}")
 

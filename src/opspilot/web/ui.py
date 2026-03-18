@@ -348,6 +348,41 @@ def run_ui_app() -> None:
             with ui.card().classes("op-panel w-full"):
                 ui.echart(initial_risk["charts"][0]["options"]).classes("w-full").style("height: 380px;")
 
+            with ui.card().classes("op-panel w-full"):
+                ui.label("行业研报观察").classes("op-section-title")
+                ui.label("接入赛题给定的东方财富行业研报，补足行业景气与机构观点背景。").classes("op-subtitle")
+                with ui.row().classes("w-full gap-4 wrap"):
+                    for number in initial_risk["industry_research"]["key_numbers"]:
+                        _render_stat_card(
+                            ui,
+                            label=number["label"],
+                            value=str(number["value"]),
+                            hint=number["unit"],
+                        )
+                with ui.row().classes("w-full gap-4 wrap items-stretch mt-2"):
+                    for group in initial_risk["industry_research"]["groups"]:
+                        latest = group["latest_report"]
+                        with ui.card().classes("op-mini-card"):
+                            ui.label(group["industry_name"]).classes("text-lg font-semibold")
+                            ui.label(f"{group['report_count']} 篇真实行业研报").classes("op-stat-hint")
+                            ui.label(latest["title"]).classes("text-sm font-medium")
+                            ui.label(latest["excerpt"]).classes("op-evidence-excerpt")
+                            with ui.row().classes("gap-2 wrap"):
+                                _render_pill(
+                                    ui,
+                                    latest["source_name"] or "机构未披露",
+                                    tone="neutral",
+                                )
+                                _render_pill(
+                                    ui,
+                                    latest["rating_text"],
+                                    tone="neutral",
+                                )
+                            with ui.row().classes("gap-2 wrap"):
+                                ui.link("打开详情", latest["source_url"], new_tab=True).classes("op-evidence-link")
+                                if latest.get("attachment_url"):
+                                    ui.link("打开附件", latest["attachment_url"], new_tab=True).classes("op-evidence-link")
+
             with ui.row().classes("w-full gap-4 wrap items-stretch"):
                 for item in initial_risk["risk_board"]:
                     with ui.card().classes("op-mini-card"):
@@ -822,6 +857,7 @@ def run_ui_app() -> None:
                     for label, item in (
                         ("定期报告", data_status["periodic_reports"]),
                         ("研报详情页", data_status["research_reports"]),
+                        ("行业研报", data_status["industry_research_reports"]),
                         ("官方快照", data_status["company_snapshots"]),
                         ("页级解析", data_status["bronze_periodic_reports"]),
                         ("结构化指标", data_status["silver_financial_metrics"]),

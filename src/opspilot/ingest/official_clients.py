@@ -82,9 +82,13 @@ class ReportRecord:
     is_summary: bool
     source_url: str
     detail_url: str | None = None
+    industry_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        if payload.get("industry_name") is None:
+            payload.pop("industry_name", None)
+        return payload
 
 
 def load_company_pool(path: Path) -> list[CompanyProfile]:
@@ -256,6 +260,7 @@ class SZSEAnnouncementClient:
 
 class EastmoneyResearchClient:
     endpoint = "https://reportapi.eastmoney.com/report/list"
+    tracked_industry_names = ("光伏设备", "电池", "能源金属", "风电设备")
 
     def __init__(self, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
@@ -317,6 +322,76 @@ class EastmoneyResearchClient:
                 if len(reports) >= max_items:
                     break
             page_no += 1
+        return reports
+
+    def list_industry_reports(
+        self,
+        *,
+        since_date: str,
+        max_items_per_industry: int = 4,
+        tracked_industry_names: tuple[str, ...] | None = None,
+    ) -> list[ReportRecord]:
+        target_names = tuple(tracked_industry_names or self.tracked_industry_names)
+        reports_by_industry: dict[str, list[ReportRecord]] = {name: [] for name in target_names}
+        page_no = 1
+        while page_no <= 12:
+            params = {
+                "pageNo": page_no,
+                "pageSize": 50,
+                "industryCode": "*",
+                "industry": "*",
+                "beginTime": since_date,
+                "endTime": date.today().isoformat(),
+                "qType": 1,
+                "fields": "",
+            }
+            rows = _request_json_with_retry(
+                self.session,
+                "GET",
+                self.endpoint,
+                params=params,
+            ).get("data", [])
+            if not rows:
+                break
+            for row in rows:
+                industry_name = row.get("industryName") or ""
+                if industry_name not in reports_by_industry:
+                    continue
+                if len(reports_by_industry[industry_name]) >= max_items_per_industry:
+                    continue
+                reports_by_industry[industry_name].append(
+                    ReportRecord(
+                        source="EASTMONEY_INDUSTRY",
+                        company_name=industry_name,
+                        security_code="INDUSTRY",
+                        exchange="",
+                        subindustry=industry_name,
+                        title=row["title"],
+                        publish_date=row["publishDate"].split(" ")[0],
+                        report_type="行业研报",
+                        is_summary=False,
+                        source_url=f"https://data.eastmoney.com/report/info/{row['infoCode']}.html",
+                        detail_url=f"https://data.eastmoney.com/report/info/{row['infoCode']}.html",
+                        industry_name=industry_name,
+                    )
+                )
+            if all(len(items) >= max_items_per_industry for items in reports_by_industry.values()):
+                break
+            page_no += 1
+        reports: list[ReportRecord] = []
+        seen_keys: set[tuple[str, str, str]] = set()
+        for industry_name in target_names:
+            rows = sorted(
+                reports_by_industry[industry_name],
+                key=lambda item: item.publish_date,
+                reverse=True,
+            )
+            for report in rows:
+                report_key = (industry_name, report.publish_date, report.title)
+                if report_key in seen_keys:
+                    continue
+                seen_keys.add(report_key)
+                reports.append(report)
         return reports
 
 

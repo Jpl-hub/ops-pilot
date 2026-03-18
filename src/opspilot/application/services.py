@@ -72,6 +72,9 @@ class OpsPilotService:
         silver_manifests_root = self.settings.silver_data_path / "manifests"
         periodic_manifest = _read_manifest(manifests_root / "periodic_reports_manifest.json")
         research_manifest = _read_manifest(manifests_root / "research_reports_manifest.json")
+        industry_research_manifest = _read_manifest(
+            manifests_root / "industry_research_reports_manifest.json"
+        )
         bronze_periodic_manifest = _read_manifest(
             bronze_manifests_root / "parsed_periodic_reports_manifest.json"
         )
@@ -85,6 +88,7 @@ class OpsPilotService:
             "silver_data_root": str(self.settings.silver_data_path),
             "periodic_reports": periodic_manifest,
             "research_reports": research_manifest,
+            "industry_research_reports": industry_research_manifest,
             "company_snapshots": snapshot_manifest,
             "bronze_periodic_reports": bronze_periodic_manifest,
             "silver_financial_metrics": silver_metrics_manifest,
@@ -213,6 +217,7 @@ class OpsPilotService:
             "query_type": "risk_scan",
             "answer_markdown": "已完成样本集行业风险扫描，可直接查看高风险公司与标签分布。",
             "risk_board": board,
+            "industry_research": self.industry_research_brief(),
             "charts": [
                 {
                     "type": "bar",
@@ -223,6 +228,53 @@ class OpsPilotService:
                         "series": [{"type": "bar", "data": [row["risk_count"] for row in board]}],
                     },
                 }
+            ],
+        }
+
+    def industry_research_brief(self) -> dict[str, Any]:
+        reports = _load_research_reports(
+            self.settings.official_data_path / "manifests" / "industry_research_reports_manifest.json"
+        )
+        grouped_reports: dict[str, list[dict[str, Any]]] = {}
+        for report in reports:
+            industry_name = report.get("industry_name") or report.get("company_name")
+            if not industry_name:
+                continue
+            insight = _build_research_report_insight(report)
+            if insight is None:
+                continue
+            report_meta = insight["report_meta"]
+            grouped_reports.setdefault(industry_name, []).append(
+                {
+                    "industry_name": industry_name,
+                    "title": report_meta["title"],
+                    "publish_date": report_meta["publish_date"],
+                    "source_name": report_meta.get("source_name"),
+                    "rating_text": _format_rating_text(report_meta),
+                    "rating_change": report_meta.get("rating_change"),
+                    "attachment_url": report_meta.get("attachment_url"),
+                    "source_url": report_meta.get("source_url"),
+                    "excerpt": _clip_claim_excerpt(insight["report_body"], industry_name, radius=180),
+                }
+            )
+
+        groups: list[dict[str, Any]] = []
+        for industry_name, items in grouped_reports.items():
+            ordered_items = sorted(items, key=lambda item: item["publish_date"], reverse=True)
+            groups.append(
+                {
+                    "industry_name": industry_name,
+                    "report_count": len(ordered_items),
+                    "latest_report": ordered_items[0],
+                    "reports": ordered_items[:3],
+                }
+            )
+        groups.sort(key=lambda item: item["industry_name"])
+        return {
+            "groups": groups,
+            "key_numbers": [
+                {"label": "覆盖行业", "value": len(groups), "unit": "个"},
+                {"label": "行业研报", "value": sum(item["report_count"] for item in groups), "unit": "篇"},
             ],
         }
 
@@ -1553,7 +1605,7 @@ def _format_rating_text(report_meta: dict[str, Any]) -> str:
     if rating_parts:
         return "".join(rating_parts)
     rating_code = report_meta.get("rating_code")
-    if isinstance(rating_code, str) and re.fullmatch(r"[A-Z]", rating_code):
+    if isinstance(rating_code, str) and re.fullmatch(r"[A-Z]{1,3}", rating_code):
         return "未披露"
     return rating_code or "未披露"
 
@@ -1626,7 +1678,7 @@ def _extract_research_rating(report_body: str, payload: dict[str, Any]) -> dict[
             "label": match.group(2).strip(),
         }
     rating_code = payload.get("rating")
-    if isinstance(rating_code, str) and re.fullmatch(r"[A-Z]", rating_code):
+    if isinstance(rating_code, str) and re.fullmatch(r"[A-Z]{1,3}", rating_code):
         return {}
     if rating_code:
         return {"action": "", "label": str(rating_code)}

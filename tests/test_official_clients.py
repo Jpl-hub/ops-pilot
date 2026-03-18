@@ -10,7 +10,9 @@ from opspilot.ingest.official_clients import (
     _hex_xor,
     _unsbox,
     build_periodic_filename,
+    CompanyProfile,
     detect_periodic_report_type,
+    EastmoneyResearchClient,
     extract_report_year,
     is_periodic_report_title,
     sanitize_filename,
@@ -104,6 +106,56 @@ class OfficialClientHelpersTestCase(unittest.TestCase):
         selected = select_periodic_reports(reports, max_items=7)
         self.assertEqual(len(selected), 1)
         self.assertEqual(selected[0].title, "2024年年度报告（修订版）")
+
+    def test_list_industry_reports_filters_tracked_industries(self) -> None:
+        class StubResponse:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {
+                    "data": [
+                        {
+                            "title": "光伏设备行业周报",
+                            "publishDate": "2025-11-01 00:00:00.000",
+                            "infoCode": "AP1",
+                            "industryName": "光伏设备",
+                        },
+                        {
+                            "title": "电池行业深度",
+                            "publishDate": "2025-11-02 00:00:00.000",
+                            "infoCode": "AP2",
+                            "industryName": "电池",
+                        },
+                        {
+                            "title": "医药行业周报",
+                            "publishDate": "2025-11-03 00:00:00.000",
+                            "infoCode": "AP3",
+                            "industryName": "化学制药",
+                        },
+                    ]
+                }
+
+        class StubSession:
+            def __init__(self) -> None:
+                self.trust_env = False
+                self.headers = {}
+
+            def request(self, method: str, url: str, timeout: int = 30, **kwargs):
+                return StubResponse()
+
+        client = EastmoneyResearchClient(session=StubSession())
+
+        reports = client.list_industry_reports(
+            since_date="2024-01-01",
+            max_items_per_industry=1,
+            tracked_industry_names=("光伏设备", "电池"),
+        )
+
+        self.assertEqual(len(reports), 2)
+        self.assertEqual(reports[0].industry_name, "光伏设备")
+        self.assertEqual(reports[1].industry_name, "电池")
+        self.assertTrue(all(report.source == "EASTMONEY_INDUSTRY" for report in reports))
 
 
 if __name__ == "__main__":

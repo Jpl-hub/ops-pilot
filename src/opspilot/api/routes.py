@@ -118,6 +118,11 @@ def industry_risk_scan(report_period: str | None = None) -> dict:
     return get_service().risk_scan(report_period)
 
 
+@router.get("/industry/research-brief")
+def industry_research_brief() -> dict:
+    return get_service().industry_research_brief()
+
+
 @router.get("/evidence/{chunk_id}")
 def evidence_detail(chunk_id: str) -> dict:
     try:
