@@ -26,3 +26,15 @@ class ClaimVerifyRequest(BaseModel):
     company_name: str
     report_period: str | None = None
     report_title: str | None = None
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=32)
+    display_name: str = Field(..., min_length=2, max_length=32)
+    password: str = Field(..., min_length=6, max_length=64)
+    role: Literal["investor", "management", "regulator"]
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=32)
+    password: str = Field(..., min_length=6, max_length=64)

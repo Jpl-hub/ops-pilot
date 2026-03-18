@@ -1,102 +1,81 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-
 import AppShell from '@/components/AppShell.vue'
-import ErrorState from '@/components/ErrorState.vue'
-import LoadingState from '@/components/LoadingState.vue'
-import StatCard from '@/components/StatCard.vue'
-import { useAsyncState } from '@/composables/useAsyncState'
-import { get, post } from '@/lib/api'
+import { useSession } from '@/lib/session'
 
-const state = useAsyncState<{
-  health: any
-  score: any
-  risk: any
-  verify: any
-  admin: any
-}>()
+const session = useSession()
 
-const heroStats = computed(() => {
-  if (!state.data.value) return []
-  const { health, risk, verify, admin } = state.data.value
-  return [
-    { label: '主周期', value: String(health.preferred_period), hint: `公司池 ${health.companies} 家`, tone: 'accent' },
-    { label: '风险暴露', value: String(risk.risk_board.filter((item: any) => item.risk_count > 0).length), hint: '主周期横向扫描', tone: 'danger' },
-    { label: '研报核验', value: String(verify.key_numbers[0]?.value ?? 0), hint: '真实观点对照', tone: 'success' },
-    { label: '数据主链', value: String(admin.quality_overview.coverage.preferred_period_ready), hint: '主周期已就绪', tone: 'default' },
-  ]
-})
+const roleCards = [
+  {
+    code: '01',
+    title: '投资者',
+    copy: '围绕单家公司完成问数、评分、对标、研报核验和证据复盘。',
+  },
+  {
+    code: '02',
+    title: '企业管理者',
+    copy: '把经营质量、现金压力、周转效率和竞争位置放到一张工作台里看。',
+  },
+  {
+    code: '03',
+    title: '监管 / 风控角色',
+    copy: '批量观察主周期风险暴露、事件信号与研究观点偏差。',
+  },
+]
 
-onMounted(() => {
-  void state.execute(async () => {
-    const [health, score, risk, verify, admin] = await Promise.all([
-      get('/healthz'),
-      post('/company/score', { company_name: 'TCL中环' }),
-      get('/industry/risk-scan'),
-      post('/claim/verify', { company_name: 'TCL中环' }),
-      get('/admin/overview'),
-    ])
-    return { health, score, risk, verify, admin }
-  })
-})
+const capabilityCards = [
+  ['对话分析台', '围绕公司、报期和问题发起分析，集中查看回答、图表、证据和计算步骤。'],
+  ['企业运营体检', '输出总分、五维结构、风险/机会标签、建议动作与证据链接。'],
+  ['行业风险与对标', '按子行业看风险排行、横向差异和行业研究背景。'],
+  ['研报观点核验', '把真实研报观点与真实财报数据放到一屏核对。'],
+  ['证据查看器', '定位来源页码、重点片段、原始字段与证据指纹。'],
+  ['系统管理台', '统一看数据覆盖、作业入口、缺口定位和系统状态。'],
+]
 </script>
 
 <template>
   <AppShell
     kicker="OpsPilot-X"
-    title="让新能源公司的经营质量，一眼进入决策状态。"
-    subtitle="从真实财报到研究观点，再到字段级证据，本系统不做说明书式页面，而是把用户真正要用的判断链放到前面。"
+    title="新能源企业运营分析与决策支持系统"
+    subtitle="围绕真实财报、真实研报和可复核证据，给用户一套能直接落到判断与行动的产品主链。"
   >
-    <LoadingState v-if="state.loading.value" />
-    <ErrorState v-else-if="state.error.value" :message="state.error.value" />
-    <template v-else-if="state.data.value">
-      <section class="hero-grid">
-        <div class="panel hero-panel">
-          <div>
-            <div class="eyebrow">真实数据驱动</div>
-            <h2 class="hero-title">企业体检、行业风险、研报核验和系统管理，收束成一个驾驶舱。</h2>
-            <p class="hero-text">先给用户结论，再给公式，再给证据，最后才给全量细节。</p>
-          </div>
-          <div class="hero-actions">
-            <RouterLink class="button-primary" to="/score">进入企业体检</RouterLink>
-            <RouterLink class="button-secondary" to="/risk">查看行业风险</RouterLink>
-            <RouterLink class="button-secondary" to="/verify">核验研究观点</RouterLink>
-          </div>
+    <section class="hero-grid">
+      <article class="panel hero-panel">
+        <div>
+          <div class="eyebrow">角色导向入口</div>
+          <h2 class="hero-title">不是堆数据，而是把用户从问题带到结论，再带到证据。</h2>
+          <p class="hero-text">
+            登录后默认进入对话分析台。所有页面围绕“具体公司、具体报期、具体问题”组织，而不是把原始指标平铺给用户。
+          </p>
         </div>
-        <div class="hero-metrics">
-          <StatCard
-            v-for="item in heroStats"
-            :key="item.label"
-            :label="item.label"
-            :value="item.value"
-            :hint="item.hint"
-            :tone="item.tone as any"
-          />
+        <div class="hero-actions">
+          <RouterLink v-if="session.isAuthenticated.value" class="button-primary" to="/workspace">进入对话分析台</RouterLink>
+          <RouterLink v-else class="button-primary" to="/login">登录系统</RouterLink>
+          <RouterLink class="button-secondary" to="/register">注册账号</RouterLink>
         </div>
-      </section>
+      </article>
 
-      <section class="command-grid">
-        <RouterLink class="command-card" to="/score">
-          <div class="command-title">企业体检</div>
-          <div class="command-copy">围绕单家公司看总分、标签、公式和证据链。</div>
-          <div class="command-meta">当前示例 {{ state.data.value.score.company_name }} · {{ state.data.value.score.report_period }}</div>
-        </RouterLink>
-        <RouterLink class="command-card" to="/risk">
-          <div class="command-title">行业风险</div>
-          <div class="command-copy">把 50 家公司放到同一主周期，直接看风险密度和行业背景。</div>
-          <div class="command-meta">高风险公司 {{ state.data.value.risk.risk_board.filter((item: any) => item.risk_count > 0).length }} 家</div>
-        </RouterLink>
-        <RouterLink class="command-card" to="/verify">
-          <div class="command-title">研报核验</div>
-          <div class="command-copy">对照研报数字、评级、目标价和真实财报证据。</div>
-          <div class="command-meta">当前示例 {{ state.data.value.verify.report_meta.source_name }}</div>
-        </RouterLink>
-        <RouterLink class="command-card" to="/admin">
-          <div class="command-title">系统管理</div>
-          <div class="command-copy">看覆盖缺口、数据状态和标准作业，不需要回终端拼命令。</div>
-          <div class="command-meta">主周期完成 {{ state.data.value.admin.quality_overview.coverage.preferred_period_ready }}/50</div>
-        </RouterLink>
-      </section>
-    </template>
+      <div class="stack-grid">
+        <article v-for="role in roleCards" :key="role.code" class="command-card-shell role-card">
+          <div class="signal-code">{{ role.code }}</div>
+          <h3>{{ role.title }}</h3>
+          <p class="command-copy">{{ role.copy }}</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="eyebrow">产品主线</div>
+          <h3>统一工作流</h3>
+        </div>
+      </div>
+      <div class="stack-grid capability-grid">
+        <article v-for="[title, copy] in capabilityCards" :key="title" class="company-card">
+          <h4>{{ title }}</h4>
+          <p class="command-copy">{{ copy }}</p>
+        </article>
+      </div>
+    </section>
   </AppShell>
 </template>

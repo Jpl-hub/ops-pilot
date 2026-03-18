@@ -21,6 +21,7 @@ ops-pilot-ui
 - API 默认地址：`http://127.0.0.1:8000`
 - UI 默认地址：`http://127.0.0.1:8080`
 - `ops-pilot-ui` 当前会直接启动 `frontend/` 下的 Vue 3 + Vite 前端
+- 登录/注册依赖 `OPS_PILOT_POSTGRES_DSN` 指向可用数据库
 
 如果 `8000` 或 `8080` 被占用，先停止旧进程或执行：
 
@@ -75,10 +76,11 @@ ops-pilot-build-silver-metrics --codes 601012,002129,300750,300014,300274,002202
 - 研报观点核验：`/api/v1/claim/verify`
 - 机构观点轨迹：`/api/v1/company/research-timeline`
 - 问答入口：`/api/v1/chat/turn`
+- 登录注册：`/api/v1/auth/register`、`/api/v1/auth/login`
 - 证据查看：`/api/v1/evidence/{chunk_id}`
 - 当前正式数据规模：`50` 家公司，`154` 份定期报告 PDF，`96` 份研报详情页，`28` 份巨潮官方快照，`365` 条 silver 指标记录
 - 真实指标已覆盖：`G1 / G2 / G3 / P1 / P2 / P3 / P4 / P5 / C1 / C2 / C3 / S1 / S2 / S3 / S4 / I1 / I2 / I3 / I4`
-- UI 已迁移到 Vue 3 工程化前端，支持企业体检、行业风险、研报核验、证据查看与系统管理
+- UI 已迁移到 Vue 3 工程化前端，当前主页面为登录注册、对话分析台、企业体检、行业风险、研报核验、证据查看与系统管理
 
 ## 开发验证
 

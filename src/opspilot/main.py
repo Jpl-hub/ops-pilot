@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from opspilot.api.routes import router
+from opspilot.api.routes import get_auth_store, router
 from opspilot.config import get_settings
 
 
@@ -19,6 +19,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router)
+
+    @app.on_event("startup")
+    def init_auth_schema() -> None:
+        get_auth_store().initialize()
+
     return app
 
 

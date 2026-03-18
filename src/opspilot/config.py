@@ -18,6 +18,7 @@ class Settings:
     bronze_data_path: Path
     silver_data_path: Path
     postgres_dsn: str
+    auth_session_days: int
     audit_min_evidence: int = 2
 
 
@@ -39,4 +40,5 @@ def get_settings() -> Settings:
             "OPS_PILOT_POSTGRES_DSN",
             "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot",
         ),
+        auth_session_days=int(os.getenv("OPS_PILOT_AUTH_SESSION_DAYS", "7")),
     )
