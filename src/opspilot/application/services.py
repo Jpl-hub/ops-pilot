@@ -145,6 +145,7 @@ class OpsPilotService:
         )
         return {
             "company_name": company["company_name"],
+            "subindustry": company["subindustry"],
             "report_period": company["report_period"],
             "answer_markdown": _render_score_answer(company, score_result, risks, opportunities),
             "query_type": "company_scoring",

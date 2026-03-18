@@ -11,29 +11,37 @@ from opspilot.api.routes import get_service
 HEAD_HTML = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=Noto+Sans+SC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --op-bg: #f4efe6;
-    --op-surface: rgba(255, 252, 246, 0.92);
-    --op-surface-strong: #fff9f0;
-    --op-ink: #1f2933;
-    --op-muted: #5b6670;
-    --op-border: rgba(31, 41, 51, 0.08);
-    --op-accent: #0f766e;
-    --op-accent-soft: #d6f2ee;
-    --op-risk: #b42318;
-    --op-opportunity: #1d7a4a;
-    --op-shadow: 0 18px 45px rgba(31, 41, 51, 0.08);
+    --op-bg: #07111f;
+    --op-bg-soft: #0e1d31;
+    --op-surface: rgba(9, 22, 39, 0.86);
+    --op-surface-strong: rgba(12, 28, 49, 0.96);
+    --op-surface-soft: rgba(16, 38, 63, 0.72);
+    --op-ink: #edf3ff;
+    --op-muted: #93a6c2;
+    --op-border: rgba(161, 182, 215, 0.12);
+    --op-grid: rgba(122, 145, 177, 0.08);
+    --op-accent: #ffb84d;
+    --op-accent-strong: #ffc870;
+    --op-accent-soft: rgba(255, 184, 77, 0.14);
+    --op-risk: #ff7b72;
+    --op-risk-soft: rgba(255, 123, 114, 0.14);
+    --op-opportunity: #57e389;
+    --op-opportunity-soft: rgba(87, 227, 137, 0.14);
+    --op-shadow: 0 20px 60px rgba(2, 7, 16, 0.42);
   }
 
   body {
-    font-family: "Space Grotesk", "Noto Sans SC", sans-serif;
+    font-family: "Noto Sans SC", sans-serif;
     color: var(--op-ink);
     background:
-      radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 32%),
-      radial-gradient(circle at top right, rgba(180, 35, 24, 0.08), transparent 26%),
-      linear-gradient(180deg, #f7f2e9 0%, #efe6d6 100%);
+      radial-gradient(circle at 12% 18%, rgba(255, 184, 77, 0.18), transparent 22%),
+      radial-gradient(circle at 88% 16%, rgba(95, 167, 255, 0.16), transparent 24%),
+      radial-gradient(circle at 50% 100%, rgba(87, 227, 137, 0.08), transparent 30%),
+      linear-gradient(180deg, #06101c 0%, #091627 48%, #07111f 100%);
+    min-height: 100vh;
   }
 
   .nicegui-content {
@@ -41,117 +49,173 @@ HEAD_HTML = """
   }
 
   .op-shell {
-    width: min(1240px, calc(100vw - 32px));
+    position: relative;
+    width: min(1280px, calc(100vw - 32px));
     margin: 0 auto;
-    padding: 28px 0 40px;
+    padding: 28px 0 48px;
   }
 
   .op-hero,
   .op-panel,
   .op-stat-card,
-  .op-mini-card {
+  .op-mini-card,
+  .op-command-card {
     border: 1px solid var(--op-border);
-    border-radius: 24px;
+    border-radius: 28px;
     box-shadow: var(--op-shadow);
   }
 
   .op-hero {
     background:
-      linear-gradient(135deg, rgba(15, 118, 110, 0.95), rgba(14, 116, 144, 0.82)),
-      linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0));
-    color: #f5fffd;
-    padding: 28px;
+      linear-gradient(135deg, rgba(17, 37, 63, 0.98), rgba(11, 28, 50, 0.92)),
+      linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0));
+    color: #f7fbff;
+    padding: 30px;
+    overflow: hidden;
+    position: relative;
   }
 
   .op-panel,
   .op-stat-card,
-  .op-mini-card {
+  .op-mini-card,
+  .op-command-card {
     background: var(--op-surface);
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(14px);
   }
 
   .op-panel {
-    padding: 18px;
+    padding: 22px;
   }
 
   .op-stat-card {
     min-width: 180px;
-    padding: 18px;
-    background: linear-gradient(180deg, var(--op-surface-strong), rgba(255, 250, 241, 0.92));
+    padding: 20px;
+    background:
+      linear-gradient(180deg, rgba(14, 31, 54, 0.98), rgba(10, 24, 42, 0.92));
+    position: relative;
+    overflow: hidden;
   }
 
   .op-mini-card {
     min-width: 280px;
     flex: 1 1 340px;
-    padding: 18px;
+    padding: 20px;
+    background:
+      linear-gradient(180deg, rgba(14, 31, 54, 0.92), rgba(9, 22, 39, 0.86));
   }
 
   .op-label-card {
     min-width: 280px;
     flex: 1 1 320px;
-    padding: 18px;
-    border: 1px solid rgba(31, 41, 51, 0.08);
+    padding: 20px;
+    border: 1px solid var(--op-border);
     border-radius: 24px;
-    background: linear-gradient(180deg, rgba(255, 251, 244, 0.96), rgba(250, 245, 236, 0.92));
+    background: linear-gradient(180deg, rgba(14, 31, 54, 0.96), rgba(9, 22, 39, 0.92));
     box-shadow: var(--op-shadow);
+  }
+
+  .op-command-card {
+    min-width: 280px;
+    flex: 1 1 320px;
+    padding: 20px;
+    background:
+      linear-gradient(180deg, rgba(19, 42, 70, 0.92), rgba(10, 24, 42, 0.9));
+  }
+
+  .op-page-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .op-page-title {
+    font-family: "Syne", "Noto Sans SC", sans-serif;
+    font-size: 34px;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+  }
+
+  .op-page-subtitle {
+    max-width: 720px;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--op-muted);
   }
 
   .op-kicker {
     letter-spacing: 0.14em;
     text-transform: uppercase;
     font-size: 12px;
-    opacity: 0.78;
+    color: rgba(255, 255, 255, 0.66);
   }
 
   .op-title {
-    font-size: 34px;
-    line-height: 1.05;
-    font-weight: 700;
+    font-family: "Syne", "Noto Sans SC", sans-serif;
+    font-size: clamp(42px, 7vw, 76px);
+    line-height: 0.96;
+    font-weight: 800;
+    max-width: 720px;
+    letter-spacing: -0.05em;
+    margin-top: 6px;
   }
 
   .op-subtitle {
     font-size: 15px;
+    line-height: 1.7;
     color: var(--op-muted);
   }
 
   .op-hero .op-subtitle {
-    color: rgba(245, 255, 253, 0.82);
+    color: rgba(237, 243, 255, 0.76);
+    max-width: 560px;
   }
 
   .op-stat-label {
     font-size: 12px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--op-muted);
+    color: rgba(147, 166, 194, 0.72);
   }
 
   .op-stat-value {
-    font-size: 30px;
-    line-height: 1.1;
+    font-family: "Syne", "Noto Sans SC", sans-serif;
+    font-size: clamp(28px, 4vw, 42px);
+    line-height: 1;
     font-weight: 700;
+    letter-spacing: -0.04em;
+    margin-top: 16px;
   }
 
   .op-stat-hint {
     font-size: 13px;
     color: var(--op-muted);
+    line-height: 1.6;
+    margin-top: 18px;
   }
 
   .op-section-title {
-    font-size: 20px;
+    font-family: "Syne", "Noto Sans SC", sans-serif;
+    font-size: 22px;
     font-weight: 700;
+    line-height: 1.1;
   }
 
   .op-formula {
-    font-family: "Space Grotesk", monospace;
-    background: rgba(15, 118, 110, 0.08);
+    font-family: "IBM Plex Mono", monospace;
+    background: rgba(255, 184, 77, 0.1);
+    color: #ffe3b5;
     border-radius: 14px;
     padding: 10px 12px;
     font-size: 13px;
+    line-height: 1.6;
+    border: 1px solid rgba(255, 184, 77, 0.12);
   }
 
   .op-detail-row {
-    padding: 8px 0;
-    border-bottom: 1px solid rgba(31, 41, 51, 0.06);
+    padding: 9px 0;
+    border-bottom: 1px solid rgba(161, 182, 215, 0.08);
   }
 
   .op-detail-row:last-child {
@@ -161,44 +225,49 @@ HEAD_HTML = """
   .op-pill {
     display: inline-flex;
     align-items: center;
-    padding: 4px 10px;
+    padding: 5px 10px;
     border-radius: 999px;
     font-size: 12px;
     font-weight: 500;
+    border: 1px solid transparent;
   }
 
   .op-pill-risk {
-    background: rgba(180, 35, 24, 0.12);
+    background: var(--op-risk-soft);
     color: var(--op-risk);
+    border-color: rgba(255, 123, 114, 0.18);
   }
 
   .op-pill-opportunity {
-    background: rgba(29, 122, 74, 0.12);
+    background: var(--op-opportunity-soft);
     color: var(--op-opportunity);
+    border-color: rgba(87, 227, 137, 0.18);
   }
 
   .op-pill-neutral {
-    background: rgba(15, 118, 110, 0.12);
+    background: rgba(122, 145, 177, 0.12);
     color: var(--op-accent);
+    border-color: rgba(255, 184, 77, 0.18);
   }
 
   .op-evidence-link {
-    color: var(--op-accent);
+    color: #f7fbff;
     text-decoration: none;
     font-size: 12px;
-    font-weight: 500;
-    padding: 4px 8px;
+    font-weight: 600;
+    padding: 6px 10px;
     border-radius: 999px;
-    background: rgba(15, 118, 110, 0.08);
+    background: rgba(255, 184, 77, 0.12);
+    border: 1px solid rgba(255, 184, 77, 0.18);
   }
 
   .op-evidence-link:hover {
-    background: rgba(15, 118, 110, 0.16);
+    background: rgba(255, 184, 77, 0.2);
   }
 
   .op-evidence-excerpt {
     font-size: 13px;
-    line-height: 1.55;
+    line-height: 1.72;
     color: var(--op-muted);
   }
 
@@ -209,13 +278,203 @@ HEAD_HTML = """
   .op-note {
     font-size: 13px;
     color: var(--op-muted);
+    line-height: 1.55;
   }
 
   .op-highlight {
-    background: rgba(15, 118, 110, 0.18);
-    color: #0f5d56;
+    background: rgba(255, 184, 77, 0.24);
+    color: #fff1d8;
     padding: 0 3px;
     border-radius: 4px;
+  }
+
+  .op-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 28px;
+  }
+
+  .op-nav-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 184, 77, 0.16);
+    background: rgba(255, 184, 77, 0.08);
+    color: #f8fbff;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .op-nav-link:hover {
+    background: rgba(255, 184, 77, 0.16);
+  }
+
+  .op-hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+    gap: 26px;
+    align-items: stretch;
+  }
+
+  .op-hero-matrix {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .op-hero-panel {
+    padding: 18px;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    min-height: 100%;
+  }
+
+  .op-hero-panel-title {
+    font-family: "Syne", "Noto Sans SC", sans-serif;
+    font-size: 20px;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+
+  .op-hero-panel::before {
+    content: "";
+    position: absolute;
+    inset: auto -80px -100px auto;
+    width: 220px;
+    height: 220px;
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(255, 184, 77, 0.22), transparent 62%);
+    pointer-events: none;
+  }
+
+  .op-stat-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, rgba(255, 184, 77, 0.86), rgba(87, 227, 137, 0.38));
+  }
+
+  .op-stat-card::after {
+    content: "";
+    position: absolute;
+    right: -28px;
+    bottom: -40px;
+    width: 120px;
+    height: 120px;
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.08), transparent 70%);
+    pointer-events: none;
+  }
+
+  .op-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr);
+    gap: 18px;
+  }
+
+  .op-summary-hero {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background:
+      linear-gradient(135deg, rgba(18, 42, 70, 0.98), rgba(10, 24, 42, 0.92));
+  }
+
+  .op-summary-company {
+    font-family: "Syne", "Noto Sans SC", sans-serif;
+    font-size: clamp(34px, 5vw, 54px);
+    line-height: 0.98;
+    letter-spacing: -0.05em;
+    margin-top: 12px;
+  }
+
+  .op-metric-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin-top: 18px;
+  }
+
+  .op-metric-chip {
+    padding: 12px 14px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .op-metric-chip-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(147, 166, 194, 0.78);
+  }
+
+  .op-metric-chip-value {
+    font-family: "Syne", "Noto Sans SC", sans-serif;
+    font-size: 22px;
+    line-height: 1;
+    margin-top: 10px;
+  }
+
+  .op-summary-list {
+    margin: 0;
+    padding-left: 18px;
+    line-height: 1.8;
+  }
+
+  .op-clamp-3 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+
+  .op-clamp-5 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+    overflow: hidden;
+  }
+
+  .op-card-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .op-value-inline {
+    font-family: "IBM Plex Mono", monospace;
+    color: var(--op-accent-strong);
+    font-size: 13px;
+  }
+
+  .op-card-divider {
+    margin: 14px 0;
+    border-top: 1px solid rgba(161, 182, 215, 0.08);
+  }
+
+  @media (max-width: 900px) {
+    .op-hero-grid,
+    .op-split {
+      grid-template-columns: 1fr;
+    }
+
+    .op-page-header {
+      align-items: flex-start;
+      flex-direction: column;
+    }
   }
  </style>
 """
@@ -256,57 +515,98 @@ def run_ui_app() -> None:
     def landing() -> None:
         with ui.column().classes("op-shell gap-6"):
             with ui.card().classes("op-hero w-full"):
-                ui.label("OpsPilot-X").classes("op-kicker")
-                ui.label("新能源运营体检与证据分析平台").classes("op-title")
-                ui.label(
-                    "基于真实财报提供评分、风险识别、公式解释与证据追溯。"
-                ).classes("op-subtitle")
-                with ui.row().classes("gap-3 wrap"):
-                    ui.link("进入企业体检页", "/score")
-                    ui.link("进入行业风险页", "/risk")
-                    ui.link("进入研报核验页", "/verify")
-                    ui.link("进入管理台", "/admin")
-                    ui.link("打开证据查看器", f"/evidence/{initial_score['evidence'][0]['chunk_id']}")
+                with ui.element("div").classes("op-hero-grid w-full"):
+                    with ui.column().classes("gap-3 justify-between"):
+                        ui.label("OpsPilot-X").classes("op-kicker")
+                        ui.label("让新能源公司的经营质量，像驾驶舱一样被看清。").classes("op-title")
+                        ui.label(
+                            "统一整合真实财报、研究观点、公式回放和证据定位，把企业体检、行业风险、研报核验和系统管理收束为一套面向用户的决策产品。"
+                        ).classes("op-subtitle")
+                        with ui.element("div").classes("op-nav"):
+                            ui.link("企业体检", "/score").classes("op-nav-link")
+                            ui.link("行业风险", "/risk").classes("op-nav-link")
+                            ui.link("研报核验", "/verify").classes("op-nav-link")
+                            ui.link("系统管理", "/admin").classes("op-nav-link")
+                            ui.link(
+                                "证据查看",
+                                f"/evidence/{initial_score['evidence'][0]['chunk_id']}",
+                            ).classes("op-nav-link")
+                    with ui.card().classes("op-hero-panel"):
+                        ui.label("当前系统快照").classes("op-hero-panel-title")
+                        ui.label(
+                            "主链已经切到真实数据，当前更适合直接从入口进入任务，而不是先读说明。"
+                        ).classes("op-subtitle")
+                        with ui.element("div").classes("op-hero-matrix mt-4"):
+                            _render_stat_card(
+                                ui,
+                                label="主周期",
+                                value=initial_score["report_period"],
+                                hint=f"公司池 {len(service.list_company_names())} 家",
+                            )
+                            _render_stat_card(
+                                ui,
+                                label="风险巡检",
+                                value=str(len(initial_risk["risk_board"])),
+                                hint="支持横向扫描",
+                            )
+                            _render_stat_card(
+                                ui,
+                                label="公式回放",
+                                value=str(len(initial_score.get("formula_cards", []))),
+                                hint="字段级公式链",
+                            )
+                            _render_stat_card(
+                                ui,
+                                label="研报核验",
+                                value=str(len(initial_claim.get("claim_cards", []))),
+                                hint="真实观点核验",
+                            )
 
             with ui.row().classes("w-full gap-4 wrap"):
-                _render_stat_card(
+                _render_command_card(
                     ui,
-                    label="默认主周期",
-                    value=initial_score["report_period"],
-                    hint=f"公司池 {len(service.list_company_names())} 家",
+                    title="企业体检",
+                    detail="围绕单家公司看总分、标签、公式和证据。",
+                    stats=[
+                        ("总分", f"{initial_score['scorecard']['total_score']}"),
+                        ("风险", str(len(initial_score["scorecard"]["risk_labels"]))),
+                    ],
                 )
-                _render_stat_card(
+                _render_command_card(
                     ui,
-                    label="风险扫描",
-                    value=str(len(initial_risk["risk_board"])),
-                    hint="支持行业风险横向巡检",
+                    title="行业风险",
+                    detail="把 50 家正式公司放进同一主周期扫描风险密度。",
+                    stats=[
+                        ("高风险公司", str(sum(1 for item in initial_risk["risk_board"] if item["risk_count"] > 0))),
+                        ("行业研报", str(initial_risk["industry_research"]["key_numbers"][1]["value"])),
+                    ],
                 )
-                _render_stat_card(
+                _render_command_card(
                     ui,
-                    label="公式回放",
-                    value=str(len(initial_score.get("formula_cards", []))),
-                    hint="当前展示 C3 / S3 关键公式",
+                    title="研报核验",
+                    detail="把券商观点、目标价和真实财报指标直接放在一屏对照。",
+                    stats=[
+                        ("匹配观点", str(next(item["value"] for item in initial_claim.get("key_numbers", []) if item["label"] == "匹配观点")) if initial_claim.get("key_numbers") else "0"),
+                        ("可用研报", str(len(initial_claim_reports))),
+                    ],
                 )
-                _render_stat_card(
+                _render_command_card(
                     ui,
-                    label="研报核验",
-                    value=str(len(initial_claim.get("claim_cards", []))),
-                    hint="最新研报中的可核验观点数",
-                )
-                _render_stat_card(
-                    ui,
-                    label="管理台",
-                    value=str(len(initial_admin["job_catalog"])),
-                    hint="数据作业与系统状态入口",
+                    title="系统管理",
+                    detail="检查覆盖缺口、数据链路状态和标准作业命令。",
+                    stats=[
+                        ("标准作业", str(len(initial_admin["job_catalog"]))),
+                        ("主周期就绪", str(initial_admin["quality_overview"]["coverage"]["preferred_period_ready"])),
+                    ],
                 )
 
     @ui.page("/score")
     def score_page() -> None:
         with ui.column().classes("op-shell gap-6"):
-            with ui.row().classes("items-end justify-between w-full gap-4 wrap"):
+            with ui.element("div").classes("op-page-header w-full"):
                 with ui.column().classes("gap-1"):
-                    ui.label("企业运营体检页").classes("op-section-title")
-                    ui.label("真实财报评分、公式回放与证据链一体展示").classes("op-subtitle")
+                    ui.label("企业运营体检").classes("op-page-title")
+                    ui.label("把真实财报评分、风险标签、公式解释和证据链压到同一层里看，不让用户自己在页面之间来回找。").classes("op-page-subtitle")
                 with ui.row().classes("gap-3 items-center wrap"):
                     company_select = ui.select(
                         options=service.list_company_names(),
@@ -334,10 +634,10 @@ def run_ui_app() -> None:
     @ui.page("/risk")
     def risk_page() -> None:
         with ui.column().classes("op-shell gap-6"):
-            with ui.row().classes("items-end justify-between w-full gap-4 wrap"):
+            with ui.element("div").classes("op-page-header w-full"):
                 with ui.column().classes("gap-1"):
-                    ui.label("行业风险与机会大屏").classes("op-section-title")
-                    ui.label("按主周期横向观察公司风险标签命中情况。").classes("op-subtitle")
+                    ui.label("行业风险与机会").classes("op-page-title")
+                    ui.label("先看行业整体风险密度，再叠加行业研报背景，避免只盯单家公司。").classes("op-page-subtitle")
                 _render_stat_card(
                     ui,
                     label="高风险公司数",
@@ -365,8 +665,8 @@ def run_ui_app() -> None:
                         with ui.card().classes("op-mini-card"):
                             ui.label(group["industry_name"]).classes("text-lg font-semibold")
                             ui.label(f"{group['report_count']} 篇真实行业研报").classes("op-stat-hint")
-                            ui.label(latest["title"]).classes("text-sm font-medium")
-                            ui.label(latest["excerpt"]).classes("op-evidence-excerpt")
+                            ui.label(latest["title"]).classes("text-sm font-medium op-clamp-3")
+                            ui.label(latest["excerpt"]).classes("op-evidence-excerpt op-clamp-5")
                             with ui.row().classes("gap-2 wrap"):
                                 _render_pill(
                                     ui,
@@ -396,10 +696,10 @@ def run_ui_app() -> None:
     @ui.page("/verify")
     def verify_page() -> None:
         with ui.column().classes("op-shell gap-6"):
-            with ui.row().classes("items-end justify-between w-full gap-4 wrap"):
+            with ui.element("div").classes("op-page-header w-full"):
                 with ui.column().classes("gap-1"):
-                    ui.label("研报观点核验").classes("op-section-title")
-                    ui.label("把研报里的关键数字观点和真实财报指标放在一屏对照。").classes("op-subtitle")
+                    ui.label("研报观点核验").classes("op-page-title")
+                    ui.label("用户看到的不是研报原文堆砌，而是观点、报期、评级和真实财报证据之间的明确对应关系。").classes("op-page-subtitle")
                 with ui.row().classes("gap-3 items-center wrap"):
                     company_select = ui.select(
                         options=service.list_company_names(),
@@ -765,10 +1065,10 @@ def run_ui_app() -> None:
             data_status = payload["data_status"]
             quality_overview = payload["quality_overview"]
             coverage = quality_overview["coverage"]
-            with ui.row().classes("items-end justify-between w-full gap-4 wrap"):
+            with ui.element("div").classes("op-page-header w-full"):
                 with ui.column().classes("gap-1"):
-                    ui.label("系统管理台").classes("op-section-title")
-                    ui.label("统一查看系统健康、真实数据状态、覆盖缺口与标准作业命令。").classes("op-subtitle")
+                    ui.label("系统管理台").classes("op-page-title")
+                    ui.label("统一查看系统健康、真实数据状态、覆盖缺口和标准作业，不把运维信息散落在仓库和终端里。").classes("op-page-subtitle")
                 ui.link("返回首页", "/").classes("op-evidence-link")
 
             with ui.row().classes("w-full gap-4 wrap"):
@@ -928,8 +1228,8 @@ def run_ui_app() -> None:
         ]
         with ui.column().classes("op-shell gap-6"):
             with ui.card().classes("op-panel w-full"):
-                ui.label("证据查看器").classes("op-section-title")
-                ui.label(context or chunk_id).classes("op-subtitle")
+                ui.label("证据查看器").classes("op-page-title")
+                ui.label(context or chunk_id).classes("op-page-subtitle")
                 if context and context != chunk_id:
                     ui.label(chunk_id).classes("op-note")
                 with ui.row().classes("gap-4 wrap"):
@@ -978,19 +1278,49 @@ def _render_score_summary(ui: Any, container: Any, payload: dict[str, Any]) -> N
                 hint="命中机会规则数",
             )
 
-        with ui.row().classes("w-full gap-4 wrap items-stretch"):
-            with ui.card().classes("op-panel grow").style("min-width: 320px;"):
-                ui.label("评分摘要").classes("op-section-title")
-                ui.markdown(payload["answer_markdown"])
-            with ui.card().classes("op-panel grow").style("min-width: 320px;"):
-                ui.label("标签面板").classes("op-section-title")
-                ui.label("风险标签").classes("op-note")
+        with ui.element("div").classes("op-split w-full"):
+            with ui.card().classes("op-panel op-summary-hero"):
+                ui.label("评分摘要").classes("op-kicker")
+                ui.label(payload["company_name"]).classes("op-summary-company")
+                ui.label(
+                    f"{payload['report_period']} · 等级 {scorecard['grade']} · 对标子行业 {payload['subindustry']}"
+                ).classes("op-subtitle")
+                with ui.element("div").classes("op-metric-strip"):
+                    _render_metric_chip(ui, "总分", f"{scorecard['total_score']}")
+                    _render_metric_chip(ui, "分位", f"{scorecard['subindustry_percentile']}pct")
+                    _render_metric_chip(ui, "强项", str(len(scorecard["strengths"])))
+                    _render_metric_chip(ui, "弱项", str(len(scorecard["weaknesses"])))
+                ui.label("当前公司在主周期下的经营结论，不再用大段 markdown 平铺。").classes("op-note")
+
+            with ui.card().classes("op-panel"):
+                ui.label("核心判断").classes("op-section-title")
+                ui.label("把用户最关心的四件事先讲清楚。").classes("op-subtitle")
+                with ui.element("ul").classes("op-summary-list"):
+                    with ui.element("li"):
+                        ui.label(
+                            f"总分 {scorecard['total_score']}，等级 {scorecard['grade']}，子行业分位 {scorecard['subindustry_percentile']}pct。"
+                        )
+                    with ui.element("li"):
+                        ui.label("强项: " + _join_metric_names(scorecard["strengths"], fallback="暂无显著强项"))
+                    with ui.element("li"):
+                        ui.label("弱项: " + _join_metric_names(scorecard["weaknesses"], fallback="暂无显著弱项"))
+                    with ui.element("li"):
+                        ui.label(
+                            "风险标签: "
+                            + _join_label_names(scorecard["risk_labels"], fallback="暂无高风险标签")
+                        )
+                    with ui.element("li"):
+                        ui.label(
+                            "机会标签: "
+                            + _join_label_names(scorecard["opportunity_labels"], fallback="暂无显著机会标签")
+                        )
+                ui.separator().classes("op-card-divider")
+                ui.label("标签面板").classes("op-note")
                 with ui.row().classes("gap-2 wrap"):
                     risk_labels = scorecard["risk_labels"] or [{"name": "暂无高风险标签"}]
                     for item in risk_labels:
                         _render_pill(ui, item["name"], tone="risk" if item["name"] != "暂无高风险标签" else "neutral")
-                ui.label("机会标签").classes("op-note mt-4")
-                with ui.row().classes("gap-2 wrap"):
+                with ui.row().classes("gap-2 wrap mt-2"):
                     opportunity_labels = scorecard["opportunity_labels"] or [{"name": "暂无显著机会标签"}]
                     for item in opportunity_labels:
                         tone = "opportunity" if item["name"] != "暂无显著机会标签" else "neutral"
@@ -1069,7 +1399,7 @@ def _render_formula_section(ui: Any, container: Any, payload: dict[str, Any]) ->
 
 def _render_formula_card(ui: Any, card: dict[str, Any]) -> None:
     with ui.card().classes("op-mini-card"):
-        with ui.row().classes("w-full items-start justify-between gap-3"):
+        with ui.element("div").classes("op-card-title-row w-full"):
             with ui.column().classes("gap-1"):
                 ui.label(f"{card['metric_code']} {card['title']}").classes("text-lg font-semibold")
                 ui.label("公式指标").classes("op-note")
@@ -1113,7 +1443,7 @@ def _render_evidence_section(ui: Any, container: Any, payload: dict[str, Any]) -
                                     ),
                                 ).classes("op-evidence-link")
                                 ui.label(f"{item['source_title']} | p.{item['page']}").classes("op-note")
-                            ui.label(item["excerpt"]).classes("op-evidence-excerpt")
+                            ui.label(item["excerpt"]).classes("op-evidence-excerpt op-clamp-5")
 
 
 def _render_stat_card(ui: Any, *, label: str, value: str, hint: str) -> None:
@@ -1121,6 +1451,27 @@ def _render_stat_card(ui: Any, *, label: str, value: str, hint: str) -> None:
         ui.label(label).classes("op-stat-label")
         ui.label(value).classes("op-stat-value")
         ui.label(hint).classes("op-stat-hint")
+
+
+def _render_command_card(
+    ui: Any,
+    *,
+    title: str,
+    detail: str,
+    stats: list[tuple[str, str]],
+) -> None:
+    with ui.card().classes("op-command-card"):
+        ui.label(title).classes("op-section-title")
+        ui.label(detail).classes("op-evidence-excerpt op-clamp-3")
+        with ui.element("div").classes("op-metric-strip"):
+            for label, value in stats:
+                _render_metric_chip(ui, label, value)
+
+
+def _render_metric_chip(ui: Any, label: str, value: str) -> None:
+    with ui.element("div").classes("op-metric-chip"):
+        ui.label(label).classes("op-metric-chip-label")
+        ui.label(value).classes("op-metric-chip-value")
 
 
 def _render_pill(ui: Any, label: str, *, tone: str) -> None:
@@ -1182,6 +1533,18 @@ def _format_compare_value(value: float | int | None, unit: str) -> str:
     if unit == "亿元":
         return f"{value:.2f} 亿元"
     return f"{value} {unit}".strip()
+
+
+def _join_metric_names(items: list[dict[str, Any]], *, fallback: str) -> str:
+    if not items:
+        return fallback
+    return "、".join(item["name"] for item in items)
+
+
+def _join_label_names(items: list[dict[str, Any]], *, fallback: str) -> str:
+    if not items:
+        return fallback
+    return "、".join(item["name"] for item in items)
 
 
 def _build_report_options(reports: list[dict[str, Any]]) -> dict[str, str]:
