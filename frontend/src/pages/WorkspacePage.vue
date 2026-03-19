@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { RouterLink } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
@@ -7,129 +8,49 @@ import ChartPanel from '@/components/ChartPanel.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import TagPill from '@/components/TagPill.vue'
-import { useAsyncState } from '@/composables/useAsyncState'
-import { get, post } from '@/lib/api'
+import { useWorkspaceRole } from '@/composables/useWorkspaceRole'
 import { buildEvidenceLink } from '@/lib/format'
 import { useSession } from '@/lib/session'
-
-type WorkspaceMessage =
-  | { id: string; role: 'assistant'; kind: 'welcome'; title: string; lines: string[] }
-  | { id: string; role: 'user'; kind: 'query'; text: string; company: string }
-  | { id: string; role: 'assistant'; kind: 'result'; payload: any }
+import { useWorkspaceStore } from '@/stores/workspace'
 
 const session = useSession()
-const companies = ref<string[]>([])
-const selectedCompany = ref('TCL中环')
-const query = ref('')
-const messages = ref<WorkspaceMessage[]>([])
+const workspace = useWorkspaceStore()
+const {
+  companies,
+  selectedCompany,
+  query,
+  messages,
+  taskQueue,
+  taskSummary,
+  alertQueue,
+  alertWorkflowSummary,
+  overviewSummary,
+  followUps,
+  agentFlow,
+  controlPlane,
+  evidenceGroups,
+  charts,
+  formulas,
+  latestPayload,
+  loadingOverview,
+  loadingTurn,
+  overviewError,
+  turnError,
+} = storeToRefs(workspace)
 const threadRef = ref<HTMLElement | null>(null)
-const workspaceState = useAsyncState<any>()
-const overviewState = useAsyncState<any>()
+const { roleCopy } = useWorkspaceRole(() => session.activeRole.value || 'investor')
 
-const roleCopy = computed(() => {
-  const role = session.activeRole.value || 'investor'
-  if (role === 'management') {
-    return {
-      label: '企业管理者',
-      title: '围绕经营动作展开分析',
-      copy: '先识别瓶颈，再拆经营链条，最后给出整改动作。',
-      fallbackQueries: [
-        '给我一份当前经营体检和整改优先级。',
-        '现金、应收和库存哪个环节最拖后腿？',
-        '当前最先要修复的经营问题是什么？',
-      ],
-    }
-  }
-  if (role === 'regulator') {
-    return {
-      label: '监管 / 风控角色',
-      title: '围绕风险巡检展开分析',
-      copy: '优先识别新增风险、事件信号和研报偏差。',
-      fallbackQueries: [
-        '当前主周期哪些公司风险抬升最快？',
-        '这家公司有哪些需要重点跟踪的事件信号？',
-        '这家公司和研报观点有明显偏差吗？',
-      ],
-    }
-  }
-  return {
-    label: '投资者',
-    title: '围绕收益质量展开分析',
-    copy: '优先看结论、同业位置、研报分歧和证据。',
-    fallbackQueries: [
-      '这家公司当前最值得警惕的风险是什么？',
-      '把这家公司和同业头部公司做一下对比。',
-      '最新研报和真实财报有没有偏差？',
-    ],
-  }
-})
-
-const latestPayload = computed(() => {
-  const latest = [...messages.value].reverse().find((item) => item.kind === 'result')
-  return latest && latest.kind === 'result' ? latest.payload : null
-})
-
-const starterQueries = computed(() => {
-  return latestPayload.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries
-})
-
-const followUps = computed(() => latestPayload.value?.follow_up_questions || [])
-const agentFlow = computed(() => latestPayload.value?.agent_flow || [])
-const controlPlane = computed(() => latestPayload.value?.control_plane || null)
-const insightCards = computed(() => latestPayload.value?.insight_cards || [])
-const evidenceGroups = computed(() => latestPayload.value?.evidence_groups || [])
-const charts = computed(() => latestPayload.value?.charts || [])
-const formulas = computed(() => latestPayload.value?.formula_cards || [])
+const starterQueries = computed(
+  () => latestPayload.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries,
+)
 
 function appendWelcomeMessage() {
-  messages.value = [
-    {
-      id: 'welcome',
-      role: 'assistant',
-      kind: 'welcome',
-      title: roleCopy.value.title,
-      lines: [
-        `${roleCopy.value.label}模式已就绪。`,
-      ],
-    },
-  ]
-}
-
-const taskQueue = computed(() => overviewState.data.value?.task_queue || [])
-const overviewSummary = computed(() => overviewState.data.value?.alert_summary || null)
-
-async function loadWorkspaceOverview() {
-  await overviewState.execute(() =>
-    get<any>(`/workspace/overview?user_role=${encodeURIComponent(session.activeRole.value || 'investor')}`),
-  )
-  companies.value = overviewState.data.value?.companies || []
+  workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
 }
 
 async function runQuery(inputQuery?: string) {
-  const actualQuery = (inputQuery || query.value).trim()
-  if (!actualQuery) return
-  messages.value.push({
-    id: `user-${Date.now()}`,
-    role: 'user',
-    kind: 'query',
-    text: actualQuery,
-    company: selectedCompany.value,
-  })
-  query.value = ''
-  await workspaceState.execute(() =>
-    post('/chat/turn', {
-      query: actualQuery,
-      company_name: selectedCompany.value,
-      user_role: session.activeRole.value || 'investor',
-    }),
-  )
-  if (workspaceState.data.value) {
-    messages.value.push({
-      id: `assistant-${Date.now()}`,
-      role: 'assistant',
-      kind: 'result',
-      payload: workspaceState.data.value,
-    })
+  await workspace.sendQuery(session.activeRole.value || 'investor', inputQuery)
+  if (!workspace.turnError) {
     await nextTick()
     threadRef.value?.scrollTo({ top: threadRef.value.scrollHeight, behavior: 'smooth' })
   }
@@ -137,7 +58,7 @@ async function runQuery(inputQuery?: string) {
 
 onMounted(async () => {
   appendWelcomeMessage()
-  await loadWorkspaceOverview()
+  await workspace.loadOverview(session.activeRole.value || 'investor')
   if (!companies.value.includes(selectedCompany.value)) {
     selectedCompany.value = companies.value[0]
   }
@@ -147,7 +68,7 @@ watch(
   () => session.activeRole.value,
   async () => {
     appendWelcomeMessage()
-    await loadWorkspaceOverview()
+    await workspace.loadOverview(session.activeRole.value || 'investor')
   },
 )
 </script>
@@ -198,6 +119,14 @@ watch(
             <span>主周期预警</span>
             <strong>{{ overviewSummary.total_alerts }}</strong>
           </div>
+          <div v-if="taskSummary" class="detail-row">
+            <span>处理中任务</span>
+            <strong>{{ taskSummary.in_progress }}</strong>
+          </div>
+          <div v-if="alertWorkflowSummary" class="detail-row">
+            <span>待分发预警</span>
+            <strong>{{ alertWorkflowSummary.new }}</strong>
+          </div>
         </div>
         <div v-if="taskQueue.length" class="subsection-label" style="margin-top: 18px;">待处理任务</div>
         <div class="timeline-list">
@@ -242,8 +171,9 @@ watch(
 
       <section class="panel chat-thread-shell">
         <div class="chat-thread" ref="threadRef">
-          <LoadingState v-if="workspaceState.loading.value" />
-          <ErrorState v-else-if="workspaceState.error.value" :message="workspaceState.error.value" />
+          <LoadingState v-if="loadingTurn" />
+          <ErrorState v-else-if="turnError" :message="turnError" />
+          <ErrorState v-else-if="overviewError" :message="overviewError" />
           <template v-for="message in messages" :key="message.id">
             <div v-if="message.kind === 'welcome'" class="chat-row assistant">
               <div class="chat-avatar">OP</div>
@@ -324,7 +254,7 @@ watch(
               placeholder="输入一个任务，例如：先给结论，再拆原因，再回放证据。"
               @keydown.enter.exact.prevent="runQuery()"
             />
-            <button class="button-primary chat-send" @click="runQuery()">发送问题</button>
+            <button class="button-primary chat-send" :disabled="loadingTurn || loadingOverview" @click="runQuery()">发送问题</button>
           </div>
         </div>
       </section>
@@ -371,6 +301,19 @@ watch(
               {{ agent.route.label }}
             </RouterLink>
           </div>
+        </div>
+
+        <div v-if="alertQueue.length" class="subsection-label" style="margin-top: 18px;">预警队列</div>
+        <div class="timeline-list">
+          <RouterLink
+            v-for="item in alertQueue.slice(0, 3)"
+            :key="item.alert_id || item.title"
+            class="timeline-item interactive-card"
+            :to="{ path: item.route.path, query: item.route.query || {} }"
+          >
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.summary }}</span>
+          </RouterLink>
         </div>
 
         <div v-if="evidenceGroups.length" class="subsection-label" style="margin-top: 18px;">证据短链</div>
