@@ -16,6 +16,7 @@ const companies = ref<string[]>([])
 const selectedCompany = ref('TCL中环')
 const selectedPeriod = ref<string>('')
 const scoreState = useAsyncState<any>()
+const timelineState = useAsyncState<any>()
 const route = useRoute()
 const syncingFromRoute = ref(false)
 
@@ -43,6 +44,12 @@ async function loadScore() {
   )
 }
 
+async function loadTimeline() {
+  await timelineState.execute(() =>
+    get<any>(`/company/timeline?company_name=${encodeURIComponent(selectedCompany.value)}`),
+  )
+}
+
 function applyQuerySelection() {
   const queryCompany = typeof route.query.company === 'string' ? route.query.company : ''
   const queryPeriod = typeof route.query.period === 'string' ? route.query.period : ''
@@ -63,6 +70,7 @@ onMounted(async () => {
   }
   applyQuerySelection()
   await loadScore()
+  await loadTimeline()
   if (!selectedPeriod.value) {
     selectedPeriod.value = scoreState.data.value?.report_period || ''
   }
@@ -75,6 +83,7 @@ watch(selectedCompany, async (_, oldValue) => {
   if (oldValue && selectedCompany.value !== oldValue) {
     selectedPeriod.value = ''
     await loadScore()
+    await loadTimeline()
     selectedPeriod.value = scoreState.data.value?.report_period || ''
   }
 })
@@ -99,6 +108,7 @@ watch(
       selectedPeriod.value = period || ''
       syncingFromRoute.value = false
       await loadScore()
+      await loadTimeline()
       if (!period) {
         selectedPeriod.value = scoreState.data.value?.report_period || ''
       }
@@ -224,6 +234,42 @@ watch(
 
       <section class="chart-grid">
         <ChartPanel v-for="chart in scoreState.data.value.charts" :key="chart.title" :title="chart.title" :options="chart.options" />
+      </section>
+
+      <section v-if="timelineState.data.value" class="panel">
+        <div class="panel-header"><h3>阶段轨迹</h3></div>
+        <div class="stack-grid">
+          <article
+            v-for="item in timelineState.data.value.snapshots"
+            :key="item.report_period"
+            class="company-card"
+          >
+            <div class="signal-top">
+              <div>
+                <div class="signal-code">{{ item.report_period }}</div>
+                <h4>{{ item.grade }}</h4>
+              </div>
+              <div class="signal-subtitle">{{ item.total_score }} 分</div>
+            </div>
+            <div class="metric-list">
+              <div class="metric-row"><span>风险数</span><strong>{{ item.risk_count }}</strong></div>
+              <div class="metric-row"><span>营收增速</span><strong>{{ item.revenue_growth ?? '--' }}</strong></div>
+              <div class="metric-row"><span>利润增速</span><strong>{{ item.profit_growth ?? '--' }}</strong></div>
+            </div>
+            <div class="tag-row">
+              <TagPill v-if="item.score_delta !== null" :label="`总分变化 ${item.score_delta}`" />
+              <TagPill v-if="item.risk_delta !== null" :label="`风险变化 ${item.risk_delta}`" tone="risk" />
+            </div>
+          </article>
+        </div>
+        <section class="chart-grid" style="margin-top: 18px;">
+          <ChartPanel
+            v-for="chart in timelineState.data.value.charts"
+            :key="chart.title"
+            :title="chart.title"
+            :options="chart.options"
+          />
+        </section>
       </section>
 
       <section class="panel">

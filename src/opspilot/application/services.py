@@ -164,21 +164,21 @@ class OpsPilotService:
             },
             "platform_pillars": [
                 {
-                    "code": "APP",
+                    "code": "应用",
                     "title": "传统应用 + Agent",
                     "value": "中心化编排",
                     "summary": "工作台统一调度体检、风险、核验和证据。",
                     "route": {"path": "/workspace", "label": "查看工作台"},
                 },
                 {
-                    "code": "MM",
+                    "code": "多模",
                     "title": "多模态 AI / 深度学习",
                     "value": "PaddleOCR-VL-1.5",
                     "summary": "版面解析已冻结，OCR 运行时待接入作业链。",
                     "route": {"path": "/admin", "label": "查看解析链"},
                 },
                 {
-                    "code": "DATA",
+                    "code": "数据",
                     "title": "大数据工程",
                     "value": f"{data_status['silver_financial_metrics']['record_count']} 条",
                     "summary": "真实财报、研报、证据共用同一条结构化数据链。",
@@ -293,6 +293,79 @@ class OpsPilotService:
                         "xAxis": {"type": "category", "data": [row["company_name"] for row in rows]},
                         "yAxis": {"type": "value", "max": 100},
                         "series": [{"type": "bar", "data": [row["total_score"] for row in rows]}],
+                    },
+                }
+            ],
+        }
+
+    def company_timeline(self, company_name: str) -> dict[str, Any]:
+        periods = _list_company_periods(self.repository, company_name)
+        if not periods:
+            raise ValueError(f"未找到公司：{company_name}")
+
+        snapshots: list[dict[str, Any]] = []
+        previous_snapshot: dict[str, Any] | None = None
+        for period in periods:
+            company = self.repository.get_company(company_name, period)
+            if company is None:
+                continue
+            peers = self.repository.list_companies(period)
+            score_result = score_company(company, peers)
+            risks = evaluate_risk_labels(company)
+            opportunities = evaluate_opportunity_labels(company)
+            snapshot = {
+                "report_period": period,
+                "total_score": score_result["total_score"],
+                "grade": score_result["grade"],
+                "risk_count": len(risks),
+                "opportunity_count": len(opportunities),
+                "revenue_growth": company["metrics"].get("G1"),
+                "profit_growth": company["metrics"].get("G2"),
+                "cash_quality": company["metrics"].get("C1"),
+                "top_risks": [item["name"] for item in risks[:3]],
+                "top_opportunities": [item["name"] for item in opportunities[:3]],
+            }
+            if previous_snapshot is not None:
+                snapshot["score_delta"] = round(
+                    snapshot["total_score"] - previous_snapshot["total_score"], 2
+                )
+                snapshot["risk_delta"] = snapshot["risk_count"] - previous_snapshot["risk_count"]
+            else:
+                snapshot["score_delta"] = None
+                snapshot["risk_delta"] = None
+            snapshots.append(snapshot)
+            previous_snapshot = snapshot
+
+        if not snapshots:
+            raise ValueError(f"未找到公司：{company_name}")
+
+        latest = snapshots[0]
+        return {
+            "company_name": company_name,
+            "latest_period": latest["report_period"],
+            "key_numbers": [
+                {"label": "已覆盖报期", "value": len(snapshots), "unit": "个"},
+                {"label": "当前总分", "value": latest["total_score"], "unit": "分"},
+                {"label": "当前风险数", "value": latest["risk_count"], "unit": "项"},
+            ],
+            "snapshots": snapshots,
+            "charts": [
+                {
+                    "type": "line",
+                    "title": "报期总分变化",
+                    "options": {
+                        "xAxis": {
+                            "type": "category",
+                            "data": [item["report_period"] for item in reversed(snapshots)],
+                        },
+                        "yAxis": {"type": "value", "max": 100},
+                        "series": [
+                            {
+                                "type": "line",
+                                "smooth": True,
+                                "data": [item["total_score"] for item in reversed(snapshots)],
+                            }
+                        ],
                     },
                 }
             ],

@@ -151,6 +151,14 @@ def company_benchmark(request: BenchmarkRequest, _: dict = Depends(require_curre
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/company/timeline")
+def company_timeline(company_name: str, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().company_timeline(company_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/claim/verify")
 def claim_verify(request: ClaimVerifyRequest, _: dict = Depends(require_current_user)) -> dict:
     try:

@@ -27,15 +27,15 @@ onMounted(() => {
     <template v-else-if="state.data.value">
       <section class="metrics-grid workspace-overview-strip">
         <article class="signal-card">
-          <div class="signal-code">AGENT</div>
+          <div class="signal-code">应用</div>
           <h4>编排内核</h4>
         </article>
         <article class="signal-card">
-          <div class="signal-code">MM</div>
+          <div class="signal-code">多模</div>
           <h4>{{ state.data.value.document_pipeline.ocr_runtime_enabled ? '多模态已接入' : '多模态待接入' }}</h4>
         </article>
         <article class="signal-card">
-          <div class="signal-code">DATA</div>
+          <div class="signal-code">数据</div>
           <h4>{{ state.data.value.data_status.silver_financial_metrics.record_count }} 条结构化记录</h4>
         </article>
       </section>
@@ -75,15 +75,15 @@ onMounted(() => {
           </div>
           <div class="company-grid">
             <div class="company-card">
-              <div class="signal-code">APP</div>
+              <div class="signal-code">应用</div>
               <h4>传统应用</h4>
             </div>
             <div class="company-card">
-              <div class="signal-code">AI</div>
+              <div class="signal-code">智能</div>
               <h4>Agent 编排</h4>
             </div>
             <div class="company-card">
-              <div class="signal-code">DATA</div>
+              <div class="signal-code">数据</div>
               <h4>大数据工程</h4>
             </div>
           </div>

@@ -119,6 +119,93 @@ class ServicesTestCase(unittest.TestCase):
         self.assertTrue(payload["action_cards"])
         self.assertEqual(payload["action_cards"][0]["priority"], "P1")
 
+    def test_company_timeline_returns_period_snapshots(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                records = {
+                    "2025Q3": {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 12.0, "G2": 8.0, "C1": 1.1, "C3": 10.5, "S1": 1.2, "S4": 1.1},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                    "2025H1": {
+                        "company_name": "测试公司",
+                        "report_period": "2025H1",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 9.0, "G2": 6.0, "C1": 0.8, "C3": 2.0, "S1": 1.3, "S4": 1.25},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                }
+                return records.get(report_period or "2025Q3")
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                if report_period == "2025Q3":
+                    return [
+                        self.get_company("测试公司", "2025Q3"),
+                        {
+                            "company_name": "对标公司",
+                            "report_period": "2025Q3",
+                            "subindustry": "储能",
+                            "metrics": {"G1": 10.0, "G2": 7.5, "C1": 1.3, "C3": 1.0, "S1": 1.4, "S4": 1.35},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        },
+                    ]
+                if report_period == "2025H1":
+                    return [
+                        self.get_company("测试公司", "2025H1"),
+                        {
+                            "company_name": "对标公司",
+                            "report_period": "2025H1",
+                            "subindustry": "储能",
+                            "metrics": {"G1": 8.0, "G2": 5.0, "C1": 1.25, "C3": 1.5, "S1": 1.45, "S4": 1.4},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        },
+                    ]
+                return [self.get_company("测试公司", "2025Q3"), self.get_company("测试公司", "2025H1")]
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3", "2025H1"]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+
+        payload = OpsPilotService(StubRepository(), StubSettings()).company_timeline("测试公司")
+
+        self.assertEqual(payload["company_name"], "测试公司")
+        self.assertEqual(payload["key_numbers"][0]["value"], 2)
+        self.assertEqual(payload["snapshots"][0]["report_period"], "2025Q3")
+        self.assertIsNotNone(payload["snapshots"][1]["score_delta"])
+        self.assertEqual(payload["charts"][0]["title"], "报期总分变化")
+
     def test_chat_turn_returns_role_driven_workspace_payload(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

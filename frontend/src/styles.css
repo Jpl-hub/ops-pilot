@@ -42,6 +42,24 @@ a { color: inherit; }
   padding: 24px 0 48px;
 }
 
+.shell-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 24px;
+}
+
+.shell-sidebar {
+  position: sticky;
+  top: 20px;
+  align-self: start;
+  display: grid;
+  gap: 18px;
+}
+
+.shell-main {
+  min-width: 0;
+}
+
 .page-header, .panel-header, .signal-top, .metric-row, .detail-row, .evidence-meta, .research-meta {
   display: flex;
   justify-content: space-between;
@@ -52,13 +70,6 @@ a { color: inherit; }
   display: grid;
   gap: 16px;
   margin-bottom: 20px;
-}
-
-.shell-topbar {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 340px;
-  align-items: center;
-  gap: 20px;
 }
 
 .page-copy {
@@ -120,6 +131,18 @@ a { color: inherit; }
 .top-nav-actions {
   flex: 0 0 auto;
   justify-content: flex-end;
+}
+
+.top-nav-vertical {
+  display: grid;
+  gap: 10px;
+}
+
+.top-nav-vertical a,
+.top-nav-vertical .logout-button,
+.top-nav-vertical .role-switch,
+.top-nav-vertical .button-secondary {
+  width: 100%;
 }
 
 .role-switch {
@@ -586,7 +609,8 @@ select, .text-input, .text-area {
 @media (max-width: 1080px) {
   .hero-grid, .split-grid, .metrics-grid, .workspace-grid, .workspace-lower, .auth-grid { grid-template-columns: 1fr 1fr; }
   .chat-workspace { grid-template-columns: 1fr; }
-  .shell-topbar { grid-template-columns: 1fr; }
+  .shell-layout { grid-template-columns: 1fr; }
+  .shell-sidebar { position: static; }
   .top-nav { justify-content: flex-start; }
   .top-nav-main { justify-content: flex-start; }
   .execution-meta div, .execution-metrics { grid-template-columns: 1fr 1fr 1fr; }

@@ -169,15 +169,15 @@ watch(
   >
     <section class="metrics-grid workspace-overview-strip">
       <article class="signal-card">
-        <div class="signal-code">ROLE</div>
+        <div class="signal-code">视角</div>
         <h4>{{ roleCopy.label }}</h4>
       </article>
       <article class="signal-card">
-        <div class="signal-code">ALERT</div>
+        <div class="signal-code">预警</div>
         <h4>{{ overviewSummary?.total_alerts || 0 }}</h4>
       </article>
       <article class="signal-card">
-        <div class="signal-code">CHAIN</div>
+        <div class="signal-code">覆盖</div>
         <h4>{{ overviewSummary?.active_companies || 0 }}</h4>
       </article>
     </section>
