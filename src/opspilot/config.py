@@ -20,6 +20,10 @@ class Settings:
     postgres_dsn: str
     auth_session_days: int
     audit_min_evidence: int = 2
+    doc_layout_engine: str = "PP-DocLayout-V3 + PyMuPDF"
+    ocr_provider: str = "PaddleOCR-VL"
+    ocr_model: str = "PaddleOCR-VL-1.5"
+    ocr_runtime_enabled: bool = False
 
 
 @lru_cache(maxsize=1)
@@ -47,6 +51,14 @@ def get_settings() -> Settings:
             "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot",
         ),
         auth_session_days=int(os.getenv("OPS_PILOT_AUTH_SESSION_DAYS", "7")),
+        doc_layout_engine=os.getenv(
+            "OPS_PILOT_DOC_LAYOUT_ENGINE",
+            "PP-DocLayout-V3 + PyMuPDF",
+        ),
+        ocr_provider=os.getenv("OPS_PILOT_OCR_PROVIDER", "PaddleOCR-VL"),
+        ocr_model=os.getenv("OPS_PILOT_OCR_MODEL", "PaddleOCR-VL-1.5"),
+        ocr_runtime_enabled=os.getenv("OPS_PILOT_OCR_RUNTIME_ENABLED", "false").lower()
+        in {"1", "true", "yes", "on"},
     )
 
 

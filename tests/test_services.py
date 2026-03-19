@@ -276,6 +276,10 @@ class ServicesTestCase(unittest.TestCase):
             env = "test"
             default_period = "2025Q3"
             audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = False
 
             def __init__(self, root: Path) -> None:
                 self.sample_data_path = root / "bootstrap"
@@ -318,6 +322,10 @@ class ServicesTestCase(unittest.TestCase):
             env = "test"
             default_period = "2025Q3"
             audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = False
 
             def __init__(self, root: Path) -> None:
                 self.sample_data_path = root / "bootstrap"
@@ -359,6 +367,10 @@ class ServicesTestCase(unittest.TestCase):
             env = "test"
             default_period = "2025Q3"
             audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = False
 
             def __init__(self, root: Path) -> None:
                 self.sample_data_path = root / "bootstrap"

@@ -81,6 +81,7 @@ onMounted(() => {
           <div class="detail-list">
             <div class="detail-row"><span>版面解析</span><strong>{{ state.data.value.document_pipeline.layout_engine }}</strong></div>
             <div class="detail-row"><span>OCR 引擎</span><strong>{{ state.data.value.document_pipeline.ocr_engine }}</strong></div>
+            <div class="detail-row"><span>OCR 运行时</span><strong>{{ state.data.value.document_pipeline.ocr_runtime_enabled ? 'active' : 'planned' }}</strong></div>
             <div class="detail-row"><span>跨页拼接</span><strong>{{ state.data.value.document_pipeline.cross_page_merge.status }}</strong></div>
             <div class="detail-row"><span>标题层级恢复</span><strong>{{ state.data.value.document_pipeline.title_hierarchy.status }}</strong></div>
             <div class="detail-row"><span>单元格溯源</span><strong>{{ state.data.value.document_pipeline.cell_trace.status }}</strong></div>

@@ -131,7 +131,7 @@ class OpsPilotService:
             "health": health,
             "data_status": data_status,
             "quality_overview": quality_overview,
-            "document_pipeline": _build_document_pipeline_overview(data_status),
+            "document_pipeline": _build_document_pipeline_overview(data_status, self.settings),
             "job_catalog": _build_admin_job_catalog(),
             "capabilities": [
                 "企业评分",
@@ -2772,13 +2772,16 @@ def _build_admin_job_catalog() -> list[dict[str, Any]]:
     ]
 
 
-def _build_document_pipeline_overview(data_status: dict[str, Any]) -> dict[str, Any]:
+def _build_document_pipeline_overview(
+    data_status: dict[str, Any], settings: Settings
+) -> dict[str, Any]:
     bronze_count = data_status.get("bronze_periodic_reports", {}).get("record_count", 0)
     silver_count = data_status.get("silver_financial_metrics", {}).get("record_count", 0)
     periodic_count = data_status.get("periodic_reports", {}).get("record_count", 0)
     return {
-        "layout_engine": "PP-DocLayout-V3 + PyMuPDF",
-        "ocr_engine": "PaddleOCR-VL / PaddleOCR",
+        "layout_engine": settings.doc_layout_engine,
+        "ocr_engine": f"{settings.ocr_provider} / {settings.ocr_model}",
+        "ocr_runtime_enabled": settings.ocr_runtime_enabled,
         "cross_page_merge": {
             "enabled": False,
             "status": "planned",
