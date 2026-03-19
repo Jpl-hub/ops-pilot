@@ -32,13 +32,31 @@ def get_settings() -> Settings:
         host=os.getenv("OPS_PILOT_HOST", "0.0.0.0"),
         port=int(os.getenv("OPS_PILOT_PORT", "8000")),
         default_period=os.getenv("OPS_PILOT_DEFAULT_PERIOD", "2024Q3"),
-        sample_data_path=(root / sample_path).resolve(),
-        official_data_path=(root / os.getenv("OPS_PILOT_OFFICIAL_DATA_PATH", "data/raw/official")).resolve(),
-        bronze_data_path=(root / os.getenv("OPS_PILOT_BRONZE_DATA_PATH", "data/bronze/official")).resolve(),
-        silver_data_path=(root / os.getenv("OPS_PILOT_SILVER_DATA_PATH", "data/silver/official")).resolve(),
+        sample_data_path=_resolve_data_path(root, sample_path),
+        official_data_path=_resolve_data_path(
+            root, os.getenv("OPS_PILOT_OFFICIAL_DATA_PATH", "data/raw/official")
+        ),
+        bronze_data_path=_resolve_data_path(
+            root, os.getenv("OPS_PILOT_BRONZE_DATA_PATH", "data/bronze/official")
+        ),
+        silver_data_path=_resolve_data_path(
+            root, os.getenv("OPS_PILOT_SILVER_DATA_PATH", "data/silver/official")
+        ),
         postgres_dsn=os.getenv(
             "OPS_PILOT_POSTGRES_DSN",
             "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot",
         ),
         auth_session_days=int(os.getenv("OPS_PILOT_AUTH_SESSION_DAYS", "7")),
     )
+
+
+def _resolve_data_path(root: Path, value: str) -> Path:
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return candidate.resolve()
+
+    cwd_candidate = (Path.cwd() / candidate).resolve()
+    if cwd_candidate.exists():
+        return cwd_candidate
+
+    return (root / candidate).resolve()

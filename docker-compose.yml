@@ -10,16 +10,32 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ops_pilot -d ops_pilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: ops-pilot-api
+    environment:
+      OPS_PILOT_ENV: development
+      OPS_PILOT_HOST: 0.0.0.0
+      OPS_PILOT_PORT: 8000
+      OPS_PILOT_DEFAULT_PERIOD: 2025Q3
+      OPS_PILOT_SAMPLE_DATA_PATH: data/bootstrap
+      OPS_PILOT_OFFICIAL_DATA_PATH: data/raw/official
+      OPS_PILOT_BRONZE_DATA_PATH: data/bronze/official
+      OPS_PILOT_SILVER_DATA_PATH: data/silver/official
+      OPS_PILOT_POSTGRES_DSN: postgresql+psycopg://ops_pilot:ops_pilot@postgres:5432/ops_pilot
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   ui:
     image: node:20-alpine
@@ -27,11 +43,14 @@ services:
     working_dir: /app/frontend
     volumes:
       - ./:/app
+    environment:
+      VITE_PROXY_TARGET: http://api:8000
     command: ["sh", "-c", "npm install && npm run dev -- --host 0.0.0.0 --port 8080 --strictPort"]
     ports:
       - "8080:8080"
     depends_on:
-      - api
+      api:
+        condition: service_started
 
 volumes:
   postgres_data:
