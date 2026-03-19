@@ -42,11 +42,27 @@ a { color: inherit; }
 }
 
 .page-header {
-  align-items: flex-start;
-  margin-bottom: 28px;
+  display: grid;
+  gap: 18px;
+  margin-bottom: 24px;
 }
 
-.page-copy { max-width: 780px; }
+.shell-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+
+.page-copy {
+  max-width: 920px;
+  display: grid;
+  gap: 8px;
+}
+
+.page-copy.compact {
+  max-width: 720px;
+}
 .eyebrow, .stat-label, .signal-code, .subsection-label {
   font-size: 12px;
   text-transform: uppercase;
@@ -60,12 +76,35 @@ a { color: inherit; }
   letter-spacing: -0.04em;
 }
 
-.page-title { font-size: clamp(38px, 6vw, 72px); line-height: 0.94; }
-.hero-title { font-size: clamp(32px, 4vw, 54px); line-height: 0.96; }
+.brand-lockup {
+  display: grid;
+  gap: 4px;
+  text-decoration: none;
+}
+
+.brand-kicker {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.brand-name {
+  font-family: 'Geist', 'DM Sans', sans-serif;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.page-title { font-size: clamp(26px, 3vw, 38px); line-height: 1.04; }
+.hero-title { font-size: clamp(32px, 4vw, 54px); line-height: 1.02; }
 .hero-title.compact { font-size: clamp(28px, 4vw, 48px); }
 .page-subtitle, .hero-text, .evidence-excerpt, .command-copy, .stat-hint, .signal-subtitle, .research-meta { color: var(--muted); line-height: 1.72; }
 
 .top-nav, .tag-row, .evidence-links, .link-row, .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.top-nav {
+  align-items: center;
+  justify-content: flex-end;
+}
 
 .role-switch {
   display: grid;
@@ -87,7 +126,11 @@ a { color: inherit; }
 }
 
 .top-nav a, .button-secondary, .inline-link {
-  padding: 10px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 18px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.04);
 }
@@ -105,10 +148,15 @@ a { color: inherit; }
 .button-primary {
   border: 0;
   cursor: pointer;
-  padding: 12px 20px;
+  min-height: 48px;
+  padding: 0 20px;
   background: linear-gradient(135deg, #ffb84c, #ff8f57);
   color: #101923;
   font-weight: 700;
+}
+
+.logout-button {
+  min-width: 148px;
 }
 
 .panel, .stat-card, .signal-card, .formula-card, .research-card, .company-card, .toolbar, .command-card, .command-card-shell {
@@ -120,6 +168,11 @@ a { color: inherit; }
 
 .panel, .toolbar { padding: 24px; }
 .signal-card, .formula-card, .research-card, .company-card, .command-card-shell, .command-card { padding: 20px; }
+.signal-card h4 {
+  margin: 8px 0 10px;
+  font-size: 24px;
+  line-height: 1.08;
+}
 
 .hero-grid, .metrics-grid, .command-grid, .chart-grid, .split-grid, .stack-grid, .company-grid {
   display: grid;
@@ -137,7 +190,7 @@ a { color: inherit; }
 .chat-workspace { display: grid; grid-template-columns: 280px minmax(0, 1fr) 340px; gap: 18px; margin-bottom: 18px; }
 
 .hero-panel {
-  min-height: 420px;
+  min-height: 340px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -417,8 +470,8 @@ select, .text-input, .text-area {
 .chat-composer {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
-  padding: 20px;
+  gap: 12px;
+  padding: 18px;
   border-radius: 24px;
   background: rgba(7, 18, 31, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -430,14 +483,17 @@ select, .text-input, .text-area {
   align-items: end;
 }
 .composer-hint {
-  padding: 14px 16px;
+  min-height: 54px;
+  padding: 12px 16px;
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  align-content: center;
 }
 .composer-hint p {
-  margin: 8px 0 0;
-  color: var(--muted);
+  margin: 6px 0 0;
+  color: #d9e6f5;
 }
 .chat-input-wrap {
   display: grid;
@@ -457,6 +513,9 @@ select, .text-input, .text-area {
 }
 .chat-send {
   height: 64px;
+}
+.workspace-engine-grid {
+  margin-bottom: 18px;
 }
 .chat-sidebar {
   min-height: 760px;
@@ -489,7 +548,8 @@ select, .text-input, .text-area {
 @media (max-width: 1080px) {
   .hero-grid, .split-grid, .metrics-grid, .workspace-grid, .workspace-lower, .auth-grid { grid-template-columns: 1fr 1fr; }
   .chat-workspace { grid-template-columns: 1fr; }
-  .page-header { flex-direction: column; }
+  .shell-topbar { flex-direction: column; align-items: stretch; }
+  .top-nav { justify-content: flex-start; }
   .execution-meta div, .execution-metrics { grid-template-columns: 1fr 1fr 1fr; }
 }
 

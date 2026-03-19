@@ -150,7 +150,8 @@ watch(
 <template>
   <AppShell
     title="对话分析台"
-    subtitle="像聊天一样发起分析，由总控工作台同步展开结论、证据和动作。"
+    subtitle="围绕一个问题统一调度 AI 编排、真实数据和证据回路"
+    compact
   >
     <section class="command-grid" style="margin-bottom: 18px;">
       <article class="command-card-shell role-card">
@@ -281,8 +282,8 @@ watch(
               </select>
             </label>
             <div class="composer-hint">
-              <div class="signal-code">输入方式</div>
-              <p>直接像聊天一样提问，回车发送，Shift + Enter 换行。</p>
+              <div class="signal-code">当前任务</div>
+              <p>{{ selectedCompany }} · {{ roleCopy.label }}</p>
             </div>
           </div>
           <div class="chat-input-wrap chat-input-wrap-wide">
@@ -371,7 +372,25 @@ watch(
           </article>
         </div>
       </aside>
-    </section>
+      </section>
+
+      <section class="metrics-grid workspace-engine-grid">
+        <article class="signal-card">
+          <div class="signal-code">AI 编排</div>
+          <h4>中心化总控调度</h4>
+          <p class="command-copy">问题先进入总控，再分发到信号分析、证据审计和动作生成，不是单轮聊天直接吐一段 Markdown。</p>
+        </article>
+        <article class="signal-card">
+          <div class="signal-code">数据工程</div>
+          <h4>真实数据统一底座</h4>
+          <p class="command-copy">交易所财报、东财研报和行业报告通过 raw / bronze / silver 三层统一进入评分和核验链路。</p>
+        </article>
+        <article class="signal-card">
+          <div class="signal-code">可解释性</div>
+          <h4>结论与证据同路返回</h4>
+          <p class="command-copy">每一步执行都可以落到体检、风险、核验或证据页，公式、指标和页码能逐条回放。</p>
+        </article>
+      </section>
 
     <section v-if="charts.length" class="chart-grid">
       <ChartPanel v-for="chart in charts" :key="chart.title" :title="chart.title" :options="chart.options" />

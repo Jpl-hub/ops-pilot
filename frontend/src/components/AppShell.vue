@@ -8,6 +8,7 @@ defineProps<{
   title: string
   subtitle: string
   kicker?: string
+  compact?: boolean
 }>()
 
 const router = useRouter()
@@ -32,33 +33,38 @@ async function logout() {
 <template>
   <div class="shell">
     <header class="page-header">
-      <div class="page-copy">
-        <div v-if="kicker" class="eyebrow">{{ kicker }}</div>
-        <h1 class="page-title">{{ title }}</h1>
-        <p class="page-subtitle">{{ subtitle }}</p>
+      <div class="shell-topbar">
+        <RouterLink class="brand-lockup" to="/">
+          <span class="brand-kicker">{{ kicker || 'OpsPilot-X' }}</span>
+          <strong class="brand-name">新能源运营决策系统</strong>
+        </RouterLink>
+        <nav class="top-nav">
+          <RouterLink to="/">首页</RouterLink>
+          <RouterLink v-if="session.isAuthenticated.value" to="/workspace">对话分析台</RouterLink>
+          <RouterLink v-if="session.isAuthenticated.value" to="/score">企业体检</RouterLink>
+          <RouterLink v-if="session.isAuthenticated.value" to="/risk">行业风险</RouterLink>
+          <RouterLink v-if="session.isAuthenticated.value" to="/verify">研报核验</RouterLink>
+          <RouterLink v-if="session.isAuthenticated.value" to="/admin">管理台</RouterLink>
+          <label v-if="session.isAuthenticated.value" class="role-switch">
+            <span>分析视角</span>
+            <select
+              :value="session.activeRole.value"
+              @change="session.setActiveRole(($event.target as HTMLSelectElement).value as UserRole)"
+            >
+              <option v-for="item in roleOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
+          <RouterLink v-if="!session.isAuthenticated.value" to="/login">登录</RouterLink>
+          <RouterLink v-if="!session.isAuthenticated.value" to="/register">注册</RouterLink>
+          <button v-if="session.isAuthenticated.value" class="button-secondary logout-button" @click="logout">
+            {{ session.currentUser.value?.display_name }} · 退出
+          </button>
+        </nav>
       </div>
-      <nav class="top-nav">
-        <RouterLink to="/">首页</RouterLink>
-        <RouterLink v-if="session.isAuthenticated.value" to="/workspace">对话分析台</RouterLink>
-        <RouterLink v-if="session.isAuthenticated.value" to="/score">企业体检</RouterLink>
-        <RouterLink v-if="session.isAuthenticated.value" to="/risk">行业风险</RouterLink>
-        <RouterLink v-if="session.isAuthenticated.value" to="/verify">研报核验</RouterLink>
-        <RouterLink v-if="session.isAuthenticated.value" to="/admin">管理台</RouterLink>
-        <label v-if="session.isAuthenticated.value" class="role-switch">
-          <span>分析视角</span>
-          <select
-            :value="session.activeRole.value"
-            @change="session.setActiveRole(($event.target as HTMLSelectElement).value as UserRole)"
-          >
-            <option v-for="item in roleOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
-        </label>
-        <RouterLink v-if="!session.isAuthenticated.value" to="/login">登录</RouterLink>
-        <RouterLink v-if="!session.isAuthenticated.value" to="/register">注册</RouterLink>
-        <button v-if="session.isAuthenticated.value" class="button-secondary" @click="logout">
-          {{ session.currentUser.value?.display_name }} · 退出
-        </button>
-      </nav>
+      <div class="page-copy" :class="{ compact }">
+        <div class="eyebrow">{{ title }}</div>
+        <h1 class="page-title">{{ subtitle }}</h1>
+      </div>
     </header>
     <slot />
   </div>

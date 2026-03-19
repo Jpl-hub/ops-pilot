@@ -19,7 +19,8 @@ onMounted(() => {
 <template>
   <AppShell
     title="管理台"
-    subtitle="查看数据覆盖、异常缺口和作业入口。"
+    subtitle="查看系统编排、真实数据覆盖和解析链状态"
+    compact
   >
     <LoadingState v-if="state.loading.value" />
     <ErrorState v-else-if="state.error.value" :message="state.error.value" />
@@ -53,6 +54,26 @@ onMounted(() => {
       </section>
 
       <section class="split-grid">
+        <article class="panel">
+          <div class="panel-header">
+            <h3>系统形态</h3>
+          </div>
+          <div class="timeline-list">
+            <div class="timeline-item">
+              <strong>传统应用</strong>
+              <span>工作台、体检、风险、核验、证据查看五条用户主链共享统一会话与统一路由。</span>
+            </div>
+            <div class="timeline-item">
+              <strong>AI 智能体</strong>
+              <span>当前采用后端中心化编排，不把 Agent 暴露成概念，而是把每一步执行结果落成可点击的业务页面。</span>
+            </div>
+            <div class="timeline-item">
+              <strong>大数据工程</strong>
+              <span>真实财报和研报通过原始抓取、页级解析、结构化抽取进入同一指标仓和证据仓。</span>
+            </div>
+          </div>
+        </article>
+
         <article class="panel">
           <div class="panel-header">
             <h3>解析链状态</h3>

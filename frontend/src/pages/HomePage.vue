@@ -30,20 +30,27 @@ const capabilityCards = [
   ['证据查看器', '定位来源页码、重点片段、原始字段与证据指纹。'],
   ['管理台', '查看数据覆盖、作业入口和异常缺口。'],
 ]
+
+const systemLayers = [
+  ['AI 编排层', '总控调度、信号分析、证据审计、动作生成四个执行单元围绕同一问题协同工作。'],
+  ['真实数据层', '交易所财报、东财研报、行业研报和页级证据统一进入 raw / bronze / silver 链路。'],
+  ['可复核应用层', '体检、风险、核验、证据查看共享同一批结构化事实和同一条证据回路。'],
+]
 </script>
 
 <template>
   <AppShell
     kicker="OpsPilot-X"
-    title="新能源企业运营分析"
-    subtitle="用真实财报、真实研报和可复核证据，帮助你更快看清公司经营状态。"
+    title="首页"
+    subtitle="真实财报驱动的新能源企业运营分析"
+    compact
   >
     <section class="hero-grid">
       <article class="panel hero-panel">
         <div>
-          <div class="eyebrow">快速开始</div>
-          <h2 class="hero-title">先看结果，再看原因，再看证据。</h2>
-          <p class="hero-text">登录后即可直接分析公司、查看体检结果、核对研报观点和追踪证据来源。</p>
+          <div class="eyebrow">OpsPilot-X</div>
+          <h2 class="hero-title compact">先定位问题，再拆原因，再核证据。</h2>
+          <p class="hero-text">围绕具体公司、具体报期和具体问题，统一调用真实财报、真实研报和页级证据完成分析。</p>
         </div>
         <div class="hero-actions">
           <RouterLink v-if="session.isAuthenticated.value" class="button-primary" to="/workspace">进入对话分析台</RouterLink>
@@ -59,6 +66,14 @@ const capabilityCards = [
           <p class="command-copy">{{ role.copy }}</p>
         </article>
       </div>
+    </section>
+
+    <section class="metrics-grid">
+      <article v-for="[title, copy] in systemLayers" :key="title" class="signal-card">
+        <div class="signal-code">系统内核</div>
+        <h4>{{ title }}</h4>
+        <p class="command-copy">{{ copy }}</p>
+      </article>
     </section>
 
     <section class="panel">
