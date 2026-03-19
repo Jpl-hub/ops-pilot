@@ -24,6 +24,7 @@ const query = ref('')
 const messages = ref<WorkspaceMessage[]>([])
 const threadRef = ref<HTMLElement | null>(null)
 const workspaceState = useAsyncState<any>()
+const overviewState = useAsyncState<any>()
 
 const roleCopy = computed(() => {
   const role = session.activeRole.value || 'investor'
@@ -102,9 +103,15 @@ function appendWelcomeMessage() {
   ]
 }
 
-async function loadCompanies() {
-  const risk = await get<any>('/industry/risk-scan')
-  companies.value = risk.risk_board.map((item: any) => item.company_name)
+const proactiveQueue = computed(() => overviewState.data.value?.alert_queue || [])
+const overviewSummary = computed(() => overviewState.data.value?.alert_summary || null)
+const systemPanels = computed(() => overviewState.data.value?.system_panels || [])
+
+async function loadWorkspaceOverview() {
+  await overviewState.execute(() =>
+    get<any>(`/workspace/overview?user_role=${encodeURIComponent(session.activeRole.value || 'investor')}`),
+  )
+  companies.value = overviewState.data.value?.companies || []
 }
 
 async function runQuery(inputQuery?: string) {
@@ -139,7 +146,7 @@ async function runQuery(inputQuery?: string) {
 
 onMounted(async () => {
   appendWelcomeMessage()
-  await loadCompanies()
+  await loadWorkspaceOverview()
   if (!companies.value.includes(selectedCompany.value)) {
     selectedCompany.value = companies.value[0]
   }
@@ -147,8 +154,9 @@ onMounted(async () => {
 
 watch(
   () => session.activeRole.value,
-  () => {
+  async () => {
     appendWelcomeMessage()
+    await loadWorkspaceOverview()
   },
 )
 </script>
@@ -180,6 +188,22 @@ watch(
             <span>消息数</span>
             <strong>{{ messages.length }}</strong>
           </div>
+          <div v-if="overviewSummary" class="detail-row">
+            <span>主周期预警</span>
+            <strong>{{ overviewSummary.total_alerts }}</strong>
+          </div>
+        </div>
+        <div v-if="proactiveQueue.length" class="subsection-label" style="margin-top: 18px;">主动预警</div>
+        <div class="timeline-list">
+          <RouterLink
+            v-for="item in proactiveQueue.slice(0, 3)"
+            :key="`${item.company_name}-${item.report_period}`"
+            class="timeline-item interactive-card"
+            :to="{ path: item.route.path, query: item.route.query || {} }"
+          >
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.summary }}</span>
+          </RouterLink>
         </div>
         <div class="subsection-label" style="margin-top: 18px;">快捷问题</div>
         <div class="timeline-list">
@@ -376,19 +400,19 @@ watch(
     </section>
 
     <section class="metrics-grid workspace-engine-grid">
-      <RouterLink class="signal-card engine-link" to="/admin">
-        <div class="signal-code">AI 编排</div>
-        <h4>中心化总控调度</h4>
-        <p class="command-copy">总控负责拆问题、派步骤、汇结论。</p>
+      <RouterLink
+        v-for="panel in systemPanels"
+        :key="panel.code"
+        class="signal-card engine-link"
+        :to="{ path: panel.route.path, query: panel.route.query || {} }"
+      >
+        <div class="signal-code">{{ panel.code }}</div>
+        <h4>{{ panel.title }}</h4>
+        <p class="command-copy">{{ panel.summary }}</p>
       </RouterLink>
-      <RouterLink class="signal-card engine-link" to="/admin">
-        <div class="signal-code">数据工程</div>
-        <h4>真实数据统一底座</h4>
-        <p class="command-copy">真实财报和研报统一进入 raw / bronze / silver。</p>
-      </RouterLink>
-      <RouterLink class="signal-card engine-link" :to="firstEvidenceLink">
-        <div class="signal-code">可解释性</div>
-        <h4>结论与证据同路返回</h4>
+      <RouterLink v-if="!systemPanels.length" class="signal-card engine-link" :to="firstEvidenceLink">
+        <div class="signal-code">E1</div>
+        <h4>证据回路</h4>
         <p class="command-copy">公式、指标、页码和证据片段可以逐条回放。</p>
       </RouterLink>
     </section>

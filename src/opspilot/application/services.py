@@ -143,6 +143,46 @@ class OpsPilotService:
             ],
         }
 
+    def workspace_overview(self, user_role: str = "investor") -> dict[str, Any]:
+        preferred_period = self._preferred_period()
+        risk_payload = self.risk_scan(preferred_period)
+        health = self.health()
+        role_profile = ROLE_PROFILES.get(user_role, ROLE_PROFILES["investor"])
+        return {
+            "preferred_period": preferred_period,
+            "role_profile": role_profile,
+            "companies": [item["company_name"] for item in risk_payload["risk_board"]],
+            "alert_queue": _build_workspace_alert_queue(risk_payload["alert_board"], user_role),
+            "alert_summary": {
+                "total_alerts": len(risk_payload["alert_board"]),
+                "high_risk_companies": sum(
+                    1 for item in risk_payload["risk_board"] if item["risk_count"] > 0
+                ),
+                "preferred_period": preferred_period,
+                "active_companies": health["preferred_period_companies"],
+            },
+            "system_panels": [
+                {
+                    "code": "A1",
+                    "title": "AI 编排",
+                    "summary": "总控统一拆问题、分步骤、汇结论。",
+                    "route": {"path": "/admin", "label": "查看系统全貌"},
+                },
+                {
+                    "code": "D1",
+                    "title": "真实数据",
+                    "summary": "真实财报、研报和页级证据共用同一条数据链。",
+                    "route": {"path": "/admin", "label": "查看数据链路"},
+                },
+                {
+                    "code": "E1",
+                    "title": "证据回路",
+                    "summary": "结论、公式、页码和证据片段可以逐条回放。",
+                    "route": {"path": "/risk", "label": "查看主动预警"},
+                },
+            ],
+        }
+
     def list_company_names(self) -> list[str]:
         return self.repository.list_company_names()
 
@@ -2246,6 +2286,55 @@ def _build_alert_summary(
     if highlights:
         return f"{company_name} 在 {current_period} 出现重点异常：{'、'.join(highlights[:2])}。"
     return f"{company_name} 在 {current_period} 风险暴露继续抬升。"
+
+
+def _build_workspace_alert_queue(alerts: list[dict[str, Any]], user_role: str) -> list[dict[str, Any]]:
+    queue: list[dict[str, Any]] = []
+    for item in alerts[:8]:
+        if user_role == "management":
+            title = f"{item['company_name']} 经营整改优先级上升"
+            summary = item["summary"]
+            route = {
+                "path": "/score",
+                "query": {
+                    "company": item["company_name"],
+                    "period": item["report_period"],
+                },
+                "label": "进入企业体检",
+            }
+        elif user_role == "regulator":
+            title = f"{item['company_name']} 风险信号需要跟踪"
+            summary = item["summary"]
+            route = {
+                "path": "/risk",
+                "query": {
+                    "company": item["company_name"],
+                },
+                "label": "进入行业风险",
+            }
+        else:
+            title = f"{item['company_name']} 出现新的关注点"
+            summary = item["summary"]
+            route = {
+                "path": "/verify",
+                "query": {
+                    "company": item["company_name"],
+                },
+                "label": "进入研报核验",
+            }
+        queue.append(
+            {
+                "company_name": item["company_name"],
+                "report_period": item["report_period"],
+                "title": title,
+                "summary": summary,
+                "risk_delta": item["risk_delta"],
+                "risk_count": item["risk_count"],
+                "new_labels": item["new_labels"],
+                "route": route,
+            }
+        )
+    return queue
 
 
 def _research_report_bucket(report: dict[str, Any], available_periods: set[str] | None) -> int:

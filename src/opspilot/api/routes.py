@@ -117,6 +117,11 @@ def admin_overview(_: dict = Depends(require_current_user)) -> dict:
     return get_service().admin_overview()
 
 
+@router.get("/workspace/overview")
+def workspace_overview(user_role: str = "investor", _: dict = Depends(require_current_user)) -> dict:
+    return get_service().workspace_overview(user_role)
+
+
 @router.post("/chat/turn")
 def chat_turn(request: ChatTurnRequest, _: dict = Depends(require_current_user)) -> dict:
     try:
