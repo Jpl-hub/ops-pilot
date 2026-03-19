@@ -152,11 +152,13 @@ class OpsPilotService:
         health = self.health()
         role_profile = ROLE_PROFILES.get(user_role, ROLE_PROFILES["investor"])
         task_board = self.task_board(user_role=user_role, report_period=preferred_period)
+        alert_workflow = self.alert_workflow(report_period=preferred_period)
         return {
             "preferred_period": preferred_period,
             "role_profile": role_profile,
             "companies": [item["company_name"] for item in risk_payload["risk_board"]],
-            "alert_queue": _build_workspace_alert_queue(risk_payload["alert_board"], user_role),
+            "alert_queue": _build_workspace_alert_queue(alert_workflow["alerts"], user_role),
+            "alert_workflow_summary": alert_workflow["summary"],
             "task_queue": task_board["tasks"],
             "task_summary": task_board["summary"],
             "alert_summary": {
@@ -168,6 +170,77 @@ class OpsPilotService:
                 "active_companies": health["preferred_period_companies"],
             },
         }
+
+    def alert_workflow(self, report_period: str | None = None) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        risk_payload = self.risk_scan(period)
+        alert_manifest = _load_alert_board_manifest(self.settings)
+        status_counts = {
+            "new": 0,
+            "dispatched": 0,
+            "in_progress": 0,
+            "resolved": 0,
+            "dismissed": 0,
+        }
+        alerts: list[dict[str, Any]] = []
+        for alert in risk_payload["alert_board"]:
+            alert_id = _build_alert_id(alert)
+            record = alert_manifest["records"].get(alert_id, {})
+            status = record.get("status", "new")
+            status_counts[status] = status_counts.get(status, 0) + 1
+            alerts.append(
+                {
+                    **alert,
+                    "alert_id": alert_id,
+                    "status": status,
+                    "note": record.get("note"),
+                    "updated_at": record.get("updated_at"),
+                    "history": record.get("history", []),
+                }
+            )
+        return {
+            "report_period": period,
+            "summary": {
+                "total": len(alerts),
+                "new": status_counts["new"],
+                "dispatched": status_counts["dispatched"],
+                "in_progress": status_counts["in_progress"],
+                "resolved": status_counts["resolved"],
+                "dismissed": status_counts["dismissed"],
+            },
+            "alerts": alerts,
+        }
+
+    def update_alert_status(
+        self,
+        alert_id: str,
+        status: str,
+        report_period: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        workflow = self.alert_workflow(report_period=report_period)
+        alert = next((item for item in workflow["alerts"] if item["alert_id"] == alert_id), None)
+        if alert is None:
+            raise ValueError(f"未找到预警：{alert_id}")
+
+        manifest = _load_alert_board_manifest(self.settings)
+        record = manifest["records"].setdefault(alert_id, {})
+        updated_at = _utcnow_iso()
+        history = list(record.get("history", []))
+        history.append({"status": status, "note": note, "updated_at": updated_at})
+        record.update(
+            {
+                "alert_id": alert_id,
+                "status": status,
+                "note": note,
+                "updated_at": updated_at,
+                "history": history[-10:],
+            }
+        )
+        _write_alert_board_manifest(self.settings, manifest)
+        refreshed = self.alert_workflow(report_period=report_period or workflow["report_period"])
+        refreshed_alert = next(item for item in refreshed["alerts"] if item["alert_id"] == alert_id)
+        return {"alert": refreshed_alert, "summary": refreshed["summary"]}
 
     def list_company_names(self) -> list[str]:
         return self.repository.list_company_names()
@@ -3060,6 +3133,38 @@ def _build_task_id(report_period: str, company_name: str, priority: str, title: 
     normalized_title = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "-", title).strip("-").lower()
     normalized_company = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "-", company_name).strip("-").lower()
     return f"{report_period}-{normalized_company}-{priority.lower()}-{normalized_title}"[:160]
+
+
+def _load_alert_board_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_alert_board.json"
+    if not manifest_path.exists():
+        payload = {"generated_at": _utcnow_iso(), "record_count": 0, "records": {}}
+        _write_json(manifest_path, payload)
+        return payload
+
+    with manifest_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    payload.setdefault("generated_at", _utcnow_iso())
+    payload.setdefault("records", {})
+    payload["record_count"] = len(payload["records"])
+    return payload
+
+
+def _write_alert_board_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", {}))
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_alert_board.json"
+    _write_json(manifest_path, payload)
+
+
+def _build_alert_id(alert: dict[str, Any]) -> str:
+    normalized_company = re.sub(
+        r"[^0-9a-zA-Z\u4e00-\u9fff]+", "-", alert["company_name"]
+    ).strip("-").lower()
+    return (
+        f"{alert['report_period']}-{normalized_company}-"
+        f"{alert.get('previous_period') or 'na'}-{alert['risk_count']}-{alert['risk_delta']}"
+    )[:160]
 
 
 def _load_document_pipeline_job_manifest(settings: Settings) -> dict[str, Any]:

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from opspilot.api.schemas import (
+    AlertStatusUpdateRequest,
     BenchmarkRequest,
     ChatTurnRequest,
     ClaimVerifyRequest,
@@ -152,6 +153,27 @@ def task_update(request: TaskStatusUpdateRequest, _: dict = Depends(require_curr
             task_id=request.task_id,
             status=request.status,
             user_role=request.user_role,
+            report_period=request.report_period,
+            note=request.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/alerts/board")
+def alert_board(
+    report_period: str | None = None,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().alert_workflow(report_period=report_period)
+
+
+@router.post("/alerts/update")
+def alert_update(request: AlertStatusUpdateRequest, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().update_alert_status(
+            alert_id=request.alert_id,
+            status=request.status,
             report_period=request.report_period,
             note=request.note,
         )

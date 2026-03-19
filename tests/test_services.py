@@ -540,6 +540,113 @@ class ServicesTestCase(unittest.TestCase):
         self.assertEqual(alert["risk_delta"], 2)
         self.assertIn("营收同比 -8.4%", alert["new_labels"])
 
+    def test_alert_workflow_persists_status_updates(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                if report_period in (None, "2025Q3"):
+                    return [
+                        {
+                            "company_name": "测试公司",
+                            "report_period": "2025Q3",
+                            "subindustry": "储能",
+                            "metrics": {"G1": -8.4, "G2": -15.2, "C3": 18.0, "S4": 0.72, "S1": 0.98},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        }
+                    ]
+                if report_period == "2025H1":
+                    return [
+                        {
+                            "company_name": "测试公司",
+                            "report_period": "2025H1",
+                            "subindustry": "储能",
+                            "metrics": {"G1": 6.0, "G2": 4.0, "S4": 1.3, "S1": 1.22},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        }
+                    ]
+                return []
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3", "2025H1"]
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                matches = {
+                    "2025Q3": {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": -8.4, "G2": -15.2, "C3": 18.0, "S4": 0.72, "S1": 0.98},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                    "2025H1": {
+                        "company_name": "测试公司",
+                        "report_period": "2025H1",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 6.0, "G2": 4.0, "S4": 1.3, "S1": 1.22},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                }
+                return matches.get(report_period or "2025Q3")
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            workflow = service.alert_workflow("2025Q3")
+            self.assertEqual(workflow["summary"]["new"], 1)
+            alert_id = workflow["alerts"][0]["alert_id"]
+
+            update_payload = service.update_alert_status(
+                alert_id=alert_id,
+                status="in_progress",
+                report_period="2025Q3",
+                note="进入排查流程",
+            )
+
+            self.assertEqual(update_payload["alert"]["status"], "in_progress")
+            self.assertEqual(update_payload["alert"]["note"], "进入排查流程")
+            self.assertEqual(update_payload["summary"]["in_progress"], 1)
+
+            refreshed = service.alert_workflow("2025Q3")
+            refreshed_alert = next(item for item in refreshed["alerts"] if item["alert_id"] == alert_id)
+            self.assertEqual(refreshed_alert["status"], "in_progress")
+            self.assertEqual(refreshed_alert["history"][-1]["status"], "in_progress")
+            self.assertTrue((root / "bronze" / "manifests" / "workspace_alert_board.json").exists())
+
     def test_admin_overview_returns_health_data_and_job_catalog(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
