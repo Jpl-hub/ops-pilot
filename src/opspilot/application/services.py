@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 from html import unescape
+from datetime import UTC, datetime
 import json
 import re
 
@@ -127,11 +128,13 @@ class OpsPilotService:
         health = self.health()
         data_status = self.official_data_status()
         quality_overview = _build_admin_quality_overview(self.settings, health["preferred_period"])
+        document_pipeline = _build_document_pipeline_overview(data_status, self.settings)
         return {
             "health": health,
             "data_status": data_status,
             "quality_overview": quality_overview,
-            "document_pipeline": _build_document_pipeline_overview(data_status, self.settings),
+            "document_pipeline": document_pipeline,
+            "document_pipeline_jobs": self.document_pipeline_jobs(),
             "job_catalog": _build_admin_job_catalog(),
             "capabilities": [
                 "企业评分",
@@ -162,26 +165,6 @@ class OpsPilotService:
                 "preferred_period": preferred_period,
                 "active_companies": health["preferred_period_companies"],
             },
-            "system_panels": [
-                {
-                    "code": "A1",
-                    "title": "AI 编排",
-                    "summary": "总控统一拆问题、分步骤、汇结论。",
-                    "route": {"path": "/admin", "label": "查看系统全貌"},
-                },
-                {
-                    "code": "D1",
-                    "title": "真实数据",
-                    "summary": "真实财报、研报和页级证据共用同一条数据链。",
-                    "route": {"path": "/admin", "label": "查看数据链路"},
-                },
-                {
-                    "code": "E1",
-                    "title": "证据回路",
-                    "summary": "结论、公式、页码和证据片段可以逐条回放。",
-                    "route": {"path": "/risk", "label": "查看主动预警"},
-                },
-            ],
         }
 
     def list_company_names(self) -> list[str]:
@@ -377,6 +360,57 @@ class OpsPilotService:
                 }
             )
         return tasks
+
+    def document_pipeline_jobs(self) -> dict[str, Any]:
+        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
+        records = jobs_manifest["records"]
+        stage_summary = []
+        for stage in ("cross_page_merge", "title_hierarchy", "cell_trace"):
+            stage_records = [item for item in records if item["stage"] == stage]
+            stage_summary.append(
+                {
+                    "stage": stage,
+                    "total": len(stage_records),
+                    "completed": sum(1 for item in stage_records if item["status"] == "completed"),
+                    "pending": sum(1 for item in stage_records if item["status"] == "pending"),
+                    "blocked": sum(1 for item in stage_records if item["status"] == "blocked"),
+                }
+            )
+        return {
+            "generated_at": jobs_manifest["generated_at"],
+            "stage_summary": stage_summary,
+            "jobs": records[:30],
+        }
+
+    def run_document_pipeline_stage(self, stage: str, limit: int = 5) -> dict[str, Any]:
+        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
+        records = jobs_manifest["records"]
+        pending_jobs = [
+            item for item in records if item["stage"] == stage and item["status"] == "pending"
+        ][:limit]
+        results: list[dict[str, Any]] = []
+        for job in pending_jobs:
+            artifact_payload, artifact_path = _run_document_pipeline_job(stage, job, self.settings)
+            job["status"] = "completed"
+            job["artifact_path"] = str(artifact_path)
+            job["completed_at"] = _utcnow_iso()
+            job["artifact_summary"] = artifact_payload.get("summary")
+            results.append(
+                {
+                    "report_id": job["report_id"],
+                    "company_name": job["company_name"],
+                    "artifact_path": str(artifact_path),
+                    "summary": artifact_payload.get("summary"),
+                }
+            )
+        _write_document_pipeline_job_manifest(self.settings, jobs_manifest)
+        return {
+            "stage": stage,
+            "requested": limit,
+            "processed": len(results),
+            "results": results,
+            "jobs": self.document_pipeline_jobs(),
+        }
 
     def risk_scan(self, report_period: str | None = None) -> dict[str, Any]:
         companies = (
@@ -2882,24 +2916,35 @@ def _build_document_pipeline_overview(
     bronze_count = data_status.get("bronze_periodic_reports", {}).get("record_count", 0)
     silver_count = data_status.get("silver_financial_metrics", {}).get("record_count", 0)
     periodic_count = data_status.get("periodic_reports", {}).get("record_count", 0)
+    jobs_manifest = _load_document_pipeline_job_manifest(settings)
+    records = jobs_manifest["records"]
+    cross_page_completed = sum(
+        1 for item in records if item["stage"] == "cross_page_merge" and item["status"] == "completed"
+    )
+    title_completed = sum(
+        1 for item in records if item["stage"] == "title_hierarchy" and item["status"] == "completed"
+    )
+    cell_blocked = sum(
+        1 for item in records if item["stage"] == "cell_trace" and item["status"] == "blocked"
+    )
     return {
         "layout_engine": settings.doc_layout_engine,
         "ocr_engine": f"{settings.ocr_provider} / {settings.ocr_model}",
         "ocr_runtime_enabled": settings.ocr_runtime_enabled,
         "cross_page_merge": {
-            "enabled": False,
-            "status": "planned",
-            "summary": "下一步接入跨页文本与续表拼接，避免表格在页边界断裂。",
+            "enabled": True,
+            "status": f"completed {cross_page_completed}",
+            "summary": "已支持基于真实页文本生成跨页续写与续表候选清单。",
         },
         "title_hierarchy": {
-            "enabled": False,
-            "status": "planned",
-            "summary": "下一步恢复文档级标题层级，用于目录导航和证据定位。",
+            "enabled": True,
+            "status": f"completed {title_completed}",
+            "summary": "已支持从真实页块中恢复标题层级，用于目录导航和段落定位。",
         },
         "cell_trace": {
-            "enabled": False,
-            "status": "planned",
-            "summary": "下一步保留关键表格单元格到原页坐标的映射。",
+            "enabled": settings.ocr_runtime_enabled,
+            "status": "runtime-ready" if settings.ocr_runtime_enabled else f"blocked {cell_blocked}",
+            "summary": "单元格级溯源需要 OCR 运行时和表格结构输出，当前已挂入作业队列。",
         },
         "coverage": [
             {"label": "原始文档", "value": periodic_count, "unit": "份"},
@@ -2907,3 +2952,215 @@ def _build_document_pipeline_overview(
             {"label": "结构化指标", "value": silver_count, "unit": "条"},
         ],
     }
+
+
+def _load_document_pipeline_job_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "document_pipeline_jobs.json"
+    parsed_reports = _load_manifest_records(
+        settings.bronze_data_path / "manifests" / "parsed_periodic_reports_manifest.json"
+    )
+    desired_jobs: dict[tuple[str, str], dict[str, Any]] = {}
+    for record in parsed_reports:
+        report_id = record.get("report_id")
+        if not report_id:
+            continue
+        for stage in ("cross_page_merge", "title_hierarchy", "cell_trace"):
+            artifact_path = _document_pipeline_artifact_path(settings, stage, record)
+            status = "blocked" if stage == "cell_trace" and not settings.ocr_runtime_enabled else "pending"
+            if artifact_path.exists():
+                status = "completed"
+            desired_jobs[(report_id, stage)] = {
+                "stage": stage,
+                "report_id": report_id,
+                "company_name": record.get("company_name"),
+                "security_code": record.get("security_code"),
+                "report_period": _normalize_report_period(record.get("title", "")),
+                "page_json_path": record.get("page_json_path"),
+                "artifact_path": str(artifact_path),
+                "status": status,
+            }
+
+    existing_records: dict[tuple[str, str], dict[str, Any]] = {}
+    if manifest_path.exists():
+        with manifest_path.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+        for record in payload.get("records", []):
+            existing_records[(record.get("report_id"), record.get("stage"))] = record
+
+    merged_records: list[dict[str, Any]] = []
+    for key, desired in desired_jobs.items():
+        existing = existing_records.get(key, {})
+        merged = {**desired, **existing}
+        if desired["status"] != "completed":
+            merged["status"] = desired["status"]
+        merged_records.append(merged)
+
+    merged_records.sort(
+        key=lambda item: (
+            item["status"] == "completed",
+            item["company_name"] or "",
+            item["report_id"] or "",
+            item["stage"],
+        )
+    )
+    payload = {
+        "generated_at": _utcnow_iso(),
+        "record_count": len(merged_records),
+        "records": merged_records,
+    }
+    _write_json(manifest_path, payload)
+    return payload
+
+
+def _write_document_pipeline_job_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", []))
+    manifest_path = settings.bronze_data_path / "manifests" / "document_pipeline_jobs.json"
+    _write_json(manifest_path, payload)
+
+
+def _run_document_pipeline_job(
+    stage: str, job: dict[str, Any], settings: Settings
+) -> tuple[dict[str, Any], Path]:
+    page_json_path = Path(job["page_json_path"])
+    if not page_json_path.is_absolute():
+        page_json_path = (Path.cwd() / page_json_path).resolve()
+    with page_json_path.open("r", encoding="utf-8") as file:
+        page_payload = json.load(file)
+
+    if stage == "cross_page_merge":
+        artifact_payload = _build_cross_page_merge_artifact(job, page_payload)
+    elif stage == "title_hierarchy":
+        artifact_payload = _build_title_hierarchy_artifact(job, page_payload)
+    else:
+        artifact_payload = {
+            "report_id": job["report_id"],
+            "company_name": job["company_name"],
+            "summary": "当前运行时未输出单元格级结构。",
+            "cells": [],
+        }
+    artifact_path = _document_pipeline_artifact_path(settings, stage, job)
+    _write_json(artifact_path, artifact_payload)
+    return artifact_payload, artifact_path
+
+
+def _build_cross_page_merge_artifact(job: dict[str, Any], page_payload: dict[str, Any]) -> dict[str, Any]:
+    pages = page_payload.get("pages", [])
+    candidates: list[dict[str, Any]] = []
+    for previous_page, current_page in zip(pages, pages[1:]):
+        tail_text = _last_meaningful_block_text(previous_page.get("blocks", []))
+        head_text = _first_meaningful_block_text(current_page.get("blocks", []))
+        if not tail_text or not head_text:
+            continue
+        if _looks_like_cross_page_continuation(tail_text, head_text):
+            candidates.append(
+                {
+                    "from_page": previous_page.get("page"),
+                    "to_page": current_page.get("page"),
+                    "tail_text": tail_text,
+                    "head_text": head_text,
+                    "reason": "页尾未闭合且下一页延续正文/表格。",
+                }
+            )
+    return {
+        "report_id": job["report_id"],
+        "company_name": job["company_name"],
+        "summary": f"识别出 {len(candidates)} 组跨页续写候选。",
+        "merge_candidates": candidates,
+    }
+
+
+def _build_title_hierarchy_artifact(job: dict[str, Any], page_payload: dict[str, Any]) -> dict[str, Any]:
+    headings: list[dict[str, Any]] = []
+    for page in page_payload.get("pages", []):
+        for block in page.get("blocks", []):
+            text = (block.get("text") or "").strip()
+            level = _infer_heading_level(text)
+            if level is None:
+                continue
+            headings.append(
+                {
+                    "page": page.get("page"),
+                    "text": text,
+                    "level": level,
+                    "bbox": block.get("bbox"),
+                }
+            )
+    return {
+        "report_id": job["report_id"],
+        "company_name": job["company_name"],
+        "summary": f"恢复出 {len(headings)} 个标题节点。",
+        "headings": headings,
+    }
+
+
+def _document_pipeline_artifact_path(settings: Settings, stage: str, record: dict[str, Any]) -> Path:
+    security_code = record.get("security_code", "unknown")
+    report_id = record.get("report_id", "unknown")
+    return settings.bronze_data_path / "upgrades" / stage / security_code / f"{report_id}.json"
+
+
+def _last_meaningful_block_text(blocks: list[dict[str, Any]]) -> str | None:
+    for block in reversed(blocks):
+        text = (block.get("text") or "").strip()
+        if len(text) >= 8 and "证券代码" not in text and "第 " not in text:
+            return text
+    return None
+
+
+def _first_meaningful_block_text(blocks: list[dict[str, Any]]) -> str | None:
+    for block in blocks:
+        text = (block.get("text") or "").strip()
+        if len(text) >= 8 and "证券代码" not in text and "第 " not in text:
+            return text
+    return None
+
+
+def _looks_like_cross_page_continuation(tail_text: str, head_text: str) -> bool:
+    if tail_text.endswith(("。", "；", "：", "！", "？")):
+        return False
+    if head_text.startswith(("（", "公司", "本报告", "其中", "以及", "并", "的")):
+        return True
+    if tail_text.endswith(("、", "及", "与", "和", "为", "在", "是")):
+        return True
+    return bool(re.match(r"^[0-9一二三四五六七八九十]+", head_text))
+
+
+def _infer_heading_level(text: str) -> int | None:
+    if re.match(r"^第[一二三四五六七八九十0-9]+节", text):
+        return 1
+    if re.match(r"^[一二三四五六七八九十]+、", text):
+        return 2
+    if re.match(r"^（[一二三四五六七八九十0-9]+）", text):
+        return 3
+    if re.match(r"^[0-9]+(\.[0-9]+)*\s*", text):
+        return 4
+    if text in {"重要内容提示", "主要财务数据", "财务报表"}:
+        return 2
+    return None
+
+
+def _normalize_report_period(title: str) -> str | None:
+    match = re.search(r"(20\d{2})", title)
+    if not match:
+        return None
+    year = match.group(1)
+    if "三季度" in title:
+        return f"{year}Q3"
+    if "半年度" in title or "中报" in title:
+        return f"{year}H1"
+    if "年度报告" in title or "年报" in title:
+        return f"{year}FY"
+    if "一季度" in title:
+        return f"{year}Q1"
+    return None
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(payload, file, ensure_ascii=False, indent=2)
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat()

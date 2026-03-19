@@ -496,9 +496,96 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(payload["data_status"]["periodic_reports"]["record_count"], 0)
             self.assertEqual(payload["quality_overview"]["coverage"]["pool_companies"], 0)
             self.assertEqual(payload["document_pipeline"]["layout_engine"], "PP-DocLayout-V3 + PyMuPDF")
-            self.assertEqual(payload["document_pipeline"]["cross_page_merge"]["status"], "planned")
+            self.assertEqual(payload["document_pipeline"]["cross_page_merge"]["status"], "completed 0")
             self.assertEqual(payload["job_catalog"][0]["job_id"], "fetch_real_data")
             self.assertIn("企业评分", payload["capabilities"])
+            self.assertIn("document_pipeline_jobs", payload)
+
+    def test_document_pipeline_run_creates_upgrade_artifact(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return []
+
+            def list_company_names(self) -> list[str]:
+                return []
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = False
+
+            def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bootstrap").mkdir(parents=True, exist_ok=True)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+            page_json = root / "bronze" / "page_text" / "SZSE" / "000001" / "demo-report.json"
+            page_json.parent.mkdir(parents=True, exist_ok=True)
+            page_json.write_text(
+                json.dumps(
+                    {
+                        "pages": [
+                            {
+                                "page": 1,
+                                "blocks": [
+                                    {"text": "第一节 重要内容提示", "bbox": [0, 0, 1, 1]},
+                                    {"text": "本报告期营业收入继续增长及", "bbox": [0, 0, 1, 1]},
+                                ],
+                            },
+                            {
+                                "page": 2,
+                                "blocks": [
+                                    {"text": "其中组件业务贡献主要增量。", "bbox": [0, 0, 1, 1]},
+                                    {"text": "一、经营情况讨论与分析", "bbox": [0, 0, 1, 1]},
+                                ],
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "bronze" / "manifests" / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司：2025年三季度报告",
+                                "report_id": "demo-report",
+                                "page_json_path": str(page_json),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+
+            payload = service.run_document_pipeline_stage("title_hierarchy", 1)
+
+            self.assertEqual(payload["processed"], 1)
+            artifact_path = Path(payload["results"][0]["artifact_path"])
+            self.assertTrue(artifact_path.exists())
+            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact_payload["company_name"], "测试公司")
+            self.assertTrue(artifact_payload["headings"])
 
     def test_admin_overview_reports_company_coverage_gaps(self) -> None:
         class StubRepository:

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 
 import AppShell from '@/components/AppShell.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -7,19 +7,28 @@ import LoadingState from '@/components/LoadingState.vue'
 import StatCard from '@/components/StatCard.vue'
 import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { get } from '@/lib/api'
+import { get, post } from '@/lib/api'
 
 const state = useAsyncState<any>()
+const pipelineRunState = useAsyncState<any>()
+const runningStage = ref('')
 
 onMounted(() => {
   void state.execute(() => get('/admin/overview'))
 })
+
+async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_trace') {
+  runningStage.value = stage
+  await pipelineRunState.execute(() => post('/admin/document-pipeline/run', { stage, limit: 5 }))
+  await state.execute(() => get('/admin/overview'))
+  runningStage.value = ''
+}
 </script>
 
 <template>
   <AppShell
     title="管理台"
-    subtitle="查看系统编排、真实数据覆盖和解析链状态"
+    subtitle="查看覆盖缺口与文档解析作业"
     compact
   >
     <LoadingState v-if="state.loading.value" />
@@ -77,23 +86,53 @@ onMounted(() => {
 
         <article class="panel">
           <div class="panel-header">
-            <h3>解析升级路线</h3>
+            <h3>解析作业队列</h3>
           </div>
           <div class="timeline-list">
-            <div class="timeline-item">
-              <strong>跨页内容整合</strong>
-              <span>{{ state.data.value.document_pipeline.cross_page_merge.summary }}</span>
-            </div>
-            <div class="timeline-item">
-              <strong>标题层级重构</strong>
-              <span>{{ state.data.value.document_pipeline.title_hierarchy.summary }}</span>
-            </div>
-            <div class="timeline-item">
-              <strong>单元格级视觉溯源</strong>
-              <span>{{ state.data.value.document_pipeline.cell_trace.summary }}</span>
+            <div
+              v-for="item in state.data.value.document_pipeline_jobs.stage_summary"
+              :key="item.stage"
+              class="timeline-item"
+            >
+              <strong>{{ item.stage }}</strong>
+              <span>completed {{ item.completed }} · pending {{ item.pending }} · blocked {{ item.blocked }}</span>
+              <button
+                v-if="item.stage !== 'cell_trace'"
+                type="button"
+                class="button-secondary"
+                :disabled="runningStage === item.stage"
+                @click="runStage(item.stage)"
+              >
+                {{ runningStage === item.stage ? '执行中' : '执行 5 条' }}
+              </button>
             </div>
           </div>
         </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h3>文档升级作业</h3>
+        </div>
+        <div class="company-grid">
+          <article
+            v-for="job in state.data.value.document_pipeline_jobs.jobs.slice(0, 18)"
+            :key="`${job.report_id}-${job.stage}`"
+            class="company-card"
+          >
+            <div class="signal-top">
+              <div>
+                <div class="signal-code">{{ job.stage }}</div>
+                <h4>{{ job.company_name }}</h4>
+              </div>
+              <div class="signal-subtitle">{{ job.status }}</div>
+            </div>
+            <div class="metric-list">
+              <div class="metric-row"><span>报期</span><strong>{{ job.report_period || '-' }}</strong></div>
+              <div class="metric-row"><span>报告</span><strong>{{ job.report_id }}</strong></div>
+            </div>
+          </article>
+        </div>
       </section>
 
       <section class="panel">

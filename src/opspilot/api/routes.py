@@ -10,6 +10,7 @@ from opspilot.api.schemas import (
     BenchmarkRequest,
     ChatTurnRequest,
     ClaimVerifyRequest,
+    DocumentPipelineRunRequest,
     LoginRequest,
     RegisterRequest,
     ScoreRequest,
@@ -115,6 +116,18 @@ def official_data_status(_: dict = Depends(require_current_user)) -> dict:
 @router.get("/admin/overview")
 def admin_overview(_: dict = Depends(require_current_user)) -> dict:
     return get_service().admin_overview()
+
+
+@router.get("/admin/document-pipeline/jobs")
+def admin_document_pipeline_jobs(_: dict = Depends(require_current_user)) -> dict:
+    return get_service().document_pipeline_jobs()
+
+
+@router.post("/admin/document-pipeline/run")
+def admin_document_pipeline_run(
+    request: DocumentPipelineRunRequest, _: dict = Depends(require_current_user)
+) -> dict:
+    return get_service().run_document_pipeline_stage(request.stage, request.limit)
 
 
 @router.get("/workspace/overview")

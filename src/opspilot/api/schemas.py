@@ -38,3 +38,8 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=32)
     password: str = Field(..., min_length=6, max_length=64)
+
+
+class DocumentPipelineRunRequest(BaseModel):
+    stage: Literal["cross_page_merge", "title_hierarchy", "cell_trace"]
+    limit: int = Field(default=5, ge=1, le=20)

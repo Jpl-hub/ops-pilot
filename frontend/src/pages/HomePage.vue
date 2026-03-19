@@ -37,23 +37,6 @@ import AppShell from '@/components/AppShell.vue'
         </div>
       </article>
 
-      <article class="panel auth-aside">
-        <div class="eyebrow">系统能力</div>
-        <div class="company-grid">
-          <div class="company-card">
-            <div class="signal-code">应用</div>
-            <h4>任务编排</h4>
-          </div>
-          <div class="company-card">
-            <div class="signal-code">多模</div>
-            <h4>多模态解析</h4>
-          </div>
-          <div class="company-card">
-            <div class="signal-code">数据</div>
-            <h4>真实数据链</h4>
-          </div>
-        </div>
-      </article>
     </section>
   </AppShell>
 </template>

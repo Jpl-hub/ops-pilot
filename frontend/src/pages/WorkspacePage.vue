@@ -80,13 +80,6 @@ const insightCards = computed(() => latestPayload.value?.insight_cards || [])
 const evidenceGroups = computed(() => latestPayload.value?.evidence_groups || [])
 const charts = computed(() => latestPayload.value?.charts || [])
 const formulas = computed(() => latestPayload.value?.formula_cards || [])
-const firstEvidenceLink = computed(() => {
-  const group = evidenceGroups.value.find((item: any) => item.items?.length)
-  if (!group) {
-    return '/admin'
-  }
-  return buildEvidenceLink(group.items[0].chunk_id, group.title, group.anchor_terms)
-})
 
 function appendWelcomeMessage() {
   messages.value = [
@@ -102,10 +95,8 @@ function appendWelcomeMessage() {
   ]
 }
 
-const proactiveQueue = computed(() => overviewState.data.value?.alert_queue || [])
 const taskQueue = computed(() => overviewState.data.value?.task_queue || [])
 const overviewSummary = computed(() => overviewState.data.value?.alert_summary || null)
-const systemPanels = computed(() => overviewState.data.value?.system_panels || [])
 
 async function loadWorkspaceOverview() {
   await overviewState.execute(() =>
@@ -412,24 +403,6 @@ watch(
           </article>
         </div>
       </aside>
-    </section>
-
-    <section class="metrics-grid workspace-engine-grid">
-      <RouterLink
-        v-for="panel in systemPanels"
-        :key="panel.code"
-        class="signal-card engine-link"
-        :to="{ path: panel.route.path, query: panel.route.query || {} }"
-      >
-        <div class="signal-code">{{ panel.code }}</div>
-        <h4>{{ panel.title }}</h4>
-        <p class="command-copy">{{ panel.summary }}</p>
-      </RouterLink>
-      <RouterLink v-if="!systemPanels.length" class="signal-card engine-link" :to="firstEvidenceLink">
-        <div class="signal-code">E1</div>
-        <h4>证据回路</h4>
-        <p class="command-copy">公式、指标、页码和证据片段可以逐条回放。</p>
-      </RouterLink>
     </section>
 
     <section v-if="charts.length" class="chart-grid">
