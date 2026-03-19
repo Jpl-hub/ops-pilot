@@ -67,6 +67,19 @@ a { color: inherit; }
 
 .top-nav, .tag-row, .evidence-links, .link-row, .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 
+.role-switch {
+  display: grid;
+  gap: 6px;
+  min-width: 148px;
+}
+
+.role-switch span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .top-nav a, .inline-link, .button-secondary, .button-primary {
   border-radius: 999px;
   text-decoration: none;
@@ -325,12 +338,28 @@ select, .text-input, .text-area {
 }
 .chat-composer {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 14px;
-  padding: 18px;
+  padding: 20px;
   border-radius: 24px;
   background: rgba(7, 18, 31, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.chat-composer-top {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+.composer-hint {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+.composer-hint p {
+  margin: 8px 0 0;
+  color: var(--muted);
 }
 .chat-input-wrap {
   display: grid;
@@ -338,12 +367,18 @@ select, .text-input, .text-area {
   gap: 12px;
   align-items: end;
 }
+.chat-input-wrap-wide {
+  grid-template-columns: minmax(0, 1fr) 160px;
+}
 .chat-input {
-  min-height: 94px;
+  min-height: 156px;
   margin: 0;
+  padding: 18px 20px;
+  border-radius: 22px;
+  font-size: 15px;
 }
 .chat-send {
-  height: 56px;
+  height: 64px;
 }
 .chat-sidebar {
   min-height: 760px;
@@ -384,6 +419,6 @@ select, .text-input, .text-area {
   .hero-grid, .metrics-grid, .chart-grid, .split-grid, .workspace-grid, .workspace-lower, .auth-grid, .chat-workspace { grid-template-columns: 1fr; }
   .toolbar { flex-direction: column; align-items: stretch; }
   .field, .field-wide { min-width: 100%; }
-  .chat-composer, .chat-input-wrap { grid-template-columns: 1fr; }
+  .chat-composer, .chat-input-wrap, .chat-composer-top, .chat-input-wrap-wide { grid-template-columns: 1fr; }
   .chart-root { height: 300px; }
 }

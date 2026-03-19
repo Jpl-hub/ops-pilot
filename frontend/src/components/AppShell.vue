@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 
-import { post } from '@/lib/api'
+import { post, type UserRole } from '@/lib/api'
 import { useSession } from '@/lib/session'
 
 defineProps<{
@@ -12,6 +12,11 @@ defineProps<{
 
 const router = useRouter()
 const session = useSession()
+const roleOptions: Array<{ value: UserRole; label: string }> = [
+  { value: 'investor', label: '投资视角' },
+  { value: 'management', label: '经营视角' },
+  { value: 'regulator', label: '风控视角' },
+]
 
 async function logout() {
   try {
@@ -39,6 +44,15 @@ async function logout() {
         <RouterLink v-if="session.isAuthenticated.value" to="/risk">行业风险</RouterLink>
         <RouterLink v-if="session.isAuthenticated.value" to="/verify">研报核验</RouterLink>
         <RouterLink v-if="session.isAuthenticated.value" to="/admin">管理台</RouterLink>
+        <label v-if="session.isAuthenticated.value" class="role-switch">
+          <span>分析视角</span>
+          <select
+            :value="session.activeRole.value"
+            @change="session.setActiveRole(($event.target as HTMLSelectElement).value as UserRole)"
+          >
+            <option v-for="item in roleOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+          </select>
+        </label>
         <RouterLink v-if="!session.isAuthenticated.value" to="/login">登录</RouterLink>
         <RouterLink v-if="!session.isAuthenticated.value" to="/register">注册</RouterLink>
         <button v-if="session.isAuthenticated.value" class="button-secondary" @click="logout">

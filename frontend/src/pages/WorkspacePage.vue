@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
 import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
@@ -25,7 +25,7 @@ const threadRef = ref<HTMLElement | null>(null)
 const workspaceState = useAsyncState<any>()
 
 const roleCopy = computed(() => {
-  const role = session.currentUser.value?.role || 'investor'
+  const role = session.activeRole.value || 'investor'
   if (role === 'management') {
     return {
       label: '企业管理者',
@@ -114,7 +114,7 @@ async function runQuery(inputQuery?: string) {
     post('/chat/turn', {
       query: actualQuery,
       company_name: selectedCompany.value,
-      user_role: session.currentUser.value?.role || 'investor',
+      user_role: session.activeRole.value || 'investor',
     }),
   )
   if (workspaceState.data.value) {
@@ -136,6 +136,13 @@ onMounted(async () => {
     selectedCompany.value = companies.value[0]
   }
 })
+
+watch(
+  () => session.activeRole.value,
+  () => {
+    appendWelcomeMessage()
+  },
+)
 </script>
 
 <template>
@@ -264,20 +271,26 @@ onMounted(async () => {
         </div>
 
         <div class="chat-composer">
-          <label class="field">
-            <span>公司</span>
-            <select v-model="selectedCompany">
-              <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-            </select>
-          </label>
-          <div class="chat-input-wrap">
+          <div class="chat-composer-top">
+            <label class="field">
+              <span>公司</span>
+              <select v-model="selectedCompany">
+                <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+              </select>
+            </label>
+            <div class="composer-hint">
+              <div class="signal-code">输入方式</div>
+              <p>直接像聊天一样提问，回车发送，Shift + Enter 换行。</p>
+            </div>
+          </div>
+          <div class="chat-input-wrap chat-input-wrap-wide">
             <textarea
               v-model="query"
               class="text-area chat-input"
-              placeholder="输入你想分析的问题，例如：这家公司当前最需要优先处理的经营问题是什么？"
+              placeholder="直接输入问题，例如：TCL中环 2025Q3 当前最需要优先处理的经营问题是什么？先给结论，再给证据。"
               @keydown.enter.exact.prevent="runQuery()"
             />
-            <button class="button-primary chat-send" @click="runQuery()">发送</button>
+            <button class="button-primary chat-send" @click="runQuery()">发送问题</button>
           </div>
         </div>
       </section>

@@ -66,7 +66,7 @@ async function submit() {
       <article class="panel auth-aside">
         <div class="eyebrow">没有账号</div>
         <h3>先完成注册</h3>
-        <p class="hero-text">注册后选择使用身份，即可进入对应视角下的分析界面。</p>
+        <p class="hero-text">注册后直接进入系统，分析视角可在进入后随时切换。</p>
         <RouterLink class="button-secondary" to="/register">去注册</RouterLink>
       </article>
     </section>

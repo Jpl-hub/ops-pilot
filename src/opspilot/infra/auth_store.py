@@ -73,7 +73,7 @@ class AuthStore:
         username: str,
         display_name: str,
         password: str,
-        role: UserRole,
+        role: UserRole = "investor",
     ) -> tuple[AuthUser, str]:
         normalized_username = username.strip().lower()
         normalized_display_name = display_name.strip()
