@@ -25,6 +25,21 @@ onMounted(() => {
     <LoadingState v-if="state.loading.value" />
     <ErrorState v-else-if="state.error.value" :message="state.error.value" />
     <template v-else-if="state.data.value">
+      <section class="metrics-grid workspace-overview-strip">
+        <article class="signal-card">
+          <div class="signal-code">AGENT</div>
+          <h4>编排内核</h4>
+        </article>
+        <article class="signal-card">
+          <div class="signal-code">MM</div>
+          <h4>{{ state.data.value.document_pipeline.ocr_runtime_enabled ? '多模态已接入' : '多模态待接入' }}</h4>
+        </article>
+        <article class="signal-card">
+          <div class="signal-code">DATA</div>
+          <h4>{{ state.data.value.data_status.silver_financial_metrics.record_count }} 条结构化记录</h4>
+        </article>
+      </section>
+
       <section class="metrics-grid">
         <StatCard label="运行状态" :value="state.data.value.health.status" :hint="state.data.value.health.env" tone="success" />
         <StatCard label="主周期" :value="state.data.value.health.preferred_period" :hint="`公司 ${state.data.value.health.companies} 家`" />
@@ -56,20 +71,20 @@ onMounted(() => {
       <section class="split-grid">
         <article class="panel">
           <div class="panel-header">
-            <h3>系统形态</h3>
+            <h3>三条主线</h3>
           </div>
-          <div class="timeline-list">
-            <div class="timeline-item">
-              <strong>传统应用</strong>
-              <span>工作台、体检、风险、核验、证据查看五条用户主链共享统一会话与统一路由。</span>
+          <div class="company-grid">
+            <div class="company-card">
+              <div class="signal-code">APP</div>
+              <h4>传统应用</h4>
             </div>
-            <div class="timeline-item">
-              <strong>AI 智能体</strong>
-              <span>当前采用后端中心化编排，不把 Agent 暴露成概念，而是把每一步执行结果落成可点击的业务页面。</span>
+            <div class="company-card">
+              <div class="signal-code">AI</div>
+              <h4>Agent 编排</h4>
             </div>
-            <div class="timeline-item">
-              <strong>大数据工程</strong>
-              <span>真实财报和研报通过原始抓取、页级解析、结构化抽取进入同一指标仓和证据仓。</span>
+            <div class="company-card">
+              <div class="signal-code">DATA</div>
+              <h4>大数据工程</h4>
             </div>
           </div>
         </article>

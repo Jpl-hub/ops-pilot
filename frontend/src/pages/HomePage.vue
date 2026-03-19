@@ -6,7 +6,7 @@ import AppShell from '@/components/AppShell.vue'
   <AppShell
     kicker="OpsPilot-X"
     title="入口"
-    subtitle="登录后进入工作台"
+    subtitle="进入系统"
     compact
   >
     <section class="auth-grid">
@@ -38,19 +38,19 @@ import AppShell from '@/components/AppShell.vue'
       </article>
 
       <article class="panel auth-aside">
-        <div class="eyebrow">进入系统后</div>
-        <div class="timeline-list">
-          <div class="timeline-item">
-            <strong>对话分析台</strong>
-            <span>围绕一个问题统一调度分析、核验和取证。</span>
+        <div class="eyebrow">系统能力</div>
+        <div class="company-grid">
+          <div class="company-card">
+            <div class="signal-code">AGENT</div>
+            <h4>任务编排</h4>
           </div>
-          <div class="timeline-item">
-            <strong>企业体检</strong>
-            <span>查看经营质量、公式回放和建议动作。</span>
+          <div class="company-card">
+            <div class="signal-code">MM</div>
+            <h4>多模态解析</h4>
           </div>
-          <div class="timeline-item">
-            <strong>研报核验</strong>
-            <span>对照真实财报核查评级、目标价和研究观点。</span>
+          <div class="company-card">
+            <div class="signal-code">DATA</div>
+            <h4>真实数据链</h4>
           </div>
         </div>
       </article>

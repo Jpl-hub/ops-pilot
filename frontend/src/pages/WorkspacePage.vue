@@ -97,7 +97,6 @@ function appendWelcomeMessage() {
       title: roleCopy.value.title,
       lines: [
         `${roleCopy.value.label}模式已就绪。`,
-        '直接输入问题开始分析。',
       ],
     },
   ]
@@ -106,6 +105,7 @@ function appendWelcomeMessage() {
 const proactiveQueue = computed(() => overviewState.data.value?.alert_queue || [])
 const overviewSummary = computed(() => overviewState.data.value?.alert_summary || null)
 const systemPanels = computed(() => overviewState.data.value?.system_panels || [])
+const platformPillars = computed(() => overviewState.data.value?.platform_pillars || [])
 
 async function loadWorkspaceOverview() {
   await overviewState.execute(() =>
@@ -163,16 +163,44 @@ watch(
 
 <template>
   <AppShell
-    title="对话分析台"
-    subtitle="围绕一个问题完成分析、核验和取证"
+    title="工作台"
+    subtitle="任务控制台"
     compact
   >
+    <section class="metrics-grid workspace-overview-strip">
+      <article class="signal-card">
+        <div class="signal-code">ROLE</div>
+        <h4>{{ roleCopy.label }}</h4>
+      </article>
+      <article class="signal-card">
+        <div class="signal-code">ALERT</div>
+        <h4>{{ overviewSummary?.total_alerts || 0 }}</h4>
+      </article>
+      <article class="signal-card">
+        <div class="signal-code">CHAIN</div>
+        <h4>{{ overviewSummary?.active_companies || 0 }}</h4>
+      </article>
+    </section>
+
+    <section class="metrics-grid workspace-overview-strip">
+      <RouterLink
+        v-for="pillar in platformPillars"
+        :key="pillar.code"
+        class="signal-card engine-link"
+        :to="{ path: pillar.route.path, query: pillar.route.query || {} }"
+      >
+        <div class="signal-code">{{ pillar.code }}</div>
+        <h4>{{ pillar.title }}</h4>
+        <div class="signal-subtitle">{{ pillar.value }}</div>
+      </RouterLink>
+    </section>
+
     <section class="chat-workspace">
       <aside class="panel chat-sidebar">
         <div class="panel-header">
           <div>
             <div class="eyebrow">任务面板</div>
-            <h3>当前任务</h3>
+            <h3>会话状态</h3>
           </div>
         </div>
         <div class="detail-list">
@@ -205,7 +233,7 @@ watch(
             <span>{{ item.summary }}</span>
           </RouterLink>
         </div>
-        <div class="subsection-label" style="margin-top: 18px;">快捷问题</div>
+        <div class="subsection-label" style="margin-top: 18px;">快捷任务</div>
         <div class="timeline-list">
           <button
             v-for="item in starterQueries"
@@ -315,7 +343,7 @@ watch(
             <textarea
               v-model="query"
               class="text-area chat-input"
-              placeholder="直接输入问题，例如：TCL中环 2025Q3 当前最需要优先处理的经营问题是什么？先给结论，再给证据。"
+              placeholder="输入一个任务，例如：先给结论，再拆原因，再回放证据。"
               @keydown.enter.exact.prevent="runQuery()"
             />
             <button class="button-primary chat-send" @click="runQuery()">发送问题</button>
@@ -333,7 +361,7 @@ watch(
         <div v-if="controlPlane" class="control-plane-card">
           <div class="signal-code">控制平面</div>
           <h4>{{ controlPlane.session_label }}</h4>
-          <p class="command-copy">当前问题已进入 {{ controlPlane.query_type }} 流程，{{ controlPlane.steps_completed }}/{{ controlPlane.step_total }} 个执行阶段完成。</p>
+          <p class="command-copy">{{ controlPlane.steps_completed }}/{{ controlPlane.step_total }} 个阶段完成</p>
           <div class="tag-row">
             <TagPill v-for="source in controlPlane.data_sources" :key="source" :label="source" />
           </div>

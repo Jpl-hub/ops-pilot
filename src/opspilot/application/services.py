@@ -148,6 +148,7 @@ class OpsPilotService:
         risk_payload = self.risk_scan(preferred_period)
         health = self.health()
         role_profile = ROLE_PROFILES.get(user_role, ROLE_PROFILES["investor"])
+        data_status = self.official_data_status()
         return {
             "preferred_period": preferred_period,
             "role_profile": role_profile,
@@ -161,6 +162,29 @@ class OpsPilotService:
                 "preferred_period": preferred_period,
                 "active_companies": health["preferred_period_companies"],
             },
+            "platform_pillars": [
+                {
+                    "code": "APP",
+                    "title": "传统应用 + Agent",
+                    "value": "中心化编排",
+                    "summary": "工作台统一调度体检、风险、核验和证据。",
+                    "route": {"path": "/workspace", "label": "查看工作台"},
+                },
+                {
+                    "code": "MM",
+                    "title": "多模态 AI / 深度学习",
+                    "value": "PaddleOCR-VL-1.5",
+                    "summary": "版面解析已冻结，OCR 运行时待接入作业链。",
+                    "route": {"path": "/admin", "label": "查看解析链"},
+                },
+                {
+                    "code": "DATA",
+                    "title": "大数据工程",
+                    "value": f"{data_status['silver_financial_metrics']['record_count']} 条",
+                    "summary": "真实财报、研报、证据共用同一条结构化数据链。",
+                    "route": {"path": "/admin", "label": "查看数据链"},
+                },
+            ],
             "system_panels": [
                 {
                     "code": "A1",

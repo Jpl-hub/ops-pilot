@@ -64,8 +64,10 @@ async function logout() {
         </div>
       </div>
       <div v-if="title || subtitle" class="page-copy" :class="{ compact }">
-        <div class="eyebrow">{{ title }}</div>
-        <h1 v-if="subtitle" class="page-title">{{ subtitle }}</h1>
+        <div class="page-context">
+          <div v-if="title" class="eyebrow">{{ title }}</div>
+          <h1 v-if="subtitle" class="page-title">{{ subtitle }}</h1>
+        </div>
       </div>
     </header>
     <slot />
