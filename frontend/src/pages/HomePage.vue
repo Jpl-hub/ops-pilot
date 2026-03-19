@@ -5,21 +5,9 @@ import { useSession } from '@/lib/session'
 const session = useSession()
 
 const roleCards = [
-  {
-    code: '01',
-    title: '投资者',
-    copy: '查看公司经营质量、同业位置、研究观点和关键证据。',
-  },
-  {
-    code: '02',
-    title: '企业管理者',
-    copy: '跟踪经营质量、现金压力、周转效率和重点整改事项。',
-  },
-  {
-    code: '03',
-    title: '监管 / 风控角色',
-    copy: '批量查看风险暴露、事件信号和研究观点偏差。',
-  },
+  { code: '01', title: '投资视角', copy: '看收益质量、同业位置和证据。', route: '/workspace' },
+  { code: '02', title: '经营视角', copy: '看经营瓶颈、现金压力和动作。', route: '/score' },
+  { code: '03', title: '风控视角', copy: '看风险抬升、事件信号和偏差。', route: '/risk' },
 ]
 
 const capabilityCards = [
@@ -60,11 +48,11 @@ const systemLayers = [
       </article>
 
       <div class="stack-grid">
-        <article v-for="role in roleCards" :key="role.code" class="command-card-shell role-card">
+        <RouterLink v-for="role in roleCards" :key="role.code" :to="role.route" class="command-card-shell role-card engine-link">
           <div class="signal-code">{{ role.code }}</div>
           <h3>{{ role.title }}</h3>
           <p class="command-copy">{{ role.copy }}</p>
-        </article>
+        </RouterLink>
       </div>
     </section>
 

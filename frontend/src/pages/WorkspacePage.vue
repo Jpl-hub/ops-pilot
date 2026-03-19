@@ -79,6 +79,13 @@ const insightCards = computed(() => latestPayload.value?.insight_cards || [])
 const evidenceGroups = computed(() => latestPayload.value?.evidence_groups || [])
 const charts = computed(() => latestPayload.value?.charts || [])
 const formulas = computed(() => latestPayload.value?.formula_cards || [])
+const firstEvidenceLink = computed(() => {
+  const group = evidenceGroups.value.find((item: any) => item.items?.length)
+  if (!group) {
+    return '/admin'
+  }
+  return buildEvidenceLink(group.items[0].chunk_id, group.title, group.anchor_terms)
+})
 
 function appendWelcomeMessage() {
   messages.value = [
@@ -150,7 +157,7 @@ watch(
 <template>
   <AppShell
     title="对话分析台"
-    subtitle="围绕一个问题统一调度 AI 编排、真实数据和证据回路"
+    subtitle="围绕一个问题完成分析、核验和取证"
     compact
   >
     <section class="command-grid" style="margin-bottom: 18px;">
@@ -163,7 +170,7 @@ watch(
         v-for="starter in starterQueries"
         :key="starter"
         type="button"
-        class="command-card interactive-card"
+        class="command-card interactive-card compact-command-card"
         @click="runQuery(`${selectedCompany}${starter}`)"
       >
         <div class="signal-code">快捷问题</div>
@@ -375,21 +382,21 @@ watch(
       </section>
 
       <section class="metrics-grid workspace-engine-grid">
-        <article class="signal-card">
+        <RouterLink class="signal-card engine-link" to="/admin">
           <div class="signal-code">AI 编排</div>
           <h4>中心化总控调度</h4>
-          <p class="command-copy">问题先进入总控，再分发到信号分析、证据审计和动作生成，不是单轮聊天直接吐一段 Markdown。</p>
-        </article>
-        <article class="signal-card">
+          <p class="command-copy">总控负责拆问题、派步骤、汇结论。</p>
+        </RouterLink>
+        <RouterLink class="signal-card engine-link" to="/admin">
           <div class="signal-code">数据工程</div>
           <h4>真实数据统一底座</h4>
-          <p class="command-copy">交易所财报、东财研报和行业报告通过 raw / bronze / silver 三层统一进入评分和核验链路。</p>
-        </article>
-        <article class="signal-card">
+          <p class="command-copy">真实财报和研报统一进入 raw / bronze / silver。</p>
+        </RouterLink>
+        <RouterLink class="signal-card engine-link" :to="firstEvidenceLink">
           <div class="signal-code">可解释性</div>
           <h4>结论与证据同路返回</h4>
-          <p class="command-copy">每一步执行都可以落到体检、风险、核验或证据页，公式、指标和页码能逐条回放。</p>
-        </article>
+          <p class="command-copy">公式、指标、页码和证据片段可以逐条回放。</p>
+        </RouterLink>
       </section>
 
     <section v-if="charts.length" class="chart-grid">

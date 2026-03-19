@@ -105,6 +105,13 @@ a { color: inherit; }
   align-items: center;
   justify-content: flex-end;
 }
+.top-nav-main {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+.top-nav-actions {
+  flex: 0 0 auto;
+}
 
 .role-switch {
   display: grid;
@@ -117,6 +124,9 @@ a { color: inherit; }
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+.role-switch select {
+  min-width: 168px;
 }
 
 .top-nav a, .inline-link, .button-secondary, .button-primary {
@@ -181,7 +191,7 @@ a { color: inherit; }
 
 .hero-grid { grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr); margin-bottom: 20px; }
 .hero-metrics, .command-grid, .company-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-.metrics-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 18px; }
+.metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 18px; }
 .split-grid { grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr); margin-bottom: 18px; }
 .chart-grid { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); margin-bottom: 18px; }
 .stack-grid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
@@ -289,13 +299,20 @@ select, .text-input, .text-area {
   display: block;
   padding: 22px;
   text-decoration: none;
-  min-height: 200px;
+  min-height: 164px;
   background: linear-gradient(180deg, rgba(17, 37, 63, 0.94), rgba(10, 23, 39, 0.92));
 }
 
 .command-card:hover { transform: translateY(-2px); border-color: var(--border-strong); }
-.command-title { font-size: 28px; margin-bottom: 14px; }
-.command-meta { margin-top: 22px; color: #dce6f3; }
+.command-title { font-size: 18px; line-height: 1.35; margin-bottom: 10px; }
+.command-meta { margin-top: 14px; color: #dce6f3; font-size: 14px; }
+.compact-command-card {
+  min-height: 148px;
+}
+.engine-link {
+  text-decoration: none;
+  color: inherit;
+}
 .interactive-card {
   width: 100%;
   text-align: left;
@@ -550,6 +567,7 @@ select, .text-input, .text-area {
   .chat-workspace { grid-template-columns: 1fr; }
   .shell-topbar { flex-direction: column; align-items: stretch; }
   .top-nav { justify-content: flex-start; }
+  .top-nav-main { justify-content: flex-start; }
   .execution-meta div, .execution-metrics { grid-template-columns: 1fr 1fr 1fr; }
 }
 

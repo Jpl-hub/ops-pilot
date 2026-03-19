@@ -6,7 +6,7 @@ import { useSession } from '@/lib/session'
 
 defineProps<{
   title: string
-  subtitle: string
+  subtitle?: string
   kicker?: string
   compact?: boolean
 }>()
@@ -38,13 +38,15 @@ async function logout() {
           <span class="brand-kicker">{{ kicker || 'OpsPilot-X' }}</span>
           <strong class="brand-name">新能源运营决策系统</strong>
         </RouterLink>
-        <nav class="top-nav">
+        <nav class="top-nav top-nav-main">
           <RouterLink to="/">首页</RouterLink>
           <RouterLink v-if="session.isAuthenticated.value" to="/workspace">对话分析台</RouterLink>
           <RouterLink v-if="session.isAuthenticated.value" to="/score">企业体检</RouterLink>
           <RouterLink v-if="session.isAuthenticated.value" to="/risk">行业风险</RouterLink>
           <RouterLink v-if="session.isAuthenticated.value" to="/verify">研报核验</RouterLink>
           <RouterLink v-if="session.isAuthenticated.value" to="/admin">管理台</RouterLink>
+        </nav>
+        <div class="top-nav top-nav-actions">
           <label v-if="session.isAuthenticated.value" class="role-switch">
             <span>分析视角</span>
             <select
@@ -59,11 +61,11 @@ async function logout() {
           <button v-if="session.isAuthenticated.value" class="button-secondary logout-button" @click="logout">
             {{ session.currentUser.value?.display_name }} · 退出
           </button>
-        </nav>
+        </div>
       </div>
-      <div class="page-copy" :class="{ compact }">
+      <div v-if="title || subtitle" class="page-copy" :class="{ compact }">
         <div class="eyebrow">{{ title }}</div>
-        <h1 class="page-title">{{ subtitle }}</h1>
+        <h1 v-if="subtitle" class="page-title">{{ subtitle }}</h1>
       </div>
     </header>
     <slot />
