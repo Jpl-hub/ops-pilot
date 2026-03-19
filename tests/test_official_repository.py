@@ -106,6 +106,7 @@ class OfficialRepositoryTestCase(unittest.TestCase):
             self.assertIsNotNone(evidence)
             self.assertEqual(evidence["page"], 9)
             self.assertEqual(len(latest["history"]), 2)
+            self.assertEqual(repository.list_company_periods("测试公司"), ["2025Q3", "2025H1"])
 
     def test_repository_backfills_event_metrics_from_same_year_prior_report(self) -> None:
         with TemporaryDirectory() as temp_dir:

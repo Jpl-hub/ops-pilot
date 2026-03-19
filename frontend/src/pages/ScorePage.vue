@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
@@ -15,6 +16,8 @@ const companies = ref<string[]>([])
 const selectedCompany = ref('TCL中环')
 const selectedPeriod = ref<string>('')
 const scoreState = useAsyncState<any>()
+const route = useRoute()
+const syncingFromRoute = ref(false)
 
 const summaryBullets = computed(() => {
   const scorecard = scoreState.data.value?.scorecard
@@ -40,16 +43,35 @@ async function loadScore() {
   )
 }
 
+function applyQuerySelection() {
+  const queryCompany = typeof route.query.company === 'string' ? route.query.company : ''
+  const queryPeriod = typeof route.query.period === 'string' ? route.query.period : ''
+  syncingFromRoute.value = true
+  if (queryCompany && companies.value.includes(queryCompany)) {
+    selectedCompany.value = queryCompany
+  }
+  if (queryPeriod) {
+    selectedPeriod.value = queryPeriod
+  }
+  syncingFromRoute.value = false
+}
+
 onMounted(async () => {
   await loadCompanies()
   if (!companies.value.includes(selectedCompany.value)) {
     selectedCompany.value = companies.value[0]
   }
+  applyQuerySelection()
   await loadScore()
-  selectedPeriod.value = scoreState.data.value?.report_period || ''
+  if (!selectedPeriod.value) {
+    selectedPeriod.value = scoreState.data.value?.report_period || ''
+  }
 })
 
 watch(selectedCompany, async (_, oldValue) => {
+  if (syncingFromRoute.value) {
+    return
+  }
   if (oldValue && selectedCompany.value !== oldValue) {
     selectedPeriod.value = ''
     await loadScore()
@@ -58,10 +80,38 @@ watch(selectedCompany, async (_, oldValue) => {
 })
 
 watch(selectedPeriod, async (_, oldValue) => {
+  if (syncingFromRoute.value) {
+    return
+  }
   if (oldValue && selectedPeriod.value !== oldValue) {
     await loadScore()
   }
 })
+
+watch(
+  () => [route.query.company, route.query.period],
+  async ([companyQuery, periodQuery]) => {
+    const company = typeof companyQuery === 'string' ? companyQuery : ''
+    const period = typeof periodQuery === 'string' ? periodQuery : ''
+    if (company && company !== selectedCompany.value && companies.value.includes(company)) {
+      syncingFromRoute.value = true
+      selectedCompany.value = company
+      selectedPeriod.value = period || ''
+      syncingFromRoute.value = false
+      await loadScore()
+      if (!period) {
+        selectedPeriod.value = scoreState.data.value?.report_period || ''
+      }
+      return
+    }
+    if (period && period !== selectedPeriod.value) {
+      syncingFromRoute.value = true
+      selectedPeriod.value = period
+      syncingFromRoute.value = false
+      await loadScore()
+    }
+  },
+)
 </script>
 
 <template>

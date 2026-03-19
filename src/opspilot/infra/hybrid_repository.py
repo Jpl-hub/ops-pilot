@@ -19,6 +19,18 @@ class HybridRepository:
         names.update(self._official_repository.list_company_names())
         return sorted(names)
 
+    def list_company_periods(self, company_name: str) -> list[str]:
+        periods = []
+        if hasattr(self._official_repository, "list_company_periods"):
+            periods.extend(self._official_repository.list_company_periods(company_name))
+        if hasattr(self._sample_repository, "list_company_periods"):
+            periods.extend(self._sample_repository.list_company_periods(company_name))
+        deduped: list[str] = []
+        for period in periods:
+            if period not in deduped:
+                deduped.append(period)
+        return deduped
+
     def get_company(
         self, company_name: str, report_period: str | None = None
     ) -> dict[str, Any] | None:

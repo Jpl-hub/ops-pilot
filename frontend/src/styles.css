@@ -84,6 +84,11 @@ a { color: inherit; }
   background: var(--accent-soft);
 }
 
+.button-secondary.is-active-toggle {
+  border-color: var(--border-strong);
+  background: var(--accent-soft);
+}
+
 .button-primary {
   border: 0;
   cursor: pointer;
@@ -218,6 +223,20 @@ select, .text-input, .text-area {
 .command-card:hover { transform: translateY(-2px); border-color: var(--border-strong); }
 .command-title { font-size: 28px; margin-bottom: 14px; }
 .command-meta { margin-top: 22px; color: #dce6f3; }
+.interactive-card {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.interactive-card:hover,
+.interactive-card.is-active-card {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  background: rgba(255, 184, 76, 0.08);
+}
 
 .loading-state, .error-state { display: flex; align-items: center; gap: 14px; min-height: 120px; }
 .loader {

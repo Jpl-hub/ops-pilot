@@ -22,6 +22,14 @@ class SampleRepository:
     def list_company_names(self) -> list[str]:
         return [company["company_name"] for company in self._companies]
 
+    def list_company_periods(self, company_name: str) -> list[str]:
+        periods = {
+            company["report_period"]
+            for company in self._companies
+            if company["company_name"] == company_name
+        }
+        return sorted(periods, reverse=True)
+
     def get_company(
         self, company_name: str, report_period: str | None = None
     ) -> dict[str, Any] | None:

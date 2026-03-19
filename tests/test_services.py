@@ -119,6 +119,105 @@ class ServicesTestCase(unittest.TestCase):
         self.assertTrue(payload["action_cards"])
         self.assertEqual(payload["action_cards"][0]["priority"], "P1")
 
+    def test_risk_scan_builds_alert_board_from_prior_period(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                if report_period in (None, "2025Q3"):
+                    return [
+                        {
+                            "company_name": "测试公司",
+                            "report_period": "2025Q3",
+                            "subindustry": "储能",
+                            "metrics": {"G1": -8.4, "G2": -15.2, "C3": 18.0, "S4": 0.72, "S1": 0.98},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        }
+                    ]
+                if report_period == "2025H1":
+                    return [
+                        {
+                            "company_name": "测试公司",
+                            "report_period": "2025H1",
+                            "subindustry": "储能",
+                            "metrics": {"G1": 6.0, "G2": 4.0, "S4": 1.3, "S1": 1.22},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        }
+                    ]
+                return []
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3", "2025H1"]
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                matches = {
+                    "2025Q3": {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": -8.4, "G2": -15.2, "C3": 18.0, "S4": 0.72, "S1": 0.98},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                    "2025H1": {
+                        "company_name": "测试公司",
+                        "report_period": "2025H1",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 6.0, "G2": 4.0, "S4": 1.3, "S1": 1.22},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                }
+                return matches.get(report_period or "2025Q3")
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+
+            def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+            (root / "raw" / "manifests" / "industry_research_reports_manifest.json").write_text(
+                json.dumps({"records": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+
+            payload = service.risk_scan("2025Q3")
+
+        self.assertEqual(len(payload["alert_board"]), 1)
+        alert = payload["alert_board"][0]
+        self.assertEqual(alert["company_name"], "测试公司")
+        self.assertEqual(alert["previous_period"], "2025H1")
+        self.assertEqual(alert["risk_delta"], 2)
+        self.assertIn("营收同比 -8.4%", alert["new_labels"])
+
     def test_admin_overview_returns_health_data_and_job_catalog(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
