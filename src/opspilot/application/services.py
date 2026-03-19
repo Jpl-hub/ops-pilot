@@ -148,12 +148,12 @@ class OpsPilotService:
         risk_payload = self.risk_scan(preferred_period)
         health = self.health()
         role_profile = ROLE_PROFILES.get(user_role, ROLE_PROFILES["investor"])
-        data_status = self.official_data_status()
         return {
             "preferred_period": preferred_period,
             "role_profile": role_profile,
             "companies": [item["company_name"] for item in risk_payload["risk_board"]],
             "alert_queue": _build_workspace_alert_queue(risk_payload["alert_board"], user_role),
+            "task_queue": self.task_queue(user_role, preferred_period),
             "alert_summary": {
                 "total_alerts": len(risk_payload["alert_board"]),
                 "high_risk_companies": sum(
@@ -162,29 +162,6 @@ class OpsPilotService:
                 "preferred_period": preferred_period,
                 "active_companies": health["preferred_period_companies"],
             },
-            "platform_pillars": [
-                {
-                    "code": "应用",
-                    "title": "传统应用 + Agent",
-                    "value": "中心化编排",
-                    "summary": "工作台统一调度体检、风险、核验和证据。",
-                    "route": {"path": "/workspace", "label": "查看工作台"},
-                },
-                {
-                    "code": "多模",
-                    "title": "多模态 AI / 深度学习",
-                    "value": "PaddleOCR-VL-1.5",
-                    "summary": "版面解析已冻结，OCR 运行时待接入作业链。",
-                    "route": {"path": "/admin", "label": "查看解析链"},
-                },
-                {
-                    "code": "数据",
-                    "title": "大数据工程",
-                    "value": f"{data_status['silver_financial_metrics']['record_count']} 条",
-                    "summary": "真实财报、研报、证据共用同一条结构化数据链。",
-                    "route": {"path": "/admin", "label": "查看数据链"},
-                },
-            ],
             "system_panels": [
                 {
                     "code": "A1",
@@ -370,6 +347,36 @@ class OpsPilotService:
                 }
             ],
         }
+
+    def task_queue(
+        self, user_role: str = "management", report_period: str | None = None, limit: int = 8
+    ) -> list[dict[str, Any]]:
+        period = report_period or self._preferred_period()
+        alerts = self.risk_scan(period)["alert_board"]
+        tasks: list[dict[str, Any]] = []
+        for alert in alerts[:limit]:
+            company_name = alert["company_name"]
+            score_payload = self.score_company(company_name, period)
+            action_cards = score_payload["action_cards"]
+            if not action_cards:
+                continue
+            primary_action = action_cards[0]
+            route = {"path": "/score", "query": {"company": company_name, "period": period}}
+            if user_role == "investor":
+                route = {"path": "/verify", "query": {"company": company_name}}
+            elif user_role == "regulator":
+                route = {"path": "/risk", "query": {"company": company_name}}
+            tasks.append(
+                {
+                    "company_name": company_name,
+                    "report_period": score_payload["report_period"],
+                    "priority": primary_action["priority"],
+                    "title": primary_action["title"],
+                    "summary": primary_action["reason"],
+                    "route": route,
+                }
+            )
+        return tasks
 
     def risk_scan(self, report_period: str | None = None) -> dict[str, Any]:
         companies = (

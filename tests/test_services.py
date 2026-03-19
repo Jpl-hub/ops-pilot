@@ -290,6 +290,68 @@ class ServicesTestCase(unittest.TestCase):
         self.assertTrue(payload["agent_flow"][2]["route"]["path"].startswith("/evidence/") or payload["agent_flow"][2]["route"]["path"] == "/admin")
         self.assertEqual(payload["agent_flow"][3]["tool"], "action_planner")
 
+    def test_task_queue_returns_prioritized_actions(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": -8.4, "G2": -15.2, "C3": 18.0, "S4": 0.72, "S1": 0.98},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                    {
+                        "company_name": "对标公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 10.0, "G2": 8.0, "C3": 1.0, "S4": 1.4, "S1": 1.5},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                ]
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                for item in self.list_companies(report_period):
+                    if item["company_name"] == company_name:
+                        return item
+                return None
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司", "对标公司"]
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+
+            def __init__(self) -> None:
+                self.official_data_path = Path(".")
+
+        queue = OpsPilotService(StubRepository(), StubSettings()).task_queue("management", "2025Q3")
+
+        self.assertTrue(queue)
+        self.assertEqual(queue[0]["company_name"], "测试公司")
+        self.assertEqual(queue[0]["route"]["path"], "/score")
+
     def test_risk_scan_builds_alert_board_from_prior_period(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

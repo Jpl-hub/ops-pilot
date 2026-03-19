@@ -25,21 +25,6 @@ onMounted(() => {
     <LoadingState v-if="state.loading.value" />
     <ErrorState v-else-if="state.error.value" :message="state.error.value" />
     <template v-else-if="state.data.value">
-      <section class="metrics-grid workspace-overview-strip">
-        <article class="signal-card">
-          <div class="signal-code">应用</div>
-          <h4>编排内核</h4>
-        </article>
-        <article class="signal-card">
-          <div class="signal-code">多模</div>
-          <h4>{{ state.data.value.document_pipeline.ocr_runtime_enabled ? '多模态已接入' : '多模态待接入' }}</h4>
-        </article>
-        <article class="signal-card">
-          <div class="signal-code">数据</div>
-          <h4>{{ state.data.value.data_status.silver_financial_metrics.record_count }} 条结构化记录</h4>
-        </article>
-      </section>
-
       <section class="metrics-grid">
         <StatCard label="运行状态" :value="state.data.value.health.status" :hint="state.data.value.health.env" tone="success" />
         <StatCard label="主周期" :value="state.data.value.health.preferred_period" :hint="`公司 ${state.data.value.health.companies} 家`" />
@@ -69,26 +54,6 @@ onMounted(() => {
       </section>
 
       <section class="split-grid">
-        <article class="panel">
-          <div class="panel-header">
-            <h3>三条主线</h3>
-          </div>
-          <div class="company-grid">
-            <div class="company-card">
-              <div class="signal-code">应用</div>
-              <h4>传统应用</h4>
-            </div>
-            <div class="company-card">
-              <div class="signal-code">智能</div>
-              <h4>Agent 编排</h4>
-            </div>
-            <div class="company-card">
-              <div class="signal-code">数据</div>
-              <h4>大数据工程</h4>
-            </div>
-          </div>
-        </article>
-
         <article class="panel">
           <div class="panel-header">
             <h3>解析链状态</h3>

@@ -103,9 +103,9 @@ function appendWelcomeMessage() {
 }
 
 const proactiveQueue = computed(() => overviewState.data.value?.alert_queue || [])
+const taskQueue = computed(() => overviewState.data.value?.task_queue || [])
 const overviewSummary = computed(() => overviewState.data.value?.alert_summary || null)
 const systemPanels = computed(() => overviewState.data.value?.system_panels || [])
-const platformPillars = computed(() => overviewState.data.value?.platform_pillars || [])
 
 async function loadWorkspaceOverview() {
   await overviewState.execute(() =>
@@ -182,19 +182,6 @@ watch(
       </article>
     </section>
 
-    <section class="metrics-grid workspace-overview-strip">
-      <RouterLink
-        v-for="pillar in platformPillars"
-        :key="pillar.code"
-        class="signal-card engine-link"
-        :to="{ path: pillar.route.path, query: pillar.route.query || {} }"
-      >
-        <div class="signal-code">{{ pillar.code }}</div>
-        <h4>{{ pillar.title }}</h4>
-        <div class="signal-subtitle">{{ pillar.value }}</div>
-      </RouterLink>
-    </section>
-
     <section class="chat-workspace">
       <aside class="panel chat-sidebar">
         <div class="panel-header">
@@ -221,15 +208,15 @@ watch(
             <strong>{{ overviewSummary.total_alerts }}</strong>
           </div>
         </div>
-        <div v-if="proactiveQueue.length" class="subsection-label" style="margin-top: 18px;">主动预警</div>
+        <div v-if="taskQueue.length" class="subsection-label" style="margin-top: 18px;">待处理任务</div>
         <div class="timeline-list">
           <RouterLink
-            v-for="item in proactiveQueue.slice(0, 3)"
+            v-for="item in taskQueue.slice(0, 4)"
             :key="`${item.company_name}-${item.report_period}`"
             class="timeline-item interactive-card"
             :to="{ path: item.route.path, query: item.route.query || {} }"
           >
-            <strong>{{ item.title }}</strong>
+            <strong>{{ item.priority }} {{ item.title }}</strong>
             <span>{{ item.summary }}</span>
           </RouterLink>
         </div>
