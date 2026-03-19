@@ -131,6 +131,7 @@ class OpsPilotService:
             "health": health,
             "data_status": data_status,
             "quality_overview": quality_overview,
+            "document_pipeline": _build_document_pipeline_overview(data_status),
             "job_catalog": _build_admin_job_catalog(),
             "capabilities": [
                 "企业评分",
@@ -1977,6 +1978,7 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
             "source": "问题文本 + 公司池 + 报期索引",
             "tool": "intent_router",
             "handoff": "信号分析",
+            "route": _build_agent_route("orchestrator", payload),
             "metrics": [
                 {"label": "任务类型", "value": query_type or "unknown"},
                 {"label": "目标公司", "value": payload.get("company_name", "未显式指定")},
@@ -1996,6 +1998,7 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
             "source": _resolve_agent_signal_source(query_type),
             "tool": _resolve_agent_signal_tool(query_type),
             "handoff": "证据审计",
+            "route": _build_agent_route("signal_analyst", payload),
             "metrics": _build_signal_agent_metrics(payload, risk_count, formula_count, claim_count),
         },
         {
@@ -2007,6 +2010,7 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
             "source": "官方财报页级解析 + 研报详情页 + 公式输入字段",
             "tool": "evidence_auditor",
             "handoff": "动作生成",
+            "route": _build_agent_route("evidence_auditor", payload),
             "metrics": [
                 {"label": "证据条数", "value": evidence_count},
                 {"label": "证据分组", "value": len(payload.get("evidence_groups", []))},
@@ -2026,6 +2030,7 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
             "source": "评分结果 + 风险标签 + 角色视角",
             "tool": "action_planner",
             "handoff": "返回工作台",
+            "route": _build_agent_route("action_planner", payload),
             "metrics": [
                 {"label": "动作数", "value": action_count},
                 {"label": "追问数", "value": len(_build_follow_up_questions(payload, role_key))},
@@ -2051,6 +2056,52 @@ def _build_control_plane(
         "step_total": len(agent_flow),
         "data_sources": _build_control_plane_sources(payload),
     }
+
+
+def _build_agent_route(agent_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    company_name = payload.get("company_name")
+    report_period = payload.get("report_period")
+    query_type = payload.get("query_type")
+    if agent_name in {"orchestrator", "signal_analyst", "action_planner"} and company_name:
+        return {
+            "label": "进入企业体检",
+            "path": "/score",
+            "query": {
+                "company": company_name,
+                "period": report_period,
+            },
+        }
+    if agent_name == "signal_analyst" and query_type == "risk_scan":
+        return {"label": "进入行业风险", "path": "/risk", "query": {}}
+    if agent_name == "evidence_auditor":
+        evidence_groups = payload.get("evidence_groups", [])
+        first_group = evidence_groups[0] if evidence_groups else None
+        first_item = first_group["items"][0] if first_group and first_group.get("items") else None
+        if first_item:
+            return {
+                "label": "打开证据",
+                "path": f"/evidence/{first_item['chunk_id']}",
+                "query": {
+                    "context": first_group.get("title", "证据"),
+                    "terms": ",".join(first_group.get("anchor_terms", [])),
+                },
+            }
+        return {
+            "label": "查看证据页",
+            "path": "/admin",
+            "query": {},
+        }
+    if agent_name == "action_planner" and query_type == "claim_verification" and company_name:
+        return {
+            "label": "进入研报核验",
+            "path": "/verify",
+            "query": {
+                "company": company_name,
+            },
+        }
+    if query_type == "risk_scan":
+        return {"label": "进入行业风险", "path": "/risk", "query": {}}
+    return {"label": "返回工作台", "path": "/workspace", "query": {}}
 
 
 def _build_control_plane_sources(payload: dict[str, Any]) -> list[str]:
@@ -2630,3 +2681,33 @@ def _build_admin_job_catalog() -> list[dict[str, Any]]:
             "output_stage": "qa",
         },
     ]
+
+
+def _build_document_pipeline_overview(data_status: dict[str, Any]) -> dict[str, Any]:
+    bronze_count = data_status.get("bronze_periodic_reports", {}).get("record_count", 0)
+    silver_count = data_status.get("silver_financial_metrics", {}).get("record_count", 0)
+    periodic_count = data_status.get("periodic_reports", {}).get("record_count", 0)
+    return {
+        "layout_engine": "PP-DocLayout-V3 + PyMuPDF",
+        "ocr_engine": "PaddleOCR-VL / PaddleOCR",
+        "cross_page_merge": {
+            "enabled": False,
+            "status": "planned",
+            "summary": "下一步接入跨页文本与续表拼接，避免表格在页边界断裂。",
+        },
+        "title_hierarchy": {
+            "enabled": False,
+            "status": "planned",
+            "summary": "下一步恢复文档级标题层级，用于目录导航和证据定位。",
+        },
+        "cell_trace": {
+            "enabled": False,
+            "status": "planned",
+            "summary": "下一步保留关键表格单元格到原页坐标的映射。",
+        },
+        "coverage": [
+            {"label": "原始文档", "value": periodic_count, "unit": "份"},
+            {"label": "页级解析", "value": bronze_count, "unit": "条"},
+            {"label": "结构化指标", "value": silver_count, "unit": "条"},
+        ],
+    }

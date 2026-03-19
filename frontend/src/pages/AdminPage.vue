@@ -52,6 +52,48 @@ onMounted(() => {
         </div>
       </section>
 
+      <section class="split-grid">
+        <article class="panel">
+          <div class="panel-header">
+            <h3>解析链状态</h3>
+          </div>
+          <div class="detail-list">
+            <div class="detail-row"><span>版面解析</span><strong>{{ state.data.value.document_pipeline.layout_engine }}</strong></div>
+            <div class="detail-row"><span>OCR 引擎</span><strong>{{ state.data.value.document_pipeline.ocr_engine }}</strong></div>
+            <div class="detail-row"><span>跨页拼接</span><strong>{{ state.data.value.document_pipeline.cross_page_merge.status }}</strong></div>
+            <div class="detail-row"><span>标题层级恢复</span><strong>{{ state.data.value.document_pipeline.title_hierarchy.status }}</strong></div>
+            <div class="detail-row"><span>单元格溯源</span><strong>{{ state.data.value.document_pipeline.cell_trace.status }}</strong></div>
+          </div>
+          <div class="tag-row" style="margin-top: 14px;">
+            <TagPill
+              v-for="item in state.data.value.document_pipeline.coverage"
+              :key="item.label"
+              :label="`${item.label} ${item.value}${item.unit}`"
+            />
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h3>解析升级路线</h3>
+          </div>
+          <div class="timeline-list">
+            <div class="timeline-item">
+              <strong>跨页内容整合</strong>
+              <span>{{ state.data.value.document_pipeline.cross_page_merge.summary }}</span>
+            </div>
+            <div class="timeline-item">
+              <strong>标题层级重构</strong>
+              <span>{{ state.data.value.document_pipeline.title_hierarchy.summary }}</span>
+            </div>
+            <div class="timeline-item">
+              <strong>单元格级视觉溯源</strong>
+              <span>{{ state.data.value.document_pipeline.cell_trace.summary }}</span>
+            </div>
+          </div>
+        </article>
+      </section>
+
       <section class="panel">
         <div class="panel-header">
           <h3>公司覆盖明细</h3>

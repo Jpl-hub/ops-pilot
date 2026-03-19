@@ -342,6 +342,10 @@ select, .text-input, .text-area {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
+.execution-link {
+  justify-self: start;
+  margin-top: 4px;
+}
 .analysis-answer { margin-bottom: 18px; padding: 18px; border-radius: 24px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); }
 .analysis-copy { white-space: pre-wrap; line-height: 1.8; color: #eef5ff; }
 .chat-thread-shell { min-height: 760px; display: grid; grid-template-rows: 1fr auto; gap: 18px; }

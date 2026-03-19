@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
@@ -330,6 +331,13 @@ watch(
                 <strong>{{ metric.value }}</strong>
               </div>
             </div>
+            <RouterLink
+              v-if="agent.route"
+              class="inline-link execution-link"
+              :to="{ path: agent.route.path, query: agent.route.query || {} }"
+            >
+              {{ agent.route.label }}
+            </RouterLink>
           </div>
         </div>
 

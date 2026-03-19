@@ -197,8 +197,10 @@ class ServicesTestCase(unittest.TestCase):
         self.assertEqual(payload["control_plane"]["steps_completed"], 4)
         self.assertIn("真实财报指标", payload["control_plane"]["data_sources"])
         self.assertEqual(payload["agent_flow"][0]["tool"], "intent_router")
+        self.assertEqual(payload["agent_flow"][0]["route"]["path"], "/score")
         self.assertEqual(payload["agent_flow"][1]["tool"], "score_engine")
         self.assertEqual(payload["agent_flow"][2]["tool"], "evidence_auditor")
+        self.assertTrue(payload["agent_flow"][2]["route"]["path"].startswith("/evidence/") or payload["agent_flow"][2]["route"]["path"] == "/admin")
         self.assertEqual(payload["agent_flow"][3]["tool"], "action_planner")
 
     def test_risk_scan_builds_alert_board_from_prior_period(self) -> None:
@@ -336,6 +338,8 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(payload["health"]["status"], "ok")
             self.assertEqual(payload["data_status"]["periodic_reports"]["record_count"], 0)
             self.assertEqual(payload["quality_overview"]["coverage"]["pool_companies"], 0)
+            self.assertEqual(payload["document_pipeline"]["layout_engine"], "PP-DocLayout-V3 + PyMuPDF")
+            self.assertEqual(payload["document_pipeline"]["cross_page_merge"]["status"], "planned")
             self.assertEqual(payload["job_catalog"][0]["job_id"], "fetch_real_data")
             self.assertIn("企业评分", payload["capabilities"])
 
