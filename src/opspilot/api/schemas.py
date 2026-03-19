@@ -43,3 +43,11 @@ class LoginRequest(BaseModel):
 class DocumentPipelineRunRequest(BaseModel):
     stage: Literal["cross_page_merge", "title_hierarchy", "cell_trace"]
     limit: int = Field(default=5, ge=1, le=20)
+
+
+class TaskStatusUpdateRequest(BaseModel):
+    task_id: str = Field(..., min_length=6, max_length=160)
+    status: Literal["queued", "in_progress", "done", "blocked"]
+    user_role: Literal["investor", "management", "regulator"] = "management"
+    report_period: str | None = None
+    note: str | None = Field(default=None, max_length=200)

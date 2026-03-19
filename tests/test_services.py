@@ -351,6 +351,91 @@ class ServicesTestCase(unittest.TestCase):
         self.assertTrue(queue)
         self.assertEqual(queue[0]["company_name"], "测试公司")
         self.assertEqual(queue[0]["route"]["path"], "/score")
+        self.assertIn("task_id", queue[0])
+
+    def test_task_board_persists_status_updates(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": -8.4, "G2": -15.2, "C3": 18.0, "S4": 0.72, "S1": 0.98},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                    {
+                        "company_name": "对标公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 10.0, "G2": 8.0, "C3": 1.0, "S4": 1.4, "S1": 1.5},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                ]
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                for item in self.list_companies(report_period):
+                    if item["company_name"] == company_name:
+                        return item
+                return None
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司", "对标公司"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            board = service.task_board("management", "2025Q3")
+            self.assertTrue(board["tasks"])
+            task_id = board["tasks"][0]["task_id"]
+
+            update_payload = service.update_task_status(
+                task_id=task_id,
+                status="in_progress",
+                user_role="management",
+                report_period="2025Q3",
+                note="开始处理现金回款链路",
+            )
+
+            self.assertEqual(update_payload["task"]["status"], "in_progress")
+            self.assertEqual(update_payload["task"]["note"], "开始处理现金回款链路")
+            self.assertEqual(update_payload["summary"]["in_progress"], 1)
+
+            refreshed = service.task_board("management", "2025Q3")
+            refreshed_task = next(item for item in refreshed["tasks"] if item["task_id"] == task_id)
+            self.assertEqual(refreshed_task["status"], "in_progress")
+            self.assertEqual(refreshed_task["history"][-1]["status"], "in_progress")
+            self.assertTrue((root / "bronze" / "manifests" / "workspace_task_board.json").exists())
 
     def test_risk_scan_builds_alert_board_from_prior_period(self) -> None:
         class StubRepository:

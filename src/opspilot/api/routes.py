@@ -14,6 +14,7 @@ from opspilot.api.schemas import (
     LoginRequest,
     RegisterRequest,
     ScoreRequest,
+    TaskStatusUpdateRequest,
 )
 from opspilot.application.services import OpsPilotService
 from opspilot.config import get_settings
@@ -133,6 +134,29 @@ def admin_document_pipeline_run(
 @router.get("/workspace/overview")
 def workspace_overview(user_role: str = "investor", _: dict = Depends(require_current_user)) -> dict:
     return get_service().workspace_overview(user_role)
+
+
+@router.get("/tasks/board")
+def task_board(
+    user_role: str = "management",
+    report_period: str | None = None,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().task_board(user_role=user_role, report_period=report_period)
+
+
+@router.post("/tasks/update")
+def task_update(request: TaskStatusUpdateRequest, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().update_task_status(
+            task_id=request.task_id,
+            status=request.status,
+            user_role=request.user_role,
+            report_period=request.report_period,
+            note=request.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/chat/turn")

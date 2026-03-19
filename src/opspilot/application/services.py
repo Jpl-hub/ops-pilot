@@ -151,12 +151,14 @@ class OpsPilotService:
         risk_payload = self.risk_scan(preferred_period)
         health = self.health()
         role_profile = ROLE_PROFILES.get(user_role, ROLE_PROFILES["investor"])
+        task_board = self.task_board(user_role=user_role, report_period=preferred_period)
         return {
             "preferred_period": preferred_period,
             "role_profile": role_profile,
             "companies": [item["company_name"] for item in risk_payload["risk_board"]],
             "alert_queue": _build_workspace_alert_queue(risk_payload["alert_board"], user_role),
-            "task_queue": self.task_queue(user_role, preferred_period),
+            "task_queue": task_board["tasks"],
+            "task_summary": task_board["summary"],
             "alert_summary": {
                 "total_alerts": len(risk_payload["alert_board"]),
                 "high_risk_companies": sum(
@@ -331,6 +333,76 @@ class OpsPilotService:
             ],
         }
 
+    def task_board(
+        self, user_role: str = "management", report_period: str | None = None, limit: int = 12
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        task_manifest = _load_task_board_manifest(self.settings)
+        tasks = self.task_queue(user_role=user_role, report_period=period, limit=limit)
+        status_counts = {"queued": 0, "in_progress": 0, "done": 0, "blocked": 0}
+        enriched_tasks: list[dict[str, Any]] = []
+        for task in tasks:
+            record = task_manifest["records"].get(task["task_id"], {})
+            status = record.get("status", "queued")
+            status_counts[status] = status_counts.get(status, 0) + 1
+            enriched_tasks.append(
+                {
+                    **task,
+                    "status": status,
+                    "note": record.get("note"),
+                    "updated_at": record.get("updated_at"),
+                    "history": record.get("history", []),
+                }
+            )
+        return {
+            "user_role": user_role,
+            "report_period": period,
+            "summary": {
+                "total": len(enriched_tasks),
+                "queued": status_counts["queued"],
+                "in_progress": status_counts["in_progress"],
+                "done": status_counts["done"],
+                "blocked": status_counts["blocked"],
+            },
+            "tasks": enriched_tasks,
+        }
+
+    def update_task_status(
+        self,
+        task_id: str,
+        status: str,
+        user_role: str = "management",
+        report_period: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        task_board = self.task_board(user_role=user_role, report_period=report_period, limit=20)
+        task = next((item for item in task_board["tasks"] if item["task_id"] == task_id), None)
+        if task is None:
+            raise ValueError(f"未找到任务：{task_id}")
+
+        task_manifest = _load_task_board_manifest(self.settings)
+        record = task_manifest["records"].setdefault(task_id, {})
+        history = list(record.get("history", []))
+        updated_at = _utcnow_iso()
+        history.append({"status": status, "note": note, "updated_at": updated_at})
+        record.update(
+            {
+                "task_id": task_id,
+                "status": status,
+                "note": note,
+                "updated_at": updated_at,
+                "history": history[-10:],
+            }
+        )
+        _write_task_board_manifest(self.settings, task_manifest)
+        refreshed = self.task_board(
+            user_role=user_role,
+            report_period=report_period or task_board["report_period"],
+            limit=20,
+        )
+        refreshed_task = next(item for item in refreshed["tasks"] if item["task_id"] == task_id)
+        return {"task": refreshed_task, "summary": refreshed["summary"]}
+
     def task_queue(
         self, user_role: str = "management", report_period: str | None = None, limit: int = 8
     ) -> list[dict[str, Any]]:
@@ -349,13 +421,21 @@ class OpsPilotService:
                 route = {"path": "/verify", "query": {"company": company_name}}
             elif user_role == "regulator":
                 route = {"path": "/risk", "query": {"company": company_name}}
+            task_id = _build_task_id(
+                period,
+                company_name,
+                primary_action["priority"],
+                primary_action["title"],
+            )
             tasks.append(
                 {
+                    "task_id": task_id,
                     "company_name": company_name,
                     "report_period": score_payload["report_period"],
                     "priority": primary_action["priority"],
                     "title": primary_action["title"],
                     "summary": primary_action["reason"],
+                    "label_names": [item["name"] for item in score_payload["scorecard"]["risk_labels"][:3]],
                     "route": route,
                 }
             )
@@ -2952,6 +3032,34 @@ def _build_document_pipeline_overview(
             {"label": "结构化指标", "value": silver_count, "unit": "条"},
         ],
     }
+
+
+def _load_task_board_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_task_board.json"
+    if not manifest_path.exists():
+        payload = {"generated_at": _utcnow_iso(), "record_count": 0, "records": {}}
+        _write_json(manifest_path, payload)
+        return payload
+
+    with manifest_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    payload.setdefault("generated_at", _utcnow_iso())
+    payload.setdefault("records", {})
+    payload["record_count"] = len(payload["records"])
+    return payload
+
+
+def _write_task_board_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", {}))
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_task_board.json"
+    _write_json(manifest_path, payload)
+
+
+def _build_task_id(report_period: str, company_name: str, priority: str, title: str) -> str:
+    normalized_title = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "-", title).strip("-").lower()
+    normalized_company = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "-", company_name).strip("-").lower()
+    return f"{report_period}-{normalized_company}-{priority.lower()}-{normalized_title}"[:160]
 
 
 def _load_document_pipeline_job_manifest(settings: Settings) -> dict[str, Any]:
