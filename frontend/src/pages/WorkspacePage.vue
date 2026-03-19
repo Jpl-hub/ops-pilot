@@ -96,8 +96,7 @@ function appendWelcomeMessage() {
       title: roleCopy.value.title,
       lines: [
         `${roleCopy.value.label}模式已就绪。`,
-        roleCopy.value.copy,
-        '先发一个具体问题，我会用总控调度、信号分析、证据审计、动作生成四个模块同步展开。',
+        '直接输入问题开始分析。',
       ],
     },
   ]
@@ -160,31 +159,12 @@ watch(
     subtitle="围绕一个问题完成分析、核验和取证"
     compact
   >
-    <section class="command-grid" style="margin-bottom: 18px;">
-      <article class="command-card-shell role-card">
-        <div class="signal-code">当前视角</div>
-        <h3>{{ roleCopy.label }}</h3>
-        <p class="command-copy">{{ latestPayload?.role_profile?.focus_title || roleCopy.copy }}</p>
-      </article>
-      <button
-        v-for="starter in starterQueries"
-        :key="starter"
-        type="button"
-        class="command-card interactive-card compact-command-card"
-        @click="runQuery(`${selectedCompany}${starter}`)"
-      >
-        <div class="signal-code">快捷问题</div>
-        <div class="command-title">{{ starter }}</div>
-        <div class="command-meta">{{ selectedCompany }}</div>
-      </button>
-    </section>
-
     <section class="chat-workspace">
       <aside class="panel chat-sidebar">
         <div class="panel-header">
           <div>
             <div class="eyebrow">任务面板</div>
-            <h3>工作台状态</h3>
+            <h3>当前任务</h3>
           </div>
         </div>
         <div class="detail-list">
@@ -201,17 +181,31 @@ watch(
             <strong>{{ messages.length }}</strong>
           </div>
         </div>
-        <div class="subsection-label" style="margin-top: 18px;">下一步建议</div>
+        <div class="subsection-label" style="margin-top: 18px;">快捷问题</div>
+        <div class="timeline-list">
+          <button
+            v-for="item in starterQueries"
+            :key="item"
+            type="button"
+            class="timeline-item interactive-card"
+            @click="runQuery(`${selectedCompany}${item}`)"
+          >
+            <strong>{{ item }}</strong>
+            <span>{{ selectedCompany }}</span>
+          </button>
+        </div>
+
+        <div v-if="followUps.length" class="subsection-label" style="margin-top: 18px;">追问建议</div>
         <div class="timeline-list">
           <button
             v-for="item in followUps"
-            :key="item"
+            :key="`follow-${item}`"
             type="button"
             class="timeline-item interactive-card"
             @click="runQuery(item)"
           >
             <strong>{{ item }}</strong>
-            <span>点击继续分析</span>
+            <span>继续深入</span>
           </button>
         </div>
       </aside>
@@ -379,25 +373,25 @@ watch(
           </article>
         </div>
       </aside>
-      </section>
+    </section>
 
-      <section class="metrics-grid workspace-engine-grid">
-        <RouterLink class="signal-card engine-link" to="/admin">
-          <div class="signal-code">AI 编排</div>
-          <h4>中心化总控调度</h4>
-          <p class="command-copy">总控负责拆问题、派步骤、汇结论。</p>
-        </RouterLink>
-        <RouterLink class="signal-card engine-link" to="/admin">
-          <div class="signal-code">数据工程</div>
-          <h4>真实数据统一底座</h4>
-          <p class="command-copy">真实财报和研报统一进入 raw / bronze / silver。</p>
-        </RouterLink>
-        <RouterLink class="signal-card engine-link" :to="firstEvidenceLink">
-          <div class="signal-code">可解释性</div>
-          <h4>结论与证据同路返回</h4>
-          <p class="command-copy">公式、指标、页码和证据片段可以逐条回放。</p>
-        </RouterLink>
-      </section>
+    <section class="metrics-grid workspace-engine-grid">
+      <RouterLink class="signal-card engine-link" to="/admin">
+        <div class="signal-code">AI 编排</div>
+        <h4>中心化总控调度</h4>
+        <p class="command-copy">总控负责拆问题、派步骤、汇结论。</p>
+      </RouterLink>
+      <RouterLink class="signal-card engine-link" to="/admin">
+        <div class="signal-code">数据工程</div>
+        <h4>真实数据统一底座</h4>
+        <p class="command-copy">真实财报和研报统一进入 raw / bronze / silver。</p>
+      </RouterLink>
+      <RouterLink class="signal-card engine-link" :to="firstEvidenceLink">
+        <div class="signal-code">可解释性</div>
+        <h4>结论与证据同路返回</h4>
+        <p class="command-copy">公式、指标、页码和证据片段可以逐条回放。</p>
+      </RouterLink>
+    </section>
 
     <section v-if="charts.length" class="chart-grid">
       <ChartPanel v-for="chart in charts" :key="chart.title" :title="chart.title" :options="chart.options" />

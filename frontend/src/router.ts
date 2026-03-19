@@ -22,6 +22,9 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const isAuthenticated = Boolean(loadAccessToken())
+  if (isAuthenticated && to.path === '/') {
+    return { path: '/workspace' }
+  }
   if (to.meta.requiresAuth && !isAuthenticated) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
