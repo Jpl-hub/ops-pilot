@@ -1,116 +1,304 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 
 import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
-import StatCard from '@/components/StatCard.vue'
+import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
 import { buildEvidenceLink } from '@/lib/format'
 import { useSession } from '@/lib/session'
 
+type WorkspaceMessage =
+  | { id: string; role: 'assistant'; kind: 'welcome'; title: string; lines: string[] }
+  | { id: string; role: 'user'; kind: 'query'; text: string; company: string }
+  | { id: string; role: 'assistant'; kind: 'result'; payload: any }
+
 const session = useSession()
 const companies = ref<string[]>([])
 const selectedCompany = ref('TCL中环')
-const query = ref('请给我TCL中环2025Q3的经营体检结论，并解释主要风险标签。')
+const query = ref('')
+const messages = ref<WorkspaceMessage[]>([])
+const threadRef = ref<HTMLElement | null>(null)
 const workspaceState = useAsyncState<any>()
 
-const roleLabel = computed(() => {
-  const mapping: Record<string, string> = {
-    investor: '投资者',
-    management: '企业管理者',
-    regulator: '监管 / 风控角色',
+const roleCopy = computed(() => {
+  const role = session.currentUser.value?.role || 'investor'
+  if (role === 'management') {
+    return {
+      label: '企业管理者',
+      title: '围绕经营动作展开分析',
+      copy: '先识别瓶颈，再拆经营链条，最后给出整改动作。',
+      fallbackQueries: [
+        '给我一份当前经营体检和整改优先级。',
+        '现金、应收和库存哪个环节最拖后腿？',
+        '当前最先要修复的经营问题是什么？',
+      ],
+    }
   }
-  return mapping[session.currentUser.value?.role || 'investor']
+  if (role === 'regulator') {
+    return {
+      label: '监管 / 风控角色',
+      title: '围绕风险巡检展开分析',
+      copy: '优先识别新增风险、事件信号和研报偏差。',
+      fallbackQueries: [
+        '当前主周期哪些公司风险抬升最快？',
+        '这家公司有哪些需要重点跟踪的事件信号？',
+        '这家公司和研报观点有明显偏差吗？',
+      ],
+    }
+  }
+  return {
+    label: '投资者',
+    title: '围绕收益质量展开分析',
+    copy: '优先看结论、同业位置、研报分歧和证据。',
+    fallbackQueries: [
+      '这家公司当前最值得警惕的风险是什么？',
+      '把这家公司和同业头部公司做一下对比。',
+      '最新研报和真实财报有没有偏差？',
+    ],
+  }
 })
+
+const latestPayload = computed(() => {
+  const latest = [...messages.value].reverse().find((item) => item.kind === 'result')
+  return latest && latest.kind === 'result' ? latest.payload : null
+})
+
+const starterQueries = computed(() => {
+  return latestPayload.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries
+})
+
+const followUps = computed(() => latestPayload.value?.follow_up_questions || [])
+const agentFlow = computed(() => latestPayload.value?.agent_flow || [])
+const insightCards = computed(() => latestPayload.value?.insight_cards || [])
+const evidenceGroups = computed(() => latestPayload.value?.evidence_groups || [])
+const charts = computed(() => latestPayload.value?.charts || [])
+const formulas = computed(() => latestPayload.value?.formula_cards || [])
+
+function appendWelcomeMessage() {
+  messages.value = [
+    {
+      id: 'welcome',
+      role: 'assistant',
+      kind: 'welcome',
+      title: roleCopy.value.title,
+      lines: [
+        `${roleCopy.value.label}模式已就绪。`,
+        roleCopy.value.copy,
+        '先发一个具体问题，我会用总控调度、信号分析、证据审计、动作生成四个模块同步展开。',
+      ],
+    },
+  ]
+}
 
 async function loadCompanies() {
   const risk = await get<any>('/industry/risk-scan')
   companies.value = risk.risk_board.map((item: any) => item.company_name)
 }
 
-async function runQuery() {
+async function runQuery(inputQuery?: string) {
+  const actualQuery = (inputQuery || query.value).trim()
+  if (!actualQuery) return
+  messages.value.push({
+    id: `user-${Date.now()}`,
+    role: 'user',
+    kind: 'query',
+    text: actualQuery,
+    company: selectedCompany.value,
+  })
+  query.value = ''
   await workspaceState.execute(() =>
     post('/chat/turn', {
-      query: query.value,
+      query: actualQuery,
       company_name: selectedCompany.value,
       user_role: session.currentUser.value?.role || 'investor',
     }),
   )
+  if (workspaceState.data.value) {
+    messages.value.push({
+      id: `assistant-${Date.now()}`,
+      role: 'assistant',
+      kind: 'result',
+      payload: workspaceState.data.value,
+    })
+    await nextTick()
+    threadRef.value?.scrollTo({ top: threadRef.value.scrollHeight, behavior: 'smooth' })
+  }
 }
 
-const keyNumbers = computed(() => workspaceState.data.value?.key_numbers || [])
-const evidenceGroups = computed(() => workspaceState.data.value?.evidence_groups || [])
-const calculations = computed(() => workspaceState.data.value?.calculations || [])
-const charts = computed(() => workspaceState.data.value?.charts || [])
-const formulas = computed(() => workspaceState.data.value?.formula_cards || [])
-
 onMounted(async () => {
+  appendWelcomeMessage()
   await loadCompanies()
   if (!companies.value.includes(selectedCompany.value)) {
     selectedCompany.value = companies.value[0]
   }
-  await runQuery()
 })
 </script>
 
 <template>
   <AppShell
     title="对话分析台"
-    subtitle="输入公司和问题后，直接查看结果、图表、公式和证据。"
+    subtitle="像聊天一样发起分析，由总控工作台同步展开结论、证据和动作。"
   >
-    <section class="workspace-grid">
-      <article class="panel workspace-main">
+    <section class="command-grid" style="margin-bottom: 18px;">
+      <article class="command-card-shell role-card">
+        <div class="signal-code">当前视角</div>
+        <h3>{{ roleCopy.label }}</h3>
+        <p class="command-copy">{{ latestPayload?.role_profile?.focus_title || roleCopy.copy }}</p>
+      </article>
+      <button
+        v-for="starter in starterQueries"
+        :key="starter"
+        type="button"
+        class="command-card interactive-card"
+        @click="runQuery(`${selectedCompany}${starter}`)"
+      >
+        <div class="signal-code">快捷问题</div>
+        <div class="command-title">{{ starter }}</div>
+        <div class="command-meta">{{ selectedCompany }}</div>
+      </button>
+    </section>
+
+    <section class="chat-workspace">
+      <aside class="panel chat-sidebar">
         <div class="panel-header">
           <div>
-            <div class="eyebrow">问题输入</div>
-            <h3>{{ roleLabel }}</h3>
+            <div class="eyebrow">任务面板</div>
+            <h3>工作台状态</h3>
           </div>
         </div>
-        <div class="toolbar multi workspace-toolbar">
+        <div class="detail-list">
+          <div class="detail-row">
+            <span>当前公司</span>
+            <strong>{{ selectedCompany }}</strong>
+          </div>
+          <div class="detail-row">
+            <span>会话角色</span>
+            <strong>{{ roleCopy.label }}</strong>
+          </div>
+          <div class="detail-row">
+            <span>消息数</span>
+            <strong>{{ messages.length }}</strong>
+          </div>
+        </div>
+        <div class="subsection-label" style="margin-top: 18px;">下一步建议</div>
+        <div class="timeline-list">
+          <button
+            v-for="item in followUps"
+            :key="item"
+            type="button"
+            class="timeline-item interactive-card"
+            @click="runQuery(item)"
+          >
+            <strong>{{ item }}</strong>
+            <span>点击继续分析</span>
+          </button>
+        </div>
+      </aside>
+
+      <section class="panel chat-thread-shell">
+        <div class="chat-thread" ref="threadRef">
+          <LoadingState v-if="workspaceState.loading.value" />
+          <ErrorState v-else-if="workspaceState.error.value" :message="workspaceState.error.value" />
+          <template v-for="message in messages" :key="message.id">
+            <div v-if="message.kind === 'welcome'" class="chat-row assistant">
+              <div class="chat-avatar">OP</div>
+              <div class="chat-bubble assistant">
+                <div class="chat-title">{{ message.title }}</div>
+                <div class="chat-copy">
+                  <div v-for="line in message.lines" :key="line">{{ line }}</div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else-if="message.kind === 'query'" class="chat-row user">
+              <div class="chat-bubble user">
+                <div class="chat-meta">{{ message.company }}</div>
+                <div class="chat-copy">{{ message.text }}</div>
+              </div>
+            </div>
+
+            <div v-else class="chat-row assistant">
+              <div class="chat-avatar">AI</div>
+              <div class="chat-bubble assistant rich">
+                <div class="chat-title">
+                  {{ message.payload.company_name || '行业视图' }}
+                  <span v-if="message.payload.report_period" class="chat-title-meta">{{ message.payload.report_period }}</span>
+                </div>
+                <div class="chat-sections">
+                  <section
+                    v-for="section in message.payload.answer_sections"
+                    :key="section.title"
+                    class="chat-section"
+                  >
+                    <div class="signal-code">{{ section.title }}</div>
+                    <ul class="bullet-list compact">
+                      <li v-for="line in section.lines" :key="line">{{ line }}</li>
+                    </ul>
+                  </section>
+                </div>
+                <div v-if="message.payload.insight_cards?.length" class="chat-chip-grid">
+                  <div
+                    v-for="item in message.payload.insight_cards"
+                    :key="`${item.label}-${item.value}`"
+                    class="metric-chip"
+                  >
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}<small v-if="item.unit"> {{ item.unit }}</small></strong>
+                  </div>
+                </div>
+                <div v-if="message.payload.action_cards?.length" class="tag-row">
+                  <TagPill
+                    v-for="item in message.payload.action_cards.slice(0, 3)"
+                    :key="item.title"
+                    :label="`${item.priority} ${item.title}`"
+                    tone="success"
+                  />
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div class="chat-composer">
           <label class="field">
             <span>公司</span>
             <select v-model="selectedCompany">
               <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
             </select>
           </label>
-          <label class="field field-wide">
-            <span>问题</span>
-            <textarea v-model="query" class="text-area" />
-          </label>
-          <button class="button-primary workspace-submit" @click="runQuery">执行分析</button>
-        </div>
-        <LoadingState v-if="workspaceState.loading.value" />
-        <ErrorState v-else-if="workspaceState.error.value" :message="workspaceState.error.value" />
-        <template v-else-if="workspaceState.data.value">
-          <div class="analysis-answer">
-            <div class="eyebrow">分析结果</div>
-            <div class="analysis-copy">{{ workspaceState.data.value.answer_markdown }}</div>
-          </div>
-          <div class="metrics-grid">
-            <StatCard
-              v-for="item in keyNumbers"
-              :key="item.label"
-              :label="item.label"
-              :value="String(item.value)"
-              :hint="item.unit || '核心数值'"
-              tone="accent"
+          <div class="chat-input-wrap">
+            <textarea
+              v-model="query"
+              class="text-area chat-input"
+              placeholder="输入你想分析的问题，例如：这家公司当前最需要优先处理的经营问题是什么？"
+              @keydown.enter.exact.prevent="runQuery()"
             />
+            <button class="button-primary chat-send" @click="runQuery()">发送</button>
           </div>
-        </template>
-      </article>
+        </div>
+      </section>
 
-      <article class="panel workspace-side" v-if="evidenceGroups.length">
+      <aside class="panel chat-sidebar">
         <div class="panel-header">
           <div>
-            <div class="eyebrow">证据侧栏</div>
-            <h3>重点证据</h3>
+            <div class="eyebrow">多智能体编排</div>
+            <h3>执行看板</h3>
           </div>
         </div>
         <div class="timeline-list">
-          <div v-for="group in evidenceGroups.slice(0, 4)" :key="group.code" class="timeline-item">
+          <div v-for="agent in agentFlow" :key="agent.agent" class="timeline-item">
+            <strong>{{ agent.agent }} · {{ agent.title }}</strong>
+            <span>{{ agent.summary }}</span>
+          </div>
+        </div>
+
+        <div v-if="evidenceGroups.length" class="subsection-label" style="margin-top: 18px;">证据短链</div>
+        <div class="timeline-list">
+          <div v-for="group in evidenceGroups.slice(0, 3)" :key="group.code" class="timeline-item">
             <strong>{{ group.title }}</strong>
             <span>{{ group.subtitle }}</span>
             <RouterLink
@@ -123,38 +311,10 @@ onMounted(async () => {
             </RouterLink>
           </div>
         </div>
-      </article>
-    </section>
 
-    <section v-if="charts.length" class="chart-grid">
-      <ChartPanel v-for="chart in charts" :key="chart.title" :title="chart.title" :options="chart.options" />
-    </section>
-
-    <section class="workspace-lower">
-      <article class="panel">
-        <div class="panel-header">
-          <div>
-            <div class="eyebrow">计算步骤</div>
-            <h3>计算链</h3>
-          </div>
-        </div>
-        <div class="detail-list">
-          <div v-for="item in calculations" :key="item.step" class="detail-row">
-            <span>{{ item.step }}</span>
-            <strong>{{ item.detail }}</strong>
-          </div>
-        </div>
-      </article>
-
-      <article class="panel">
-        <div class="panel-header">
-          <div>
-            <div class="eyebrow">公式回放</div>
-            <h3>关键公式</h3>
-          </div>
-        </div>
+        <div v-if="formulas.length" class="subsection-label" style="margin-top: 18px;">关键公式</div>
         <div class="stack-grid">
-          <article v-for="formula in formulas" :key="formula.metric_code" class="formula-card">
+          <article v-for="formula in formulas.slice(0, 2)" :key="formula.metric_code" class="formula-card">
             <div class="signal-top">
               <div>
                 <div class="signal-code">{{ formula.metric_code }}</div>
@@ -165,7 +325,11 @@ onMounted(async () => {
             <code class="formula-inline">{{ formula.formula }}</code>
           </article>
         </div>
-      </article>
+      </aside>
+    </section>
+
+    <section v-if="charts.length" class="chart-grid">
+      <ChartPanel v-for="chart in charts" :key="chart.title" :title="chart.title" :options="chart.options" />
     </section>
   </AppShell>
 </template>

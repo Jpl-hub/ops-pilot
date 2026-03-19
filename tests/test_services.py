@@ -119,6 +119,81 @@ class ServicesTestCase(unittest.TestCase):
         self.assertTrue(payload["action_cards"])
         self.assertEqual(payload["action_cards"][0]["priority"], "P1")
 
+    def test_chat_turn_returns_role_driven_workspace_payload(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                return {
+                    "company_name": "测试公司",
+                    "report_period": "2025Q3",
+                    "subindustry": "储能",
+                    "metrics": {"G1": 12.0, "P2": 8.0, "C3": 11.2, "S4": 0.72, "S1": 1.08},
+                    "history": [],
+                    "metric_evidence": {},
+                    "formula_context": {},
+                    "label_evidence": {},
+                }
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 12.0, "P2": 8.0, "C3": 11.2, "S4": 0.72, "S1": 1.08},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                    {
+                        "company_name": "对标公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 15.0, "P2": 9.5, "C3": 2.0, "S4": 1.25, "S1": 1.42},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                ]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def find_company_from_query(self, query: str, report_period: str | None = None) -> str | None:
+                return "测试公司" if "测试公司" in query else None
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+
+        payload = OpsPilotService(StubRepository(), StubSettings()).chat_turn(
+            query="请分析测试公司当前经营情况",
+            company_name="测试公司",
+            user_role="management",
+        )
+
+        self.assertEqual(payload["role_profile"]["label"], "企业管理者")
+        self.assertEqual(len(payload["agent_flow"]), 4)
+        self.assertTrue(payload["answer_sections"])
+        self.assertTrue(payload["follow_up_questions"])
+
     def test_risk_scan_builds_alert_board_from_prior_period(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

@@ -121,6 +121,7 @@ a { color: inherit; }
 .stack-grid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr); gap: 18px; margin-bottom: 18px; }
 .workspace-lower, .auth-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr); gap: 18px; }
+.chat-workspace { display: grid; grid-template-columns: 280px minmax(0, 1fr) 340px; gap: 18px; margin-bottom: 18px; }
 
 .hero-panel {
   min-height: 420px;
@@ -262,6 +263,92 @@ select, .text-input, .text-area {
 .timeline-item span { color: var(--muted); font-size: 13px; }
 .analysis-answer { margin-bottom: 18px; padding: 18px; border-radius: 24px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); }
 .analysis-copy { white-space: pre-wrap; line-height: 1.8; color: #eef5ff; }
+.chat-thread-shell { min-height: 760px; display: grid; grid-template-rows: 1fr auto; gap: 18px; }
+.chat-thread { overflow: auto; max-height: 760px; padding-right: 6px; display: grid; gap: 16px; }
+.chat-row { display: flex; gap: 12px; align-items: flex-end; }
+.chat-row.user { justify-content: flex-end; }
+.chat-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(255, 184, 76, 0.22), rgba(78, 143, 255, 0.2));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #fff2d6;
+  font-weight: 700;
+}
+.chat-bubble {
+  max-width: min(760px, 100%);
+  padding: 18px 20px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.chat-bubble.assistant {
+  background: linear-gradient(180deg, rgba(18, 39, 63, 0.94), rgba(10, 23, 39, 0.92));
+}
+.chat-bubble.user {
+  background: linear-gradient(135deg, rgba(255, 184, 76, 0.96), rgba(255, 143, 87, 0.92));
+  color: #132130;
+  border: 0;
+}
+.chat-bubble.rich { display: grid; gap: 16px; width: 100%; }
+.chat-title {
+  font-family: 'Geist', 'DM Sans', sans-serif;
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+.chat-title-meta {
+  margin-left: 10px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.chat-meta {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.78;
+  margin-bottom: 10px;
+}
+.chat-copy { white-space: pre-wrap; line-height: 1.8; }
+.chat-sections { display: grid; gap: 14px; }
+.chat-section {
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.chat-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.chat-composer {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px;
+  border-radius: 24px;
+  background: rgba(7, 18, 31, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.chat-input-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 12px;
+  align-items: end;
+}
+.chat-input {
+  min-height: 94px;
+  margin: 0;
+}
+.chat-send {
+  height: 56px;
+}
+.chat-sidebar {
+  min-height: 760px;
+  align-self: stretch;
+}
 .workspace-main { min-height: 460px; }
 .workspace-side { min-height: 460px; }
 .workspace-toolbar { margin-bottom: 0; }
@@ -288,13 +375,15 @@ select, .text-input, .text-area {
 
 @media (max-width: 1080px) {
   .hero-grid, .split-grid, .metrics-grid, .workspace-grid, .workspace-lower, .auth-grid { grid-template-columns: 1fr 1fr; }
+  .chat-workspace { grid-template-columns: 1fr; }
   .page-header { flex-direction: column; }
 }
 
 @media (max-width: 720px) {
   .shell { width: min(100vw - 24px, 100%); padding-top: 18px; }
-  .hero-grid, .metrics-grid, .chart-grid, .split-grid, .workspace-grid, .workspace-lower, .auth-grid { grid-template-columns: 1fr; }
+  .hero-grid, .metrics-grid, .chart-grid, .split-grid, .workspace-grid, .workspace-lower, .auth-grid, .chat-workspace { grid-template-columns: 1fr; }
   .toolbar { flex-direction: column; align-items: stretch; }
   .field, .field-wide { min-width: 100%; }
+  .chat-composer, .chat-input-wrap { grid-template-columns: 1fr; }
   .chart-root { height: 300px; }
 }

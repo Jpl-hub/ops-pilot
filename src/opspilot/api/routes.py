@@ -120,7 +120,12 @@ def admin_overview(_: dict = Depends(require_current_user)) -> dict:
 @router.post("/chat/turn")
 def chat_turn(request: ChatTurnRequest, _: dict = Depends(require_current_user)) -> dict:
     try:
-        return get_service().chat_turn(query=request.query, company_name=request.company_name, report_period=request.report_period)
+        return get_service().chat_turn(
+            query=request.query,
+            company_name=request.company_name,
+            report_period=request.report_period,
+            user_role=request.user_role,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

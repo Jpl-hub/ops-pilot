@@ -47,6 +47,35 @@ METRIC_ANCHOR_TERMS = {
     "S3": ("利润总额", "利息费用"),
     "S4": ("货币资金", "短期借款"),
 }
+ROLE_PROFILES = {
+    "investor": {
+        "label": "投资者",
+        "focus_title": "优先看收益质量、同业位置和研报分歧",
+        "starter_queries": [
+            "这家公司当前最值得警惕的风险是什么？",
+            "把这家公司和同子行业头部公司做一下对比。",
+            "最新研报和真实财报有没有偏差？",
+        ],
+    },
+    "management": {
+        "label": "企业管理者",
+        "focus_title": "优先看经营瓶颈、现金压力和整改动作",
+        "starter_queries": [
+            "给我一份经营体检和整改优先级。",
+            "现金、应收和库存哪个环节最拖后腿？",
+            "如果只做三件事，当前最应该推进什么？",
+        ],
+    },
+    "regulator": {
+        "label": "监管 / 风控角色",
+        "focus_title": "优先看风险暴露、事件信号和批量巡检",
+        "starter_queries": [
+            "当前主周期里哪些公司风险抬升最快？",
+            "这家公司有哪些需要重点跟踪的事件信号？",
+            "把研报观点和真实财报偏差最大的点列出来。",
+        ],
+    },
+}
 
 
 class OpsPilotService:
@@ -523,7 +552,14 @@ class OpsPilotService:
             "research_timeline": self.summarize_research_timeline(company_name),
         }
 
-    def chat_turn(self, *, query: str, company_name: str | None = None, report_period: str | None = None) -> dict[str, Any]:
+    def chat_turn(
+        self,
+        *,
+        query: str,
+        company_name: str | None = None,
+        report_period: str | None = None,
+        user_role: str = "investor",
+    ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
         detected_company = (
             company_name
@@ -532,16 +568,22 @@ class OpsPilotService:
         )
         query_type = detect_query_type(query)
         if query_type == "company_scoring" and detected_company:
-            return self.score_company(detected_company, period)
+            payload = self.score_company(detected_company, period)
+            return _build_workspace_payload(payload, query=query, user_role=user_role)
         if query_type == "peer_benchmark" and detected_company:
-            return self.benchmark_company(detected_company, period)
+            payload = self.benchmark_company(detected_company, period)
+            return _build_workspace_payload(payload, query=query, user_role=user_role)
         if query_type == "claim_verification" and detected_company:
-            return self.verify_claim(detected_company, report_period)
+            payload = self.verify_claim(detected_company, report_period)
+            return _build_workspace_payload(payload, query=query, user_role=user_role)
         if query_type == "brief_generation" and detected_company:
-            return self.brief_company(detected_company, period)
+            payload = self.brief_company(detected_company, period)
+            return _build_workspace_payload(payload, query=query, user_role=user_role)
         if query_type == "risk_scan":
-            return self.risk_scan(period)
-        return self.metric_query(query=query, company_name=detected_company, report_period=period)
+            payload = self.risk_scan(period)
+            return _build_workspace_payload(payload, query=query, user_role=user_role)
+        payload = self.metric_query(query=query, company_name=detected_company, report_period=period)
+        return _build_workspace_payload(payload, query=query, user_role=user_role)
 
     def metric_query(
         self, *, query: str, company_name: str | None, report_period: str | None
@@ -1719,6 +1761,247 @@ def _get_company_periods(repository: Any, company_name: str) -> set[str]:
 def _list_company_periods(repository: Any, company_name: str) -> list[str]:
     periods = _get_company_periods(repository, company_name)
     return sorted(periods, key=_period_order_key, reverse=True)
+
+
+def _build_workspace_payload(
+    payload: dict[str, Any],
+    *,
+    query: str,
+    user_role: str,
+) -> dict[str, Any]:
+    role_profile = _build_role_profile(user_role)
+    answer_sections = _build_answer_sections(payload, role_profile["key"])
+    insight_cards = _build_workspace_insight_cards(payload)
+    follow_up_questions = _build_follow_up_questions(payload, role_profile["key"])
+    agent_flow = _build_agent_flow(payload, query, role_profile["key"])
+    return {
+        **payload,
+        "role_profile": role_profile,
+        "answer_sections": answer_sections,
+        "insight_cards": insight_cards,
+        "follow_up_questions": follow_up_questions,
+        "agent_flow": agent_flow,
+    }
+
+
+def _build_role_profile(user_role: str) -> dict[str, Any]:
+    role_key = user_role if user_role in ROLE_PROFILES else "investor"
+    profile = ROLE_PROFILES[role_key]
+    return {
+        "key": role_key,
+        "label": profile["label"],
+        "focus_title": profile["focus_title"],
+        "starter_queries": profile["starter_queries"],
+    }
+
+
+def _build_answer_sections(payload: dict[str, Any], role_key: str) -> list[dict[str, Any]]:
+    query_type = payload.get("query_type")
+    company_name = payload.get("company_name", "当前公司")
+    report_period = payload.get("report_period")
+    if query_type == "company_scoring":
+        scorecard = payload.get("scorecard", {})
+        return [
+            {
+                "title": "经营结论",
+                "lines": [
+                    f"{company_name} 在 {report_period} 的总分为 {scorecard.get('total_score')}，等级 {scorecard.get('grade')}。",
+                    f"当前处于 {payload.get('subindustry', '所属子行业')} 样本的 {scorecard.get('subindustry_percentile')}pct 位置。",
+                ],
+            },
+            {
+                "title": "重点风险",
+                "lines": [
+                    item["name"] for item in scorecard.get("risk_labels", [])
+                ]
+                or ["当前没有命中高风险标签。"],
+            },
+            {
+                "title": "优先动作",
+                "lines": [
+                    f"{item['priority']} {item['title']}：{item['action']}"
+                    for item in payload.get("action_cards", [])[:3]
+                ]
+                or ["当前没有新增动作要求。"],
+            },
+        ]
+    if query_type == "claim_verification":
+        report_meta = payload.get("report_meta", {})
+        return [
+            {
+                "title": "核验结论",
+                "lines": [
+                    f"当前核验报期为 {report_period}，研报标题为《{report_meta.get('title', '未命名研报')}》。",
+                    f"匹配观点 {sum(1 for item in payload.get('claim_cards', []) if item.get('status') == 'match')} 条，偏差观点 {sum(1 for item in payload.get('claim_cards', []) if item.get('status') == 'mismatch')} 条。",
+                ],
+            },
+            {
+                "title": "偏差与待核查",
+                "lines": [
+                    item["claim_text"]
+                    for item in payload.get("claim_cards", [])
+                    if item.get("status") != "match"
+                ][:3]
+                or ["当前没有发现明显偏差。"],
+            },
+            {
+                "title": "盈利预测",
+                "lines": [
+                    f"{item['forecast_year']} 年：{item['profit_value']} 亿元，PE {item['pe_value']} 倍"
+                    for item in payload.get("forecast_cards", [])[:3]
+                ]
+                or ["当前研报未提取到明确盈利预测。"],
+            },
+        ]
+    if query_type == "peer_benchmark":
+        benchmark = payload.get("benchmark", [])
+        top_rows = benchmark[:3]
+        return [
+            {
+                "title": "同业位置",
+                "lines": [payload.get("answer_markdown", "")],
+            },
+            {
+                "title": "头部公司",
+                "lines": [
+                    f"{index + 1}. {item['company_name']} {item['total_score']} 分"
+                    for index, item in enumerate(top_rows)
+                ],
+            },
+        ]
+    if query_type == "risk_scan":
+        alert_board = payload.get("alert_board", [])
+        risk_board = payload.get("risk_board", [])
+        return [
+            {
+                "title": "批量预警",
+                "lines": [
+                    f"{item['company_name']}：{item['summary']}"
+                    for item in alert_board[:4]
+                ]
+                or ["当前主周期没有新增重点预警。"],
+            },
+            {
+                "title": "高风险公司",
+                "lines": [
+                    f"{item['company_name']}：{item['risk_count']} 个风险标签"
+                    for item in risk_board[:5]
+                ],
+            },
+        ]
+    if query_type == "metric_query":
+        return [
+            {
+                "title": "指标结果",
+                "lines": [_strip_markdown(payload.get("answer_markdown", ""))],
+            }
+        ]
+    if query_type == "brief_generation":
+        answer = _strip_markdown(payload.get("answer_markdown", ""))
+        return [{"title": "经营简报", "lines": [line for line in answer.splitlines() if line.strip()]}]
+    return [
+        {
+            "title": "分析结果",
+            "lines": [_strip_markdown(payload.get("answer_markdown", ""))],
+        }
+    ]
+
+
+def _build_workspace_insight_cards(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    cards = []
+    for item in payload.get("key_numbers", [])[:4]:
+        cards.append(
+            {
+                "label": item.get("label"),
+                "value": item.get("value"),
+                "unit": item.get("unit"),
+            }
+        )
+    if payload.get("query_type") == "company_scoring":
+        scorecard = payload.get("scorecard", {})
+        cards.extend(
+            [
+                {"label": "风险标签", "value": len(scorecard.get("risk_labels", [])), "unit": "个"},
+                {"label": "建议动作", "value": len(payload.get("action_cards", [])), "unit": "项"},
+            ]
+        )
+    return cards[:6]
+
+
+def _build_follow_up_questions(payload: dict[str, Any], role_key: str) -> list[str]:
+    company_name = payload.get("company_name")
+    report_period = payload.get("report_period")
+    if payload.get("query_type") == "company_scoring" and company_name and report_period:
+        if role_key == "management":
+            return [
+                f"{company_name}{report_period}最先要修复的经营环节是什么？",
+                f"{company_name}{report_period}现金和应收谁的问题更重？",
+                f"{company_name}{report_period}有哪些动作能在一个季度内见效？",
+            ]
+        if role_key == "regulator":
+            return [
+                f"{company_name}{report_period}有哪些需要持续跟踪的事件信号？",
+                f"{company_name}{report_period}和上一期相比新增了哪些风险？",
+                f"{company_name}{report_period}是否存在研报与财报偏差？",
+            ]
+        return [
+            f"{company_name}{report_period}和同业龙头差距主要在哪？",
+            f"{company_name}{report_period}最新研报观点是否可信？",
+            f"{company_name}{report_period}最影响估值的风险是什么？",
+        ]
+    if payload.get("query_type") == "claim_verification" and company_name:
+        return [
+            f"{company_name}还有哪些研报可以横向对比？",
+            f"{company_name}最新评级动作和目标价是什么？",
+            f"{company_name}哪些观点缺少真实财报支撑？",
+        ]
+    return ROLE_PROFILES[role_key]["starter_queries"]
+
+
+def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> list[dict[str, Any]]:
+    evidence_count = len(payload.get("evidence", []))
+    action_count = len(payload.get("action_cards", []))
+    risk_count = len(payload.get("scorecard", {}).get("risk_labels", []))
+    return [
+        {
+            "agent": "总控调度",
+            "status": "completed",
+            "title": "识别任务并锁定公司",
+            "summary": f"已将问题归类为 {payload.get('query_type')}，目标问题是：{query}",
+        },
+        {
+            "agent": "信号分析",
+            "status": "completed",
+            "title": "抽取经营与风险信号",
+            "summary": (
+                f"识别到 {risk_count} 个重点风险，生成 {len(payload.get('formula_cards', []))} 条公式链。"
+                if payload.get("query_type") == "company_scoring"
+                else f"提取了 {len(payload.get('key_numbers', []))} 个关键结果。"
+            ),
+        },
+        {
+            "agent": "证据审计",
+            "status": "completed",
+            "title": "回放来源与可核查证据",
+            "summary": f"当前返回 {evidence_count} 条证据引用，优先暴露页码和来源片段。",
+        },
+        {
+            "agent": "动作生成",
+            "status": "completed",
+            "title": "按角色给出下一步",
+            "summary": (
+                f"已生成 {action_count} 条角色相关动作。"
+                if action_count
+                else f"已切换到 {ROLE_PROFILES[role_key]['label']} 视角的后续问题建议。"
+            ),
+        },
+    ]
+
+
+def _strip_markdown(value: str) -> str:
+    plain = re.sub(r"[*#`>-]+", " ", value or "")
+    plain = re.sub(r"\s+", " ", plain)
+    return plain.strip()
 
 
 def _build_alert_board(repository: Any, companies: list[dict[str, Any]]) -> list[dict[str, Any]]:
