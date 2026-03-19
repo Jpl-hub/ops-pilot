@@ -1774,6 +1774,7 @@ def _build_workspace_payload(
     insight_cards = _build_workspace_insight_cards(payload)
     follow_up_questions = _build_follow_up_questions(payload, role_profile["key"])
     agent_flow = _build_agent_flow(payload, query, role_profile["key"])
+    control_plane = _build_control_plane(payload, query, role_profile["key"], agent_flow)
     return {
         **payload,
         "role_profile": role_profile,
@@ -1781,6 +1782,7 @@ def _build_workspace_payload(
         "insight_cards": insight_cards,
         "follow_up_questions": follow_up_questions,
         "agent_flow": agent_flow,
+        "control_plane": control_plane,
     }
 
 
@@ -1962,30 +1964,57 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
     evidence_count = len(payload.get("evidence", []))
     action_count = len(payload.get("action_cards", []))
     risk_count = len(payload.get("scorecard", {}).get("risk_labels", []))
+    formula_count = len(payload.get("formula_cards", []))
+    claim_count = len(payload.get("claim_cards", []))
+    query_type = payload.get("query_type")
     return [
         {
+            "step": 1,
             "agent": "总控调度",
             "status": "completed",
             "title": "识别任务并锁定公司",
             "summary": f"已将问题归类为 {payload.get('query_type')}，目标问题是：{query}",
+            "source": "问题文本 + 公司池 + 报期索引",
+            "tool": "intent_router",
+            "handoff": "信号分析",
+            "metrics": [
+                {"label": "任务类型", "value": query_type or "unknown"},
+                {"label": "目标公司", "value": payload.get("company_name", "未显式指定")},
+                {"label": "目标报期", "value": payload.get("report_period", "自动选择")},
+            ],
         },
         {
+            "step": 2,
             "agent": "信号分析",
             "status": "completed",
             "title": "抽取经营与风险信号",
             "summary": (
-                f"识别到 {risk_count} 个重点风险，生成 {len(payload.get('formula_cards', []))} 条公式链。"
+                f"识别到 {risk_count} 个重点风险，生成 {formula_count} 条公式链。"
                 if payload.get("query_type") == "company_scoring"
                 else f"提取了 {len(payload.get('key_numbers', []))} 个关键结果。"
             ),
+            "source": _resolve_agent_signal_source(query_type),
+            "tool": _resolve_agent_signal_tool(query_type),
+            "handoff": "证据审计",
+            "metrics": _build_signal_agent_metrics(payload, risk_count, formula_count, claim_count),
         },
         {
+            "step": 3,
             "agent": "证据审计",
             "status": "completed",
             "title": "回放来源与可核查证据",
             "summary": f"当前返回 {evidence_count} 条证据引用，优先暴露页码和来源片段。",
+            "source": "官方财报页级解析 + 研报详情页 + 公式输入字段",
+            "tool": "evidence_auditor",
+            "handoff": "动作生成",
+            "metrics": [
+                {"label": "证据条数", "value": evidence_count},
+                {"label": "证据分组", "value": len(payload.get("evidence_groups", []))},
+                {"label": "公式回放", "value": formula_count},
+            ],
         },
         {
+            "step": 4,
             "agent": "动作生成",
             "status": "completed",
             "title": "按角色给出下一步",
@@ -1994,7 +2023,108 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
                 if action_count
                 else f"已切换到 {ROLE_PROFILES[role_key]['label']} 视角的后续问题建议。"
             ),
+            "source": "评分结果 + 风险标签 + 角色视角",
+            "tool": "action_planner",
+            "handoff": "返回工作台",
+            "metrics": [
+                {"label": "动作数", "value": action_count},
+                {"label": "追问数", "value": len(_build_follow_up_questions(payload, role_key))},
+                {"label": "角色", "value": ROLE_PROFILES[role_key]["label"]},
+            ],
         },
+    ]
+
+
+def _build_control_plane(
+    payload: dict[str, Any],
+    query: str,
+    role_key: str,
+    agent_flow: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "session_label": f"{ROLE_PROFILES[role_key]['label']} · {payload.get('company_name', '行业视图')}",
+        "query": query,
+        "query_type": payload.get("query_type"),
+        "role_label": ROLE_PROFILES[role_key]["label"],
+        "report_period": payload.get("report_period"),
+        "steps_completed": sum(1 for item in agent_flow if item.get("status") == "completed"),
+        "step_total": len(agent_flow),
+        "data_sources": _build_control_plane_sources(payload),
+    }
+
+
+def _build_control_plane_sources(payload: dict[str, Any]) -> list[str]:
+    query_type = payload.get("query_type")
+    if query_type == "company_scoring":
+        return ["真实财报指标", "规则引擎", "页级证据", "公式回放"]
+    if query_type == "claim_verification":
+        return ["真实财报指标", "东方财富研报详情页", "观点核验规则"]
+    if query_type == "peer_benchmark":
+        return ["真实财报指标", "同子行业样本池", "横向评分结果"]
+    if query_type == "risk_scan":
+        return ["全公司评分快照", "主周期预警板", "行业研报观察"]
+    return ["真实财报指标", "页级证据", "指标直取"]
+
+
+def _resolve_agent_signal_source(query_type: str | None) -> str:
+    mapping = {
+        "company_scoring": "真实财报指标 + 风险规则 + 历史报期对比",
+        "claim_verification": "真实财报指标 + 研报观点抽取",
+        "peer_benchmark": "同子行业评分样本 + 分位结果",
+        "risk_scan": "主周期公司池 + 历史报期预警板",
+        "metric_query": "指标定义 + 页级证据",
+        "brief_generation": "评分结果 + 建议动作模板",
+    }
+    return mapping.get(query_type, "真实财报指标")
+
+
+def _resolve_agent_signal_tool(query_type: str | None) -> str:
+    mapping = {
+        "company_scoring": "score_engine",
+        "claim_verification": "claim_verifier",
+        "peer_benchmark": "benchmark_engine",
+        "risk_scan": "risk_scanner",
+        "metric_query": "metric_router",
+        "brief_generation": "brief_builder",
+    }
+    return mapping.get(query_type, "signal_router")
+
+
+def _build_signal_agent_metrics(
+    payload: dict[str, Any],
+    risk_count: int,
+    formula_count: int,
+    claim_count: int,
+) -> list[dict[str, Any]]:
+    query_type = payload.get("query_type")
+    if query_type == "company_scoring":
+        return [
+            {"label": "风险标签", "value": risk_count},
+            {"label": "公式链", "value": formula_count},
+            {"label": "建议动作", "value": len(payload.get("action_cards", []))},
+        ]
+    if query_type == "claim_verification":
+        return [
+            {"label": "匹配观点", "value": sum(1 for item in payload.get("claim_cards", []) if item.get("status") == "match")},
+            {"label": "偏差观点", "value": sum(1 for item in payload.get("claim_cards", []) if item.get("status") == "mismatch")},
+            {"label": "预测卡", "value": len(payload.get("forecast_cards", []))},
+        ]
+    if query_type == "peer_benchmark":
+        return [
+            {"label": "样本公司", "value": len(payload.get("benchmark", []))},
+            {"label": "图表", "value": len(payload.get("charts", []))},
+            {"label": "关键数", "value": len(payload.get("key_numbers", []))},
+        ]
+    if query_type == "risk_scan":
+        return [
+            {"label": "高风险公司", "value": len(payload.get("risk_board", []))},
+            {"label": "主动预警", "value": len(payload.get("alert_board", []))},
+            {"label": "行业研报组", "value": len(payload.get("industry_research", {}).get("groups", []))},
+        ]
+    return [
+        {"label": "关键结果", "value": len(payload.get("key_numbers", []))},
+        {"label": "证据条数", "value": len(payload.get("evidence", []))},
+        {"label": "观点条数", "value": claim_count},
     ]
 
 

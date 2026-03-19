@@ -73,6 +73,7 @@ const starterQueries = computed(() => {
 
 const followUps = computed(() => latestPayload.value?.follow_up_questions || [])
 const agentFlow = computed(() => latestPayload.value?.agent_flow || [])
+const controlPlane = computed(() => latestPayload.value?.control_plane || null)
 const insightCards = computed(() => latestPayload.value?.insight_cards || [])
 const evidenceGroups = computed(() => latestPayload.value?.evidence_groups || [])
 const charts = computed(() => latestPayload.value?.charts || [])
@@ -302,10 +303,33 @@ watch(
             <h3>执行看板</h3>
           </div>
         </div>
-        <div class="timeline-list">
-          <div v-for="agent in agentFlow" :key="agent.agent" class="timeline-item">
-            <strong>{{ agent.agent }} · {{ agent.title }}</strong>
+        <div v-if="controlPlane" class="control-plane-card">
+          <div class="signal-code">控制平面</div>
+          <h4>{{ controlPlane.session_label }}</h4>
+          <p class="command-copy">当前问题已进入 {{ controlPlane.query_type }} 流程，{{ controlPlane.steps_completed }}/{{ controlPlane.step_total }} 个执行阶段完成。</p>
+          <div class="tag-row">
+            <TagPill v-for="source in controlPlane.data_sources" :key="source" :label="source" />
+          </div>
+        </div>
+        <div class="timeline-list execution-list">
+          <div v-for="agent in agentFlow" :key="`${agent.step}-${agent.agent}`" class="timeline-item execution-item">
+            <div class="execution-head">
+              <strong>STEP {{ agent.step }} · {{ agent.agent }}</strong>
+              <span>{{ agent.status === 'completed' ? '已完成' : '处理中' }}</span>
+            </div>
+            <div class="execution-title">{{ agent.title }}</div>
             <span>{{ agent.summary }}</span>
+            <div class="execution-meta">
+              <div><span>来源</span><strong>{{ agent.source }}</strong></div>
+              <div><span>工具</span><strong>{{ agent.tool }}</strong></div>
+              <div><span>下一跳</span><strong>{{ agent.handoff }}</strong></div>
+            </div>
+            <div class="execution-metrics">
+              <div v-for="metric in agent.metrics" :key="`${agent.agent}-${metric.label}`" class="execution-metric">
+                <span>{{ metric.label }}</span>
+                <strong>{{ metric.value }}</strong>
+              </div>
+            </div>
           </div>
         </div>
 

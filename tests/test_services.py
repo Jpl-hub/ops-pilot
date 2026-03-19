@@ -184,7 +184,7 @@ class ServicesTestCase(unittest.TestCase):
             audit_min_evidence = 0
 
         payload = OpsPilotService(StubRepository(), StubSettings()).chat_turn(
-            query="请分析测试公司当前经营情况",
+            query="请给测试公司做一份经营体检评分",
             company_name="测试公司",
             user_role="management",
         )
@@ -193,6 +193,13 @@ class ServicesTestCase(unittest.TestCase):
         self.assertEqual(len(payload["agent_flow"]), 4)
         self.assertTrue(payload["answer_sections"])
         self.assertTrue(payload["follow_up_questions"])
+        self.assertEqual(payload["control_plane"]["query_type"], "company_scoring")
+        self.assertEqual(payload["control_plane"]["steps_completed"], 4)
+        self.assertIn("真实财报指标", payload["control_plane"]["data_sources"])
+        self.assertEqual(payload["agent_flow"][0]["tool"], "intent_router")
+        self.assertEqual(payload["agent_flow"][1]["tool"], "score_engine")
+        self.assertEqual(payload["agent_flow"][2]["tool"], "evidence_auditor")
+        self.assertEqual(payload["agent_flow"][3]["tool"], "action_planner")
 
     def test_risk_scan_builds_alert_board_from_prior_period(self) -> None:
         class StubRepository:
