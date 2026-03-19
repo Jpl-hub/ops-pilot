@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
@@ -13,6 +14,7 @@ import { get } from '@/lib/api'
 const state = useAsyncState<any>()
 const selectedAlertCompany = ref('')
 const alertFilter = ref<'all' | 'delta'>('all')
+const route = useRoute()
 
 const alertBoard = computed(() => {
   const alerts = state.data.value?.alert_board || []
@@ -45,6 +47,18 @@ watch(
 onMounted(() => {
   void state.execute(() => get('/industry/risk-scan'))
 })
+
+watch(
+  () => route.query.company,
+  (companyQuery) => {
+    const company = typeof companyQuery === 'string' ? companyQuery : ''
+    if (!company) {
+      return
+    }
+    selectedAlertCompany.value = company
+  },
+  { immediate: true },
+)
 </script>
 
 <template>

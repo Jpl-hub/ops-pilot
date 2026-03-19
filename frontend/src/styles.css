@@ -208,6 +208,12 @@ a { color: inherit; }
 .evidence-item { padding-top: 16px; margin-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 .evidence-excerpt, .evidence-fulltext { white-space: pre-wrap; }
 .evidence-fulltext { font-size: 15px; line-height: 1.85; color: #e4edf7; }
+.evidence-highlight mark {
+  padding: 0 4px;
+  border-radius: 6px;
+  background: rgba(255, 184, 76, 0.28);
+  color: #fff3dd;
+}
 .chart-root { width: 100%; height: 360px; }
 .toolbar { display: flex; gap: 16px; align-items: end; margin-bottom: 18px; }
 .toolbar.multi { flex-wrap: wrap; }

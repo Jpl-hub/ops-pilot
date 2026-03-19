@@ -13,6 +13,28 @@ const route = useRoute()
 const state = useAsyncState<any>()
 
 const contextText = computed(() => String(route.query.context || route.params.chunkId))
+const anchorTerms = computed(() => {
+  const raw = typeof route.query.anchors === 'string' ? route.query.anchors : ''
+  return raw ? raw.split('|').filter(Boolean) : []
+})
+const highlightedExcerpt = computed(() => {
+  const excerpt = String(state.data.value?.excerpt || '')
+  if (!excerpt || anchorTerms.value.length === 0) {
+    return escapeHtml(excerpt)
+  }
+  return anchorTerms.value.reduce((content, term) => {
+    if (!term) return content
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return content.replace(new RegExp(escaped, 'gi'), (matched: string) => `<mark>${matched}</mark>`)
+  }, escapeHtml(excerpt))
+})
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
 
 onMounted(() => {
   const chunkId = route.params.chunkId as string
@@ -32,7 +54,11 @@ onMounted(() => {
       </section>
       <section class="panel">
         <div class="panel-header"><h3>重点片段</h3></div>
-        <p class="evidence-fulltext">{{ state.data.value.excerpt }}</p>
+        <div v-if="anchorTerms.length" class="tag-row" style="margin-bottom: 12px;">
+          <span class="signal-code">锚点词</span>
+          <span v-for="term in anchorTerms" :key="term" class="inline-link">{{ term }}</span>
+        </div>
+        <p class="evidence-fulltext evidence-highlight" v-html="highlightedExcerpt" />
       </section>
       <section class="panel">
         <div class="panel-header"><h3>来源信息</h3></div>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
@@ -16,6 +17,8 @@ const reports = ref<any[]>([])
 const selectedCompany = ref('TCL中环')
 const selectedReportTitle = ref<string | null>(null)
 const state = useAsyncState<any>()
+const route = useRoute()
+const syncingFromRoute = ref(false)
 
 async function loadCompanies() {
   const risk = await get<any>('/industry/risk-scan')
@@ -32,16 +35,33 @@ async function loadVerify() {
   await state.execute(() => post('/claim/verify', { company_name: selectedCompany.value, report_title: selectedReportTitle.value }))
 }
 
+function applyQuerySelection() {
+  const company = typeof route.query.company === 'string' ? route.query.company : ''
+  const reportTitle = typeof route.query.report_title === 'string' ? route.query.report_title : ''
+  syncingFromRoute.value = true
+  if (company && companies.value.includes(company)) {
+    selectedCompany.value = company
+  }
+  if (reportTitle && reports.value.some((item) => item.title === reportTitle)) {
+    selectedReportTitle.value = reportTitle
+  }
+  syncingFromRoute.value = false
+}
+
 onMounted(async () => {
   await loadCompanies()
   if (!companies.value.includes(selectedCompany.value)) {
     selectedCompany.value = companies.value[0]
   }
   await loadReports()
+  applyQuerySelection()
   await loadVerify()
 })
 
 watch(selectedCompany, async (_, oldValue) => {
+  if (syncingFromRoute.value) {
+    return
+  }
   if (oldValue && selectedCompany.value !== oldValue) {
     await loadReports()
     await loadVerify()
@@ -49,10 +69,40 @@ watch(selectedCompany, async (_, oldValue) => {
 })
 
 watch(selectedReportTitle, async (value, oldValue) => {
+  if (syncingFromRoute.value) {
+    return
+  }
   if (value && value !== oldValue) {
     await loadVerify()
   }
 })
+
+watch(
+  () => [route.query.company, route.query.report_title],
+  async ([companyQuery, reportTitleQuery]) => {
+    const company = typeof companyQuery === 'string' ? companyQuery : ''
+    const reportTitle = typeof reportTitleQuery === 'string' ? reportTitleQuery : ''
+    if (company && company !== selectedCompany.value && companies.value.includes(company)) {
+      syncingFromRoute.value = true
+      selectedCompany.value = company
+      syncingFromRoute.value = false
+      await loadReports()
+      if (reportTitle && reports.value.some((item) => item.title === reportTitle)) {
+        syncingFromRoute.value = true
+        selectedReportTitle.value = reportTitle
+        syncingFromRoute.value = false
+      }
+      await loadVerify()
+      return
+    }
+    if (reportTitle && reportTitle !== selectedReportTitle.value && reports.value.some((item) => item.title === reportTitle)) {
+      syncingFromRoute.value = true
+      selectedReportTitle.value = reportTitle
+      syncingFromRoute.value = false
+      await loadVerify()
+    }
+  },
+)
 </script>
 
 <template>
