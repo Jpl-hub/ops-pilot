@@ -141,5 +141,14 @@ export const useWorkspaceStore = defineStore('workspace', {
       })
       await this.loadOverview('management')
     },
+    async dispatchAlertToTask(alertId: string, role: UserRole, note?: string) {
+      await post('/alerts/dispatch', {
+        alert_id: alertId,
+        user_role: role,
+        report_period: this.overview?.alert_summary?.preferred_period,
+        note,
+      })
+      await this.loadOverview(role)
+    },
   },
 })

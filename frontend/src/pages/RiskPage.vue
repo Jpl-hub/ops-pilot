@@ -76,8 +76,8 @@ watch(
         <StatCard label="行业研报" :value="String(state.data.value.industry_research.key_numbers[1].value)" hint="真实详情页" tone="success" />
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
           <div>
             <h3>主动预警</h3>
             <p class="page-subtitle">识别本期风险抬升、营收转负或利润继续承压的公司。</p>
@@ -136,7 +136,7 @@ watch(
           <div class="analysis-copy">当前主周期没有识别到新的重点预警。</div>
         </div>
 
-        <article v-if="selectedAlert" class="panel" style="margin-top: 18px;">
+        <article v-if="selectedAlert" class="panel" style="margin-top: 24px;">
           <div class="panel-header">
             <div>
               <div class="eyebrow">预警详情</div>
@@ -144,7 +144,7 @@ watch(
             </div>
             <div class="signal-subtitle">{{ selectedAlert.report_period }}</div>
           </div>
-          <p class="analysis-copy">{{ selectedAlert.summary }}</p>
+          <p class="analysis-copy" style="margin-bottom: 16px;">{{ selectedAlert.summary }}</p>
           <div class="link-row">
             <RouterLink
               class="button-primary"
@@ -167,8 +167,8 @@ watch(
         <ChartPanel v-for="chart in state.data.value.charts" :key="chart.title" :title="chart.title" :options="chart.options" />
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
           <h3>行业风险名单</h3>
         </div>
         <div class="company-grid">
@@ -193,8 +193,8 @@ watch(
         </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
           <h3>行业研报观察</h3>
         </div>
         <div class="stack-grid">
@@ -206,13 +206,13 @@ watch(
               </div>
               <div class="signal-subtitle">{{ group.report_count }} 篇</div>
             </div>
-            <h5 class="research-title">{{ group.latest_report.title }}</h5>
+            <h5 class="research-title" style="margin-top: 16px;">{{ group.latest_report.title }}</h5>
             <p class="evidence-excerpt">{{ group.latest_report.excerpt }}</p>
-            <div class="research-meta">
+            <div class="research-meta" style="margin: 16px 0;">
               <span>{{ group.latest_report.source_name }}</span>
               <span>{{ group.latest_report.publish_date }}</span>
             </div>
-            <a class="inline-link" :href="group.latest_report.source_url" target="_blank" rel="noreferrer">查看详情</a>
+            <a class="button-secondary" :href="group.latest_report.source_url" target="_blank" rel="noreferrer" style="width: 100%">查看详情</a>
           </article>
         </div>
       </section>

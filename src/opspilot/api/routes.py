@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from opspilot.api.schemas import (
+    AlertDispatchRequest,
     AlertStatusUpdateRequest,
     BenchmarkRequest,
     ChatTurnRequest,
@@ -132,6 +133,28 @@ def admin_document_pipeline_run(
     return get_service().run_document_pipeline_stage(request.stage, request.limit)
 
 
+@router.get("/admin/document-pipeline/results")
+def admin_document_pipeline_results(
+    stage: str | None = None,
+    status: str | None = None,
+    limit: int = 20,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().document_pipeline_results(stage=stage, status=status, limit=limit)
+
+
+@router.get("/admin/document-pipeline/results/{stage}/{report_id}")
+def admin_document_pipeline_result_detail(
+    stage: str,
+    report_id: str,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    try:
+        return get_service().document_pipeline_result_detail(stage, report_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/workspace/overview")
 def workspace_overview(user_role: str = "investor", _: dict = Depends(require_current_user)) -> dict:
     return get_service().workspace_overview(user_role)
@@ -181,6 +204,19 @@ def alert_update(request: AlertStatusUpdateRequest, _: dict = Depends(require_cu
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.post("/alerts/dispatch")
+def alert_dispatch(request: AlertDispatchRequest, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().dispatch_alert_to_task(
+            alert_id=request.alert_id,
+            user_role=request.user_role,
+            report_period=request.report_period,
+            note=request.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/chat/turn")
 def chat_turn(request: ChatTurnRequest, _: dict = Depends(require_current_user)) -> dict:
     try:
@@ -214,6 +250,40 @@ def company_benchmark(request: BenchmarkRequest, _: dict = Depends(require_curre
 def company_timeline(company_name: str, _: dict = Depends(require_current_user)) -> dict:
     try:
         return get_service().company_timeline(company_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/company/workspace")
+def company_workspace(
+    company_name: str,
+    report_period: str | None = None,
+    user_role: str = "management",
+    _: dict = Depends(require_current_user),
+) -> dict:
+    try:
+        return get_service().company_workspace(
+            company_name,
+            report_period,
+            user_role=user_role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/company/graph")
+def company_graph(
+    company_name: str,
+    report_period: str | None = None,
+    user_role: str = "management",
+    _: dict = Depends(require_current_user),
+) -> dict:
+    try:
+        return get_service().company_graph(
+            company_name,
+            report_period,
+            user_role=user_role,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

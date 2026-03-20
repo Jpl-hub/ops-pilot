@@ -56,6 +56,10 @@ async function runQuery(inputQuery?: string) {
   }
 }
 
+async function dispatchAlert(alertId: string) {
+  await workspace.dispatchAlertToTask(alertId, session.activeRole.value || 'management')
+}
+
 onMounted(async () => {
   appendWelcomeMessage()
   await workspace.loadOverview(session.activeRole.value || 'investor')
@@ -79,29 +83,31 @@ watch(
     subtitle="任务控制台"
     compact
   >
-    <section class="metrics-grid workspace-overview-strip">
-      <article class="signal-card">
-        <div class="signal-code">视角</div>
-        <h4>{{ roleCopy.label }}</h4>
+    <section class="workspace-header-grid">
+      <article class="panel workspace-brief">
+        <div class="eyebrow">当前视角</div>
+        <h3>{{ roleCopy.label }}</h3>
+        <p class="page-subtitle">{{ roleCopy.summary }}</p>
       </article>
-      <article class="signal-card">
-        <div class="signal-code">预警</div>
-        <h4>{{ overviewSummary?.total_alerts || 0 }}</h4>
-      </article>
-      <article class="signal-card">
-        <div class="signal-code">覆盖</div>
-        <h4>{{ overviewSummary?.active_companies || 0 }}</h4>
+      <article class="panel workspace-stat-stack">
+        <div class="workspace-mini-stat">
+          <span>预警</span>
+          <strong>{{ overviewSummary?.total_alerts || 0 }}</strong>
+        </div>
+        <div class="workspace-mini-stat">
+          <span>覆盖公司</span>
+          <strong>{{ overviewSummary?.active_companies || 0 }}</strong>
+        </div>
+        <div class="workspace-mini-stat">
+          <span>处理中</span>
+          <strong>{{ taskSummary?.in_progress || 0 }}</strong>
+        </div>
       </article>
     </section>
 
     <section class="chat-workspace">
       <aside class="panel chat-sidebar">
-        <div class="panel-header">
-          <div>
-            <div class="eyebrow">任务面板</div>
-            <h3>会话状态</h3>
-          </div>
-        </div>
+        <div class="panel-header"><div><div class="eyebrow">任务面板</div><h3>待办与追问</h3></div></div>
         <div class="detail-list">
           <div class="detail-row">
             <span>当前公司</span>
@@ -170,6 +176,19 @@ watch(
       </aside>
 
       <section class="panel chat-thread-shell">
+        <div class="chat-topbar">
+          <label class="field">
+            <span>公司</span>
+            <select v-model="selectedCompany">
+              <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+            </select>
+          </label>
+          <div class="chat-topbar-card">
+            <span>当前任务</span>
+            <strong>{{ selectedCompany }} · {{ roleCopy.label }}</strong>
+          </div>
+        </div>
+
         <div class="chat-thread" ref="threadRef">
           <LoadingState v-if="loadingTurn" />
           <ErrorState v-else-if="turnError" :message="turnError" />
@@ -235,18 +254,6 @@ watch(
         </div>
 
         <div class="chat-composer">
-          <div class="chat-composer-top">
-            <label class="field">
-              <span>公司</span>
-              <select v-model="selectedCompany">
-                <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-              </select>
-            </label>
-            <div class="composer-hint">
-              <div class="signal-code">当前任务</div>
-              <p>{{ selectedCompany }} · {{ roleCopy.label }}</p>
-            </div>
-          </div>
           <div class="chat-input-wrap chat-input-wrap-wide">
             <textarea
               v-model="query"
@@ -262,12 +269,12 @@ watch(
       <aside class="panel chat-sidebar">
         <div class="panel-header">
           <div>
-            <div class="eyebrow">多智能体编排</div>
-            <h3>执行看板</h3>
+            <div class="eyebrow">执行过程</div>
+            <h3>分析进程</h3>
           </div>
         </div>
         <div v-if="controlPlane" class="control-plane-card">
-          <div class="signal-code">控制平面</div>
+          <div class="signal-code">执行状态</div>
           <h4>{{ controlPlane.session_label }}</h4>
           <p class="command-copy">{{ controlPlane.steps_completed }}/{{ controlPlane.step_total }} 个阶段完成</p>
           <div class="tag-row">
@@ -305,15 +312,31 @@ watch(
 
         <div v-if="alertQueue.length" class="subsection-label" style="margin-top: 18px;">预警队列</div>
         <div class="timeline-list">
-          <RouterLink
+          <div
             v-for="item in alertQueue.slice(0, 3)"
             :key="item.alert_id || item.title"
             class="timeline-item interactive-card"
-            :to="{ path: item.route.path, query: item.route.query || {} }"
           >
             <strong>{{ item.title }}</strong>
             <span>{{ item.summary }}</span>
-          </RouterLink>
+            <div class="tag-row" style="margin-top: 6px;">
+              <TagPill :label="item.status" />
+              <button
+                v-if="item.alert_id && item.status === 'new'"
+                type="button"
+                class="button-secondary"
+                @click="dispatchAlert(item.alert_id)"
+              >
+                派发任务
+              </button>
+              <RouterLink
+                class="inline-link"
+                :to="{ path: item.route.path, query: item.route.query || {} }"
+              >
+                {{ item.route.label }}
+              </RouterLink>
+            </div>
+          </div>
         </div>
 
         <div v-if="evidenceGroups.length" class="subsection-label" style="margin-top: 18px;">证据短链</div>

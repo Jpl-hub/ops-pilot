@@ -242,6 +242,50 @@ class OpsPilotService:
         refreshed_alert = next(item for item in refreshed["alerts"] if item["alert_id"] == alert_id)
         return {"alert": refreshed_alert, "summary": refreshed["summary"]}
 
+    def dispatch_alert_to_task(
+        self,
+        alert_id: str,
+        *,
+        user_role: str = "management",
+        report_period: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        workflow = self.alert_workflow(report_period=report_period)
+        alert = next((item for item in workflow["alerts"] if item["alert_id"] == alert_id), None)
+        if alert is None:
+            raise ValueError(f"未找到预警：{alert_id}")
+
+        period = report_period or workflow["report_period"]
+        task_board = self.task_board(user_role=user_role, report_period=period, limit=20)
+        task = next(
+            (item for item in task_board["tasks"] if item["company_name"] == alert["company_name"]),
+            None,
+        )
+        if task is None:
+            raise ValueError(f"未找到可派发任务：{alert['company_name']}")
+
+        task_note = note or f"由预警 {alert_id} 派发"
+        alert_note = note or f"已派发到任务 {task['task_id']}"
+        task_payload = self.update_task_status(
+            task_id=task["task_id"],
+            status="in_progress",
+            user_role=user_role,
+            report_period=period,
+            note=task_note,
+        )
+        alert_payload = self.update_alert_status(
+            alert_id=alert_id,
+            status="dispatched",
+            report_period=period,
+            note=alert_note,
+        )
+        return {
+            "alert": alert_payload["alert"],
+            "alert_summary": alert_payload["summary"],
+            "task": task_payload["task"],
+            "task_summary": task_payload["summary"],
+        }
+
     def list_company_names(self) -> list[str]:
         return self.repository.list_company_names()
 
@@ -406,6 +450,224 @@ class OpsPilotService:
             ],
         }
 
+    def company_workspace(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        score_payload = self.score_company(company_name, report_period)
+        period = score_payload["report_period"]
+        timeline_payload = self.company_timeline(company_name)
+        benchmark_payload = self.benchmark_company(company_name, period)
+        alert_workflow = self.alert_workflow(report_period=period)
+        task_board = self.task_board(user_role=user_role, report_period=period, limit=20)
+        document_results = self.document_pipeline_results(limit=200)
+
+        alert_items = [
+            item for item in alert_workflow["alerts"] if item["company_name"] == company_name
+        ]
+        task_items = [item for item in task_board["tasks"] if item["company_name"] == company_name]
+        upgrade_items = _filter_document_results_for_company(
+            document_results["results"], company_name, period
+        )
+        research_status: dict[str, Any]
+        try:
+            research_payload = self.verify_claim(company_name, period)
+            research_status = {
+                "status": "ready",
+                "report_title": research_payload["report_meta"]["title"],
+                "institution": research_payload["report_meta"]["institution"],
+                "claim_matches": sum(
+                    1 for item in research_payload["claim_cards"] if item["status"] == "match"
+                ),
+                "claim_mismatches": sum(
+                    1 for item in research_payload["claim_cards"] if item["status"] == "mismatch"
+                ),
+                "forecast_count": len(research_payload["forecast_cards"]),
+            }
+        except ValueError as exc:
+            research_status = {"status": "missing", "detail": str(exc)}
+
+        return {
+            "company_name": company_name,
+            "report_period": period,
+            "user_role": user_role,
+            "score_summary": {
+                "total_score": score_payload["scorecard"]["total_score"],
+                "grade": score_payload["scorecard"]["grade"],
+                "subindustry": score_payload["subindustry"],
+                "subindustry_percentile": score_payload["scorecard"]["subindustry_percentile"],
+                "risk_count": len(score_payload["scorecard"]["risk_labels"]),
+                "opportunity_count": len(score_payload["scorecard"]["opportunity_labels"]),
+            },
+            "top_risks": [item["name"] for item in score_payload["scorecard"]["risk_labels"][:5]],
+            "top_opportunities": [
+                item["name"] for item in score_payload["scorecard"]["opportunity_labels"][:5]
+            ],
+            "action_cards": score_payload["action_cards"][:5],
+            "formula_cards": score_payload["formula_cards"][:4],
+            "timeline": {
+                "latest_period": timeline_payload["latest_period"],
+                "key_numbers": timeline_payload["key_numbers"],
+                "snapshots": timeline_payload["snapshots"],
+            },
+            "benchmark": {
+                "target_company": company_name,
+                "top_companies": benchmark_payload["benchmark"][:5],
+            },
+            "alerts": {
+                "summary": {
+                    "total": len(alert_items),
+                    "new": sum(1 for item in alert_items if item["status"] == "new"),
+                    "in_progress": sum(
+                        1 for item in alert_items if item["status"] == "in_progress"
+                    ),
+                    "resolved": sum(1 for item in alert_items if item["status"] == "resolved"),
+                    "dispatched": sum(
+                        1 for item in alert_items if item["status"] == "dispatched"
+                    ),
+                },
+                "items": alert_items,
+            },
+            "tasks": {
+                "summary": {
+                    "total": len(task_items),
+                    "queued": sum(1 for item in task_items if item["status"] == "queued"),
+                    "in_progress": sum(
+                        1 for item in task_items if item["status"] == "in_progress"
+                    ),
+                    "done": sum(1 for item in task_items if item["status"] == "done"),
+                    "blocked": sum(1 for item in task_items if item["status"] == "blocked"),
+                },
+                "items": task_items,
+            },
+            "research": research_status,
+            "document_upgrades": {
+                "count": len(upgrade_items),
+                "items": upgrade_items,
+            },
+        }
+
+    def company_graph(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        workspace = self.company_workspace(
+            company_name,
+            report_period,
+            user_role=user_role,
+        )
+        nodes: list[dict[str, Any]] = []
+        edges: list[dict[str, Any]] = []
+
+        company_node = _graph_node_id("company", company_name)
+        nodes.append(
+            {
+                "id": company_node,
+                "type": "company",
+                "label": company_name,
+                "meta": {
+                    "report_period": workspace["report_period"],
+                    "score": workspace["score_summary"]["total_score"],
+                    "grade": workspace["score_summary"]["grade"],
+                },
+            }
+        )
+
+        period_node = _graph_node_id("period", workspace["report_period"])
+        nodes.append(
+            {
+                "id": period_node,
+                "type": "report_period",
+                "label": workspace["report_period"],
+                "meta": {},
+            }
+        )
+        edges.append({"source": company_node, "target": period_node, "label": "对应报期"})
+
+        for risk_name in workspace["top_risks"]:
+            risk_node = _graph_node_id("risk", risk_name)
+            nodes.append({"id": risk_node, "type": "risk_label", "label": risk_name, "meta": {}})
+            edges.append({"source": company_node, "target": risk_node, "label": "风险"})
+
+        for task in workspace["tasks"]["items"][:5]:
+            task_node = _graph_node_id("task", task["task_id"])
+            nodes.append(
+                {
+                    "id": task_node,
+                    "type": "task",
+                    "label": task["title"],
+                    "meta": {
+                        "priority": task["priority"],
+                        "status": task["status"],
+                    },
+                }
+            )
+            edges.append({"source": company_node, "target": task_node, "label": "整改任务"})
+
+        for alert in workspace["alerts"]["items"][:5]:
+            alert_node = _graph_node_id("alert", alert["alert_id"])
+            nodes.append(
+                {
+                    "id": alert_node,
+                    "type": "alert",
+                    "label": alert["summary"],
+                    "meta": {"status": alert["status"], "risk_delta": alert["risk_delta"]},
+                }
+            )
+            edges.append({"source": period_node, "target": alert_node, "label": "主动预警"})
+
+        if workspace["research"]["status"] == "ready":
+            research_label = workspace["research"]["report_title"]
+            research_node = _graph_node_id("research", research_label)
+            nodes.append(
+                {
+                    "id": research_node,
+                    "type": "research_report",
+                    "label": research_label,
+                    "meta": {
+                        "institution": workspace["research"]["institution"],
+                        "forecast_count": workspace["research"]["forecast_count"],
+                    },
+                }
+            )
+            edges.append({"source": company_node, "target": research_node, "label": "研报核验"})
+
+        for item in workspace["document_upgrades"]["items"][:6]:
+            artifact_node = _graph_node_id("artifact", f"{item['stage']}::{item['report_id']}")
+            nodes.append(
+                {
+                    "id": artifact_node,
+                    "type": "document_artifact",
+                    "label": item["stage"],
+                    "meta": {
+                        "report_id": item["report_id"],
+                        "status": item["status"],
+                        "summary": item["artifact_summary"],
+                    },
+                }
+            )
+            edges.append({"source": period_node, "target": artifact_node, "label": "解析结果"})
+
+        return {
+            "company_name": company_name,
+            "report_period": workspace["report_period"],
+            "nodes": _dedupe_graph_nodes(nodes),
+            "edges": edges,
+            "summary": {
+                "node_count": len(_dedupe_graph_nodes(nodes)),
+                "edge_count": len(edges),
+                "task_count": workspace["tasks"]["summary"]["total"],
+                "alert_count": workspace["alerts"]["summary"]["total"],
+                "document_upgrade_count": workspace["document_upgrades"]["count"],
+            },
+        }
+
     def task_board(
         self, user_role: str = "management", report_period: str | None = None, limit: int = 12
     ) -> dict[str, Any]:
@@ -533,6 +795,73 @@ class OpsPilotService:
             "generated_at": jobs_manifest["generated_at"],
             "stage_summary": stage_summary,
             "jobs": records[:30],
+        }
+
+    def document_pipeline_results(
+        self,
+        stage: str | None = None,
+        *,
+        status: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
+        records = jobs_manifest["records"]
+        filtered = []
+        for item in records:
+            if stage and item["stage"] != stage:
+                continue
+            if status and item["status"] != status:
+                continue
+            filtered.append(
+                {
+                    "stage": item["stage"],
+                    "report_id": item["report_id"],
+                    "company_name": item["company_name"],
+                    "security_code": item["security_code"],
+                    "report_period": item.get("report_period"),
+                    "status": item["status"],
+                    "artifact_path": item.get("artifact_path"),
+                    "artifact_summary": item.get("artifact_summary"),
+                    "completed_at": item.get("completed_at"),
+                }
+            )
+        return {
+            "stage": stage,
+            "status": status,
+            "total": len(filtered),
+            "results": filtered[:limit],
+        }
+
+    def document_pipeline_result_detail(self, stage: str, report_id: str) -> dict[str, Any]:
+        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
+        job = next(
+            (
+                item
+                for item in jobs_manifest["records"]
+                if item["stage"] == stage and item["report_id"] == report_id
+            ),
+            None,
+        )
+        if job is None:
+            raise ValueError(f"未找到解析结果：{stage}/{report_id}")
+        artifact_path = Path(job["artifact_path"])
+        if not artifact_path.exists():
+            raise ValueError(f"未找到解析产物：{artifact_path}")
+        with artifact_path.open("r", encoding="utf-8") as file:
+            artifact = json.load(file)
+        return {
+            "job": {
+                "stage": job["stage"],
+                "report_id": job["report_id"],
+                "company_name": job["company_name"],
+                "security_code": job["security_code"],
+                "report_period": job.get("report_period"),
+                "status": job["status"],
+                "artifact_path": job["artifact_path"],
+                "completed_at": job.get("completed_at"),
+                "artifact_summary": job.get("artifact_summary"),
+            },
+            "artifact": artifact,
         }
 
     def run_document_pipeline_stage(self, stage: str, limit: int = 5) -> dict[str, Any]:
@@ -2615,10 +2944,13 @@ def _build_workspace_alert_queue(alerts: list[dict[str, Any]], user_role: str) -
             }
         queue.append(
             {
+                "alert_id": item["alert_id"],
                 "company_name": item["company_name"],
                 "report_period": item["report_period"],
                 "title": title,
                 "summary": summary,
+                "status": item["status"],
+                "note": item.get("note"),
                 "risk_delta": item["risk_delta"],
                 "risk_count": item["risk_count"],
                 "new_labels": item["new_labels"],
@@ -2626,6 +2958,46 @@ def _build_workspace_alert_queue(alerts: list[dict[str, Any]], user_role: str) -
             }
         )
     return queue
+
+
+def _filter_document_results_for_company(
+    results: list[dict[str, Any]],
+    company_name: str,
+    report_period: str | None,
+) -> list[dict[str, Any]]:
+    filtered: list[dict[str, Any]] = []
+    for item in results:
+        if item["company_name"] != company_name:
+            continue
+        if report_period and item.get("report_period") not in (None, report_period):
+            continue
+        filtered.append(item)
+    filtered.sort(
+        key=lambda item: (
+            item.get("completed_at") or "",
+            item.get("stage") or "",
+            item.get("report_id") or "",
+        ),
+        reverse=True,
+    )
+    return filtered
+
+
+def _graph_node_id(prefix: str, value: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9_\-:\u4e00-\u9fff]+", "_", value).strip("_")
+    return f"{prefix}:{safe}"
+
+
+def _dedupe_graph_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for node in nodes:
+        node_id = node["id"]
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        deduped.append(node)
+    return deduped
 
 
 def _research_report_bucket(report: dict[str, Any], available_periods: set[str] | None) -> int:

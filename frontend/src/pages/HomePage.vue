@@ -5,11 +5,11 @@ import AppShell from '@/components/AppShell.vue'
 <template>
   <AppShell
     kicker="OpsPilot-X"
-    title="入口"
+    title="决策会议室"
     subtitle="进入系统"
     compact
   >
-    <section class="auth-grid">
+    <section class="auth-grid" style="grid-template-columns: 1fr; max-width: 600px; margin: 0 auto;">
       <article class="panel auth-panel">
         <div class="panel-header">
           <div>
@@ -24,16 +24,11 @@ import AppShell from '@/components/AppShell.vue'
           </div>
           <div class="detail-row">
             <span>数据来源</span>
-            <strong>真实财报 / 真实研报 / 页级证据</strong>
-          </div>
-          <div class="detail-row">
-            <span>进入后主链</span>
-            <strong>工作台 → 体检 / 风险 / 核验 / 证据</strong>
+            <strong>真实财报 / 全量事件池 / 页级证据</strong>
           </div>
         </div>
-        <div class="hero-actions">
-          <RouterLink class="button-primary" to="/login">登录</RouterLink>
-          <RouterLink class="button-secondary" to="/register">注册</RouterLink>
+        <div class="hero-actions" style="margin-top: 24px;">
+          <RouterLink class="button-primary" to="/workspace" style="width: 100%;">直接进入会议室</RouterLink>
         </div>
       </article>
 

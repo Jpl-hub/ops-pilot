@@ -11,16 +11,19 @@ import { get, post } from '@/lib/api'
 
 const state = useAsyncState<any>()
 const pipelineRunState = useAsyncState<any>()
+const resultsState = useAsyncState<any>()
 const runningStage = ref('')
 
 onMounted(() => {
   void state.execute(() => get('/admin/overview'))
+  void resultsState.execute(() => get('/admin/document-pipeline/results?limit=12'))
 })
 
 async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_trace') {
   runningStage.value = stage
   await pipelineRunState.execute(() => post('/admin/document-pipeline/run', { stage, limit: 5 }))
   await state.execute(() => get('/admin/overview'))
+  await resultsState.execute(() => get(`/admin/document-pipeline/results?stage=${stage}&limit=12`))
   runningStage.value = ''
 }
 </script>
@@ -110,13 +113,13 @@ async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_tr
         </article>
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
-          <h3>文档升级作业</h3>
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
+          <h3>文档升级结果</h3>
         </div>
         <div class="company-grid">
           <article
-            v-for="job in state.data.value.document_pipeline_jobs.jobs.slice(0, 18)"
+            v-for="job in (resultsState.data.value?.results || []).slice(0, 18)"
             :key="`${job.report_id}-${job.stage}`"
             class="company-card"
           >
@@ -130,13 +133,14 @@ async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_tr
             <div class="metric-list">
               <div class="metric-row"><span>报期</span><strong>{{ job.report_period || '-' }}</strong></div>
               <div class="metric-row"><span>报告</span><strong>{{ job.report_id }}</strong></div>
+              <div class="metric-row"><span>摘要</span><strong>{{ job.artifact_summary || '-' }}</strong></div>
             </div>
           </article>
         </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-header">
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
           <h3>公司覆盖明细</h3>
         </div>
         <div class="company-grid">

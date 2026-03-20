@@ -193,8 +193,8 @@ watch(
         </article>
       </section>
 
-      <section class="panel">
-        <div class="panel-header"><h3>标签拆解</h3></div>
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>标签拆解</h3></div>
         <div class="stack-grid">
           <article v-for="card in scoreState.data.value.label_cards" :key="card.code" class="signal-card">
             <div class="signal-top">
@@ -216,8 +216,8 @@ watch(
         </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-header"><h3>建议动作</h3></div>
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>建议动作</h3></div>
         <div class="stack-grid">
           <article v-for="action in scoreState.data.value.action_cards" :key="action.title" class="company-card">
             <div class="signal-top">
@@ -236,8 +236,8 @@ watch(
         <ChartPanel v-for="chart in scoreState.data.value.charts" :key="chart.title" :title="chart.title" :options="chart.options" />
       </section>
 
-      <section v-if="timelineState.data.value" class="panel">
-        <div class="panel-header"><h3>阶段轨迹</h3></div>
+      <section v-if="timelineState.data.value">
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>阶段轨迹</h3></div>
         <div class="stack-grid">
           <article
             v-for="item in timelineState.data.value.snapshots"
@@ -272,8 +272,8 @@ watch(
         </section>
       </section>
 
-      <section class="panel">
-        <div class="panel-header"><h3>公式回放</h3></div>
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>公式回放</h3></div>
         <div class="stack-grid">
           <article v-for="formula in scoreState.data.value.formula_cards" :key="formula.metric_code" class="formula-card">
             <div class="signal-top">

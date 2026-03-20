@@ -647,6 +647,380 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(refreshed_alert["history"][-1]["status"], "in_progress")
             self.assertTrue((root / "bronze" / "manifests" / "workspace_alert_board.json").exists())
 
+    def test_alert_dispatch_updates_alert_and_task(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                if report_period in (None, "2025Q3"):
+                    return [
+                        {
+                            "company_name": "测试公司",
+                            "report_period": "2025Q3",
+                            "subindustry": "储能",
+                            "metrics": {"G1": -8.4, "G2": -15.2, "C3": 18.0, "S4": 0.72, "S1": 0.98},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        },
+                        {
+                            "company_name": "对标公司",
+                            "report_period": "2025Q3",
+                            "subindustry": "储能",
+                            "metrics": {"G1": 10.0, "G2": 8.0, "C3": 1.0, "S4": 1.4, "S1": 1.5},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        },
+                    ]
+                if report_period == "2025H1":
+                    return [
+                        {
+                            "company_name": "测试公司",
+                            "report_period": "2025H1",
+                            "subindustry": "储能",
+                            "metrics": {"G1": 6.0, "G2": 4.0, "S4": 1.3, "S1": 1.22},
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        }
+                    ]
+                return []
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3", "2025H1"]
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                for item in self.list_companies(report_period):
+                    if item["company_name"] == company_name:
+                        return item
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司", "对标公司"]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            workflow = service.alert_workflow("2025Q3")
+            alert_id = workflow["alerts"][0]["alert_id"]
+
+            payload = service.dispatch_alert_to_task(
+                alert_id,
+                user_role="management",
+                report_period="2025Q3",
+                note="从预警派发整改",
+            )
+
+            self.assertEqual(payload["alert"]["status"], "dispatched")
+            self.assertEqual(payload["task"]["status"], "in_progress")
+            self.assertEqual(payload["task"]["note"], "从预警派发整改")
+
+    def test_document_pipeline_results_and_detail(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [{"company_name": "测试公司", "report_period": report_period or "2025Q3"}]
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bronze = root / "bronze"
+            manifests = bronze / "manifests"
+            page_dir = bronze / "pages"
+            manifests.mkdir(parents=True, exist_ok=True)
+            page_dir.mkdir(parents=True, exist_ok=True)
+
+            page_json_path = page_dir / "sample.json"
+            page_json_path.write_text(
+                json.dumps(
+                    {
+                        "pages": [
+                            {"page": 1, "blocks": [{"text": "第一节 主要财务数据"}, {"text": "本报告期公司营业收入"}]},
+                            {"page": 2, "blocks": [{"text": "同比增长情况如下"}, {"text": "一、经营概况"}]},
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-1",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司2025年三季度报告",
+                                "page_json_path": str(page_json_path),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                ocr_runtime_enabled = False
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = bronze
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            run_payload = service.run_document_pipeline_stage("title_hierarchy", limit=1)
+            self.assertEqual(run_payload["processed"], 1)
+
+            results = service.document_pipeline_results(stage="title_hierarchy")
+            self.assertEqual(results["total"], 1)
+
+            detail = service.document_pipeline_result_detail("title_hierarchy", "r-1")
+            self.assertEqual(detail["job"]["report_id"], "r-1")
+            self.assertTrue(detail["artifact"]["headings"])
+
+    def test_company_workspace_and_graph_aggregate_core_system_state(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                records = {
+                    "2025Q3": {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {
+                            "G1": 12.0,
+                            "G2": 8.0,
+                            "C1": 1.2,
+                            "C3": 24.0,
+                            "S1": 1.1,
+                            "S4": 0.9,
+                            "P4": 88.0,
+                        },
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                    "2025H1": {
+                        "company_name": "测试公司",
+                        "report_period": "2025H1",
+                        "subindustry": "储能",
+                        "metrics": {
+                            "G1": 10.0,
+                            "G2": 6.0,
+                            "C1": 1.0,
+                            "C3": 5.0,
+                            "S1": 1.2,
+                            "S4": 1.0,
+                            "P4": 72.0,
+                        },
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                }
+                if company_name != "测试公司":
+                    return None
+                return records.get(report_period or "2025Q3")
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                if report_period == "2025Q3":
+                    return [
+                        self.get_company("测试公司", "2025Q3"),
+                        {
+                            "company_name": "对标公司",
+                            "report_period": "2025Q3",
+                            "subindustry": "储能",
+                            "metrics": {
+                                "G1": 9.0,
+                                "G2": 7.0,
+                                "C1": 1.3,
+                                "C3": 2.0,
+                                "S1": 1.4,
+                                "S4": 1.3,
+                                "P4": 68.0,
+                            },
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        },
+                    ]
+                if report_period == "2025H1":
+                    return [
+                        self.get_company("测试公司", "2025H1"),
+                        {
+                            "company_name": "对标公司",
+                            "report_period": "2025H1",
+                            "subindustry": "储能",
+                            "metrics": {
+                                "G1": 8.0,
+                                "G2": 5.0,
+                                "C1": 1.2,
+                                "C3": 1.5,
+                                "S1": 1.45,
+                                "S4": 1.2,
+                                "P4": 66.0,
+                            },
+                            "history": [],
+                            "metric_evidence": {},
+                            "formula_context": {},
+                            "label_evidence": {},
+                        },
+                    ]
+                return [
+                    self.get_company("测试公司", "2025Q3"),
+                    self.get_company("测试公司", "2025H1"),
+                ]
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3", "2025H1"]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def find_company_from_query(self, query: str, report_period: str | None = None) -> str | None:
+                return "测试公司" if "测试公司" in query else None
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+            (root / "raw" / "manifests" / "research_reports_manifest.json").write_text(
+                json.dumps({"records": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            artifact_path = (
+                root
+                / "bronze"
+                / "upgrades"
+                / "title_hierarchy"
+                / "000001"
+                / "demo-report.json"
+            )
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "report_id": "demo-report",
+                        "company_name": "测试公司",
+                        "summary": "恢复出 3 个标题节点。",
+                        "headings": [{"page": 1, "text": "第一节", "level": 1}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "bronze" / "manifests" / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "demo-report",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司2025年三季度报告",
+                                "page_json_path": str(root / "bronze" / "pages" / "demo-report.json"),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "bronze" / "manifests" / "document_pipeline_jobs.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "stage": "title_hierarchy",
+                                "report_id": "demo-report",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "report_period": "2025Q3",
+                                "status": "completed",
+                                "artifact_path": str(artifact_path),
+                                "artifact_summary": "恢复出 3 个标题节点。",
+                                "completed_at": "2026-03-20T08:00:00+00:00",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                ocr_runtime_enabled = False
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            workspace = service.company_workspace("测试公司", "2025Q3", user_role="management")
+            graph = service.company_graph("测试公司", "2025Q3", user_role="management")
+
+            self.assertEqual(workspace["company_name"], "测试公司")
+            self.assertIn(workspace["score_summary"]["grade"], {"A", "B", "C", "D"})
+            self.assertEqual(workspace["research"]["status"], "missing")
+            self.assertGreaterEqual(workspace["document_upgrades"]["count"], 1)
+            self.assertTrue(
+                any(item["stage"] == "title_hierarchy" for item in workspace["document_upgrades"]["items"])
+            )
+            self.assertTrue(workspace["tasks"]["items"])
+            self.assertTrue(workspace["alerts"]["items"])
+            self.assertEqual(graph["company_name"], "测试公司")
+            self.assertGreaterEqual(graph["summary"]["node_count"], 5)
+            self.assertGreaterEqual(graph["summary"]["edge_count"], 4)
+
     def test_admin_overview_returns_health_data_and_job_catalog(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

@@ -171,8 +171,8 @@ watch(
         </article>
       </section>
 
-      <section class="panel">
-        <div class="panel-header"><h3>观点对照</h3></div>
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>观点对照</h3></div>
         <div class="stack-grid">
           <article v-for="card in state.data.value.claim_cards" :key="card.claim_id" class="signal-card">
             <div class="signal-top">
@@ -193,9 +193,9 @@ watch(
         </div>
       </section>
 
-      <section class="panel">
-        <div class="panel-header"><h3>同公司研报横向对比</h3></div>
-        <div class="tag-row">
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>同公司研报横向对比</h3></div>
+        <div class="tag-row" style="margin-bottom: 16px;">
           <TagPill v-for="insight in state.data.value.research_compare.insights" :key="insight.title" :label="insight.title" tone="risk" />
         </div>
         <div class="stack-grid">

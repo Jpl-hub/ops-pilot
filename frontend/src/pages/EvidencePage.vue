@@ -52,17 +52,19 @@ onMounted(() => {
         <StatCard label="页码" :value="`p.${state.data.value.page}`" :hint="state.data.value.report_period" />
         <StatCard label="公司" :value="state.data.value.company_name" :hint="state.data.value.chunk_id" />
       </section>
-      <section class="panel">
-        <div class="panel-header"><h3>重点片段</h3></div>
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>重点片段</h3></div>
         <div v-if="anchorTerms.length" class="tag-row" style="margin-bottom: 12px;">
           <span class="signal-code">锚点词</span>
           <span v-for="term in anchorTerms" :key="term" class="inline-link">{{ term }}</span>
         </div>
-        <p class="evidence-fulltext evidence-highlight" v-html="highlightedExcerpt" />
+        <div style="padding: 24px; border-radius: 12px; background: #ffffff; border: 1px solid var(--border);">
+          <p class="evidence-fulltext evidence-highlight" v-html="highlightedExcerpt" style="margin: 0;" />
+        </div>
       </section>
-      <section class="panel">
-        <div class="panel-header"><h3>来源信息</h3></div>
-        <div class="detail-list">
+      <section>
+        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>来源信息</h3></div>
+        <div class="detail-list" style="padding: 24px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface);">
           <div class="detail-row"><span>源链接</span><a class="inline-link" :href="state.data.value.source_url" target="_blank" rel="noreferrer">打开原文</a></div>
           <div class="detail-row"><span>本地路径</span><strong>{{ state.data.value.local_path }}</strong></div>
           <div class="detail-row"><span>指纹</span><strong>{{ state.data.value.fingerprint }}</strong></div>
