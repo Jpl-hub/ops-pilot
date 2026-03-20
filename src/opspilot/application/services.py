@@ -723,7 +723,7 @@ class OpsPilotService:
         benchmark_payload = self.benchmark_company(company_name, period)
         alert_workflow = self.alert_workflow(report_period=period)
         task_board = self.task_board(user_role=user_role, report_period=period, limit=20)
-        document_results = self.document_pipeline_results(limit=200)
+        document_upgrades = self.company_document_upgrades(company_name, period)
 
         alert_items = [
             item for item in alert_workflow["alerts"] if item["company_name"] == company_name
@@ -734,9 +734,6 @@ class OpsPilotService:
             company_name=company_name,
             user_role=user_role,
             report_period=period,
-        )
-        upgrade_items = _filter_document_results_for_company(
-            document_results["results"], company_name, period
         )
         research_status: dict[str, Any]
         try:
@@ -822,14 +819,61 @@ class OpsPilotService:
                 "task_count": len(task_items) if watch_item else 0,
             },
             "document_upgrades": {
-                "count": len(upgrade_items),
-                "items": upgrade_items,
+                "count": document_upgrades["count"],
+                "stage_summary": document_upgrades["stage_summary"],
+                "items": document_upgrades["items"],
             },
             "recent_runs": _filter_workspace_runs_for_company(
                 self.workspace_runs(limit=50)["runs"],
                 company_name,
                 period,
             ),
+        }
+
+    def company_document_upgrades(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        document_results = self.document_pipeline_results(limit=300)
+        upgrade_items = _filter_document_results_for_company(
+            document_results["results"], company_name, period
+        )
+        enriched_items: list[dict[str, Any]] = []
+        stage_summary: dict[str, int] = {}
+        for item in upgrade_items[:limit]:
+            stage = item["stage"]
+            stage_summary[stage] = stage_summary.get(stage, 0) + 1
+            artifact_preview = None
+            if item.get("status") == "completed":
+                try:
+                    detail = self.document_pipeline_result_detail(stage, item["report_id"])
+                    artifact_preview = _build_document_artifact_preview(detail["artifact"])
+                except ValueError:
+                    artifact_preview = None
+            enriched_items.append(
+                {
+                    **item,
+                    "artifact_preview": artifact_preview,
+                    "route": {
+                        "path": "/admin",
+                        "query": {
+                            "stage": stage,
+                            "report_id": item["report_id"],
+                        },
+                        "label": "查看解析详情",
+                    },
+                }
+            )
+        return {
+            "company_name": company_name,
+            "report_period": period,
+            "count": len(upgrade_items),
+            "stage_summary": stage_summary,
+            "items": enriched_items,
         }
 
     def company_graph(
@@ -1634,6 +1678,9 @@ class OpsPilotService:
                 "meta": {
                     "query_type": item.get("query_type"),
                     "detail_path": item.get("detail_path"),
+                    "route": {
+                        "path": f"/api/v1/workspace/runs/{item['run_id']}",
+                    },
                 },
             }
             for item in self.workspace_runs(limit=200)["runs"]
@@ -1652,6 +1699,9 @@ class OpsPilotService:
                 "meta": {
                     "tracked_companies": item.get("summary", {}).get("tracked_companies"),
                     "companies_with_new_alerts": item.get("summary", {}).get("companies_with_new_alerts"),
+                    "route": {
+                        "path": f"/api/v1/watchboard/runs/{item['run_id']}",
+                    },
                 },
             }
             for item in self.watchboard_runs(
@@ -1673,6 +1723,9 @@ class OpsPilotService:
                 "meta": {
                     "stage": item.get("stage"),
                     "artifact_summary": item.get("artifact_summary"),
+                    "route": {
+                        "path": f"/api/v1/admin/document-pipeline/results/{item['stage']}/{item['report_id']}",
+                    },
                 },
             }
             for item in self.document_pipeline_results(limit=300)["results"]
@@ -3485,6 +3538,43 @@ def _filter_document_results_for_company(
         reverse=True,
     )
     return filtered
+
+
+def _build_document_artifact_preview(artifact: dict[str, Any]) -> dict[str, Any]:
+    preview: dict[str, Any] = {}
+    if summary := artifact.get("summary"):
+        preview["summary"] = summary
+    if headings := artifact.get("headings"):
+        preview["headings"] = [
+            {
+                "text": item.get("text"),
+                "level": item.get("level"),
+                "page": item.get("page"),
+            }
+            for item in headings[:5]
+        ]
+    if merges := artifact.get("merged_sections"):
+        preview["merged_sections"] = [
+            {
+                "title": item.get("title"),
+                "page_range": item.get("page_range"),
+                "page_start": item.get("page_start"),
+                "page_end": item.get("page_end"),
+            }
+            for item in merges[:5]
+        ]
+    if cells := artifact.get("cells"):
+        preview["cells"] = cells[:5]
+    if tables := artifact.get("tables"):
+        preview["tables"] = [
+            {
+                "title": item.get("title"),
+                "page": item.get("page"),
+                "continued": item.get("continued"),
+            }
+            for item in tables[:5]
+        ]
+    return preview
 
 
 def _graph_node_id(prefix: str, value: str) -> str:

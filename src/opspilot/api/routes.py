@@ -382,6 +382,23 @@ def company_workspace(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/company/document-upgrades")
+def company_document_upgrades(
+    company_name: str,
+    report_period: str | None = None,
+    limit: int = 20,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    try:
+        return get_service().company_document_upgrades(
+            company_name,
+            report_period,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/company/graph")
 def company_graph(
     company_name: str,
