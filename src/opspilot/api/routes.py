@@ -399,6 +399,25 @@ def company_document_upgrades(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/company/execution-stream")
+def company_execution_stream(
+    company_name: str,
+    report_period: str | None = None,
+    user_role: str = "management",
+    limit: int = 30,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    try:
+        return get_service().company_execution_stream(
+            company_name,
+            report_period,
+            user_role=user_role,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/company/graph")
 def company_graph(
     company_name: str,

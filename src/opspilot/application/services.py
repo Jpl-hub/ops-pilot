@@ -843,11 +843,139 @@ class OpsPilotService:
                 "stage_summary": document_upgrades["stage_summary"],
                 "items": document_upgrades["items"],
             },
+            "execution_stream": self.company_execution_stream(
+                company_name,
+                period,
+                user_role=user_role,
+                limit=30,
+            ),
             "recent_runs": _filter_workspace_runs_for_company(
                 self.workspace_runs(limit=50)["runs"],
                 company_name,
                 period,
             ),
+        }
+
+    def company_execution_stream(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+        limit: int = 30,
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        alert_items = [
+            {
+                "stream_type": "alert",
+                "id": item["alert_id"],
+                "title": f"{item['company_name']} 预警",
+                "status": item["status"],
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "priority": item.get("priority"),
+                    "reason": item.get("summary"),
+                    "route": {
+                        "path": "/risk",
+                        "query": {"company": company_name},
+                    },
+                },
+            }
+            for item in self.alert_workflow(report_period=period)["alerts"]
+            if item["company_name"] == company_name
+        ]
+        task_items = [
+            {
+                "stream_type": "task",
+                "id": item["task_id"],
+                "title": item["title"],
+                "status": item["status"],
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "priority": item.get("priority"),
+                    "owner": item.get("owner_role"),
+                    "route": {
+                        "path": "/workspace",
+                        "query": {"company": company_name},
+                    },
+                },
+            }
+            for item in self.task_board(user_role=user_role, report_period=period, limit=200)["tasks"]
+            if item["company_name"] == company_name
+        ]
+        watch_item = _find_watchboard_record(
+            self.settings,
+            company_name=company_name,
+            user_role=user_role,
+            report_period=period,
+        )
+        watch_records = []
+        if watch_item is not None:
+            watch_records.append(
+                {
+                    "stream_type": "watchboard",
+                    "id": f"watch::{company_name}::{period}::{user_role}",
+                    "title": "已加入重点监测",
+                    "status": "tracked",
+                    "created_at": watch_item.get("updated_at") or watch_item.get("created_at"),
+                    "meta": {
+                        "note": watch_item.get("note"),
+                        "route": {
+                            "path": "/workspace",
+                            "query": {"company": company_name},
+                        },
+                    },
+                }
+            )
+        document_items = [
+            {
+                "stream_type": "document_upgrade",
+                "id": f"{item['stage']}::{item['report_id']}",
+                "title": f"{item['stage']} · {item['company_name']}",
+                "status": item.get("status"),
+                "created_at": item.get("completed_at"),
+                "meta": {
+                    "stage": item.get("stage"),
+                    "route": item.get("route"),
+                    "evidence_navigation": item.get("evidence_navigation"),
+                },
+            }
+            for item in self.company_document_upgrades(company_name, period, limit=100)["items"]
+        ]
+        analysis_runs = [
+            {
+                "stream_type": "analysis_run",
+                "id": item["run_id"],
+                "title": item.get("query") or "分析执行",
+                "status": "completed",
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "query_type": item.get("query_type"),
+                    "route": {
+                        "path": f"/api/v1/workspace/runs/{item['run_id']}",
+                    },
+                },
+            }
+            for item in self.workspace_runs(limit=200)["runs"]
+            if item.get("company_name") == company_name
+            and item.get("report_period") == period
+            and item.get("user_role") == user_role
+        ]
+        records = alert_items + task_items + watch_records + document_items + analysis_runs
+        records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        return {
+            "company_name": company_name,
+            "report_period": period,
+            "user_role": user_role,
+            "total": len(records),
+            "summary": {
+                "alerts": len(alert_items),
+                "tasks": len(task_items),
+                "watch_records": len(watch_records),
+                "document_upgrades": len(document_items),
+                "analysis_runs": len(analysis_runs),
+            },
+            "records": records[:limit],
         }
 
     def company_document_upgrades(
