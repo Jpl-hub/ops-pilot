@@ -21,6 +21,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: ops-pilot-api
+    working_dir: /app
     environment:
       OPS_PILOT_ENV: development
       OPS_PILOT_HOST: 0.0.0.0
@@ -31,6 +32,10 @@ services:
       OPS_PILOT_BRONZE_DATA_PATH: data/bronze/official
       OPS_PILOT_SILVER_DATA_PATH: data/silver/official
       OPS_PILOT_POSTGRES_DSN: postgresql+psycopg://ops_pilot:ops_pilot@postgres:5432/ops_pilot
+      PYTHONPATH: /app/src
+    volumes:
+      - ./:/app
+    command: ["python", "-m", "uvicorn", "opspilot.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
     depends_on:
