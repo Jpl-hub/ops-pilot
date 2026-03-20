@@ -900,6 +900,15 @@ class ServicesTestCase(unittest.TestCase):
             run_detail = service.watchboard_run_detail(scan["run"]["run_id"])
             self.assertEqual(run_detail["items"][0]["company_name"], "测试公司")
 
+            dispatch = service.dispatch_watchboard_alerts(
+                user_role="management",
+                report_period="2025Q3",
+                limit=5,
+            )
+            self.assertEqual(dispatch["summary"]["dispatched_alerts"], 1)
+            self.assertEqual(dispatch["dispatched"][0]["company_name"], "测试公司")
+            self.assertEqual(dispatch["alert_board"]["summary"]["dispatched"], 1)
+
             board = service.remove_watch_company(
                 company_name="测试公司",
                 user_role="management",
@@ -1187,6 +1196,22 @@ class ServicesTestCase(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (root / "bronze" / "manifests" / "workspace_watchboard.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "company_name": "测试公司",
+                                "user_role": "management",
+                                "report_period": "2025Q3",
+                                "note": "重点盯防现金链",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
 
             class StubSettings:
                 app_name = "OpsPilot"
@@ -1214,10 +1239,13 @@ class ServicesTestCase(unittest.TestCase):
             self.assertTrue(workspace["tasks"]["items"])
             self.assertTrue(workspace["alerts"]["items"])
             self.assertEqual(workspace["recent_runs"]["count"], 1)
+            self.assertTrue(workspace["watchboard"]["tracked"])
+            self.assertEqual(workspace["watchboard"]["note"], "重点盯防现金链")
             self.assertEqual(graph["company_name"], "测试公司")
             self.assertGreaterEqual(graph["summary"]["node_count"], 5)
             self.assertGreaterEqual(graph["summary"]["edge_count"], 4)
             self.assertEqual(graph["summary"]["run_count"], 1)
+            self.assertTrue(graph["summary"]["watch_tracked"])
 
     def test_admin_overview_returns_health_data_and_job_catalog(self) -> None:
         class StubRepository:

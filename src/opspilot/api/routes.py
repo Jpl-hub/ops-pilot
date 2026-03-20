@@ -18,6 +18,7 @@ from opspilot.api.schemas import (
     ScoreRequest,
     TaskStatusUpdateRequest,
     WatchCompanyRequest,
+    WatchboardDispatchRequest,
     WatchboardScanRequest,
 )
 from opspilot.application.services import OpsPilotService
@@ -300,6 +301,17 @@ def watchboard_run_detail(run_id: str, _: dict = Depends(require_current_user)) 
         return get_service().watchboard_run_detail(run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/watchboard/dispatch")
+def watchboard_dispatch(
+    request: WatchboardDispatchRequest, _: dict = Depends(require_current_user)
+) -> dict:
+    return get_service().dispatch_watchboard_alerts(
+        user_role=request.user_role,
+        report_period=request.report_period,
+        limit=request.limit,
+    )
 
 
 @router.post("/chat/turn")

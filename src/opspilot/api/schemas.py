@@ -77,3 +77,9 @@ class WatchCompanyRequest(BaseModel):
 class WatchboardScanRequest(BaseModel):
     user_role: Literal["investor", "management", "regulator"] = "management"
     report_period: str | None = None
+
+
+class WatchboardDispatchRequest(BaseModel):
+    user_role: Literal["investor", "management", "regulator"] = "management"
+    report_period: str | None = None
+    limit: int = Field(default=10, ge=1, le=50)

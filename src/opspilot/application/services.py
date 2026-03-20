@@ -312,6 +312,62 @@ class OpsPilotService:
             raise ValueError(f"未找到监测扫描记录：{run_id}")
         return record
 
+    def dispatch_watchboard_alerts(
+        self,
+        *,
+        user_role: str = "management",
+        report_period: str | None = None,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        board = self.watchboard(user_role=user_role, report_period=report_period)
+        tracked_companies = {item["company_name"] for item in board["items"]}
+        alert_workflow = self.alert_workflow(report_period=board["report_period"])
+        dispatched: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+
+        for alert in alert_workflow["alerts"]:
+            if len(dispatched) >= limit:
+                break
+            if alert["company_name"] not in tracked_companies:
+                continue
+            if alert["status"] != "new":
+                skipped.append(
+                    {
+                        "alert_id": alert["alert_id"],
+                        "company_name": alert["company_name"],
+                        "status": alert["status"],
+                    }
+                )
+                continue
+            result = self.dispatch_alert_to_task(
+                alert_id=alert["alert_id"],
+                user_role=user_role,
+                report_period=board["report_period"],
+                note="来自监测板批量派发",
+            )
+            dispatched.append(
+                {
+                    "alert_id": alert["alert_id"],
+                    "company_name": alert["company_name"],
+                    "task_id": result["task"]["task_id"],
+                    "task_title": result["task"]["title"],
+                }
+            )
+
+        return {
+            "report_period": board["report_period"],
+            "user_role": user_role,
+            "summary": {
+                "tracked_companies": len(tracked_companies),
+                "dispatched_alerts": len(dispatched),
+                "skipped_alerts": len(skipped),
+            },
+            "dispatched": dispatched,
+            "skipped": skipped[:limit],
+            "task_board": self.task_board(user_role=user_role, report_period=board["report_period"]),
+            "alert_board": self.alert_workflow(report_period=board["report_period"]),
+        }
+
     def add_watch_company(
         self,
         *,
@@ -671,6 +727,12 @@ class OpsPilotService:
             item for item in alert_workflow["alerts"] if item["company_name"] == company_name
         ]
         task_items = [item for item in task_board["tasks"] if item["company_name"] == company_name]
+        watch_item = _find_watchboard_record(
+            self.settings,
+            company_name=company_name,
+            user_role=user_role,
+            report_period=period,
+        )
         upgrade_items = _filter_document_results_for_company(
             document_results["results"], company_name, period
         )
@@ -746,6 +808,17 @@ class OpsPilotService:
                 "items": task_items,
             },
             "research": research_status,
+            "watchboard": {
+                "tracked": watch_item is not None,
+                "note": watch_item.get("note") if watch_item else None,
+                "new_alerts": sum(1 for item in alert_items if item["status"] == "new") if watch_item else 0,
+                "in_progress_alerts": sum(
+                    1 for item in alert_items if item["status"] == "in_progress"
+                )
+                if watch_item
+                else 0,
+                "task_count": len(task_items) if watch_item else 0,
+            },
             "document_upgrades": {
                 "count": len(upgrade_items),
                 "items": upgrade_items,
@@ -877,6 +950,22 @@ class OpsPilotService:
             )
             edges.append({"source": period_node, "target": artifact_node, "label": "解析结果"})
 
+        if workspace["watchboard"]["tracked"]:
+            monitor_node = _graph_node_id("watchboard", company_name)
+            nodes.append(
+                {
+                    "id": monitor_node,
+                    "type": "watchboard",
+                    "label": "监测中",
+                    "meta": {
+                        "note": workspace["watchboard"]["note"],
+                        "new_alerts": workspace["watchboard"]["new_alerts"],
+                        "task_count": workspace["watchboard"]["task_count"],
+                    },
+                }
+            )
+            edges.append({"source": company_node, "target": monitor_node, "label": "持续监测"})
+
         return {
             "company_name": company_name,
             "report_period": workspace["report_period"],
@@ -889,6 +978,7 @@ class OpsPilotService:
                 "alert_count": workspace["alerts"]["summary"]["total"],
                 "document_upgrade_count": workspace["document_upgrades"]["count"],
                 "run_count": workspace["recent_runs"]["count"],
+                "watch_tracked": workspace["watchboard"]["tracked"],
             },
         }
 
@@ -3859,6 +3949,26 @@ def _write_watchboard_manifest(settings: Settings, payload: dict[str, Any]) -> N
     payload["record_count"] = len(payload.get("records", []))
     manifest_path = settings.bronze_data_path / "manifests" / "workspace_watchboard.json"
     _write_json(manifest_path, payload)
+
+
+def _find_watchboard_record(
+    settings: Settings,
+    *,
+    company_name: str,
+    user_role: str,
+    report_period: str,
+) -> dict[str, Any] | None:
+    manifest = _load_watchboard_manifest(settings)
+    return next(
+        (
+            item
+            for item in manifest["records"]
+            if item.get("company_name") == company_name
+            and item.get("user_role") == user_role
+            and item.get("report_period") == report_period
+        ),
+        None,
+    )
 
 
 def _load_watchboard_runs_manifest(settings: Settings) -> dict[str, Any]:
