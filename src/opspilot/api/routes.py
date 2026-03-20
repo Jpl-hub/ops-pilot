@@ -173,6 +173,20 @@ def workspace_runs(limit: int = 20, _: dict = Depends(require_current_user)) -> 
     return get_service().workspace_runs(limit=limit)
 
 
+@router.get("/workspace/history")
+def workspace_history(
+    user_role: str = "management",
+    report_period: str | None = None,
+    limit: int = 30,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().workspace_history(
+        user_role=user_role,
+        report_period=report_period,
+        limit=limit,
+    )
+
+
 @router.get("/workspace/runs/{run_id}")
 def workspace_run_detail(run_id: str, _: dict = Depends(require_current_user)) -> dict:
     try:

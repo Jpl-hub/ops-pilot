@@ -1241,6 +1241,9 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(workspace["recent_runs"]["count"], 1)
             self.assertTrue(workspace["watchboard"]["tracked"])
             self.assertEqual(workspace["watchboard"]["note"], "重点盯防现金链")
+            history = service.workspace_history(user_role="management", report_period="2025Q3")
+            self.assertGreaterEqual(history["total"], 2)
+            self.assertTrue(any(item["history_type"] == "analysis_run" for item in history["records"]))
             self.assertEqual(graph["company_name"], "测试公司")
             self.assertGreaterEqual(graph["summary"]["node_count"], 5)
             self.assertGreaterEqual(graph["summary"]["edge_count"], 4)
@@ -1293,6 +1296,7 @@ class ServicesTestCase(unittest.TestCase):
             self.assertIn("企业评分", payload["capabilities"])
             self.assertIn("document_pipeline_jobs", payload)
             self.assertIn("innovation_radar", payload)
+            self.assertIn("workspace_history", payload)
             self.assertGreaterEqual(payload["innovation_radar"]["summary"]["total"], 1)
 
     def test_document_pipeline_run_creates_upgrade_artifact(self) -> None:

@@ -131,6 +131,7 @@ class OpsPilotService:
         document_pipeline = _build_document_pipeline_overview(data_status, self.settings)
         innovation_radar = self.innovation_radar()
         workspace_runs = self.workspace_runs(limit=8)
+        workspace_history = self.workspace_history(user_role="management", report_period=health["preferred_period"], limit=12)
         return {
             "health": health,
             "data_status": data_status,
@@ -139,6 +140,7 @@ class OpsPilotService:
             "document_pipeline_jobs": self.document_pipeline_jobs(),
             "innovation_radar": innovation_radar,
             "workspace_runs": workspace_runs,
+            "workspace_history": workspace_history,
             "job_catalog": _build_admin_job_catalog(),
             "capabilities": [
                 "企业评分",
@@ -1609,6 +1611,80 @@ class OpsPilotService:
         return {
             "total": len(records),
             "runs": records[:limit],
+        }
+
+    def workspace_history(
+        self,
+        *,
+        user_role: str = "management",
+        report_period: str | None = None,
+        limit: int = 30,
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        analysis_runs = [
+            {
+                "history_type": "analysis_run",
+                "id": item["run_id"],
+                "title": item.get("query") or "分析执行",
+                "company_name": item.get("company_name"),
+                "report_period": item.get("report_period"),
+                "user_role": item.get("user_role"),
+                "status": "completed",
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "query_type": item.get("query_type"),
+                    "detail_path": item.get("detail_path"),
+                },
+            }
+            for item in self.workspace_runs(limit=200)["runs"]
+            if item.get("user_role") == user_role and item.get("report_period") == period
+        ]
+        watch_runs = [
+            {
+                "history_type": "watchboard_scan",
+                "id": item["run_id"],
+                "title": f"监测扫描 {item['report_period']}",
+                "company_name": "、".join(item.get("companies", [])[:3]) or None,
+                "report_period": item.get("report_period"),
+                "user_role": item.get("user_role"),
+                "status": "completed",
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "tracked_companies": item.get("summary", {}).get("tracked_companies"),
+                    "companies_with_new_alerts": item.get("summary", {}).get("companies_with_new_alerts"),
+                },
+            }
+            for item in self.watchboard_runs(
+                user_role=user_role,
+                report_period=period,
+                limit=200,
+            )["runs"]
+        ]
+        document_jobs = [
+            {
+                "history_type": "document_pipeline",
+                "id": f"{item['stage']}::{item['report_id']}",
+                "title": f"{item['stage']} · {item['company_name']}",
+                "company_name": item.get("company_name"),
+                "report_period": item.get("report_period"),
+                "user_role": user_role,
+                "status": item.get("status"),
+                "created_at": item.get("completed_at"),
+                "meta": {
+                    "stage": item.get("stage"),
+                    "artifact_summary": item.get("artifact_summary"),
+                },
+            }
+            for item in self.document_pipeline_results(limit=300)["results"]
+            if item.get("report_period") == period
+        ]
+        records = analysis_runs + watch_runs + document_jobs
+        records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        return {
+            "user_role": user_role,
+            "report_period": period,
+            "total": len(records),
+            "records": records[:limit],
         }
 
     def workspace_run_detail(self, run_id: str) -> dict[str, Any]:
