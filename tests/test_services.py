@@ -827,6 +827,76 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(payload["task"]["status"], "in_progress")
             self.assertEqual(payload["task"]["note"], "从预警派发整改")
 
+    def test_watchboard_persists_company_tracking(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                return {
+                    "company_name": "测试公司",
+                    "report_period": report_period or "2025Q3",
+                    "subindustry": "储能",
+                    "metrics": {"G1": 12.0, "G2": 8.0, "C1": 1.2, "C3": 16.0, "S1": 1.1, "S4": 0.9},
+                    "history": [],
+                    "metric_evidence": {},
+                    "formula_context": {},
+                    "label_evidence": {},
+                }
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [self.get_company("测试公司", report_period or "2025Q3")]
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            board = service.add_watch_company(
+                company_name="测试公司",
+                user_role="management",
+                report_period="2025Q3",
+                note="重点跟踪现金链和预警。",
+            )
+
+            self.assertEqual(board["summary"]["tracked_companies"], 1)
+            self.assertEqual(board["items"][0]["company_name"], "测试公司")
+            self.assertEqual(board["items"][0]["note"], "重点跟踪现金链和预警。")
+
+            board = service.remove_watch_company(
+                company_name="测试公司",
+                user_role="management",
+                report_period="2025Q3",
+            )
+            self.assertEqual(board["summary"]["tracked_companies"], 0)
+            self.assertTrue((root / "bronze" / "manifests" / "workspace_watchboard.json").exists())
+
     def test_document_pipeline_results_and_detail(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

@@ -184,6 +184,7 @@ class OpsPilotService:
             "preferred_period": preferred_period,
             "role_profile": role_profile,
             "companies": [item["company_name"] for item in risk_payload["risk_board"]],
+            "watchboard": self.watchboard(user_role=user_role, report_period=preferred_period),
             "alert_queue": _build_workspace_alert_queue(alert_workflow["alerts"], user_role),
             "alert_workflow_summary": alert_workflow["summary"],
             "task_queue": task_board["tasks"],
@@ -197,6 +198,126 @@ class OpsPilotService:
                 "active_companies": health["preferred_period_companies"],
             },
         }
+
+    def watchboard(
+        self,
+        *,
+        user_role: str = "management",
+        report_period: str | None = None,
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        manifest = _load_watchboard_manifest(self.settings)
+        records = [
+            item
+            for item in manifest["records"]
+            if item.get("user_role") == user_role and item.get("report_period") == period
+        ]
+        watch_items: list[dict[str, Any]] = []
+        for item in records:
+            workspace = self.company_workspace(
+                item["company_name"],
+                period,
+                user_role=user_role,
+            )
+            watch_items.append(
+                {
+                    "company_name": item["company_name"],
+                    "report_period": period,
+                    "user_role": user_role,
+                    "note": item.get("note"),
+                    "score": workspace["score_summary"]["total_score"],
+                    "grade": workspace["score_summary"]["grade"],
+                    "risk_count": workspace["score_summary"]["risk_count"],
+                    "task_count": workspace["tasks"]["summary"]["total"],
+                    "new_alerts": workspace["alerts"]["summary"]["new"],
+                    "in_progress_alerts": workspace["alerts"]["summary"]["in_progress"],
+                    "document_upgrade_count": workspace["document_upgrades"]["count"],
+                    "research_status": workspace["research"]["status"],
+                    "top_risks": workspace["top_risks"][:3],
+                }
+            )
+        watch_items.sort(
+            key=lambda item: (
+                item["new_alerts"],
+                item["in_progress_alerts"],
+                item["risk_count"],
+                -item["score"],
+            ),
+            reverse=True,
+        )
+        return {
+            "report_period": period,
+            "user_role": user_role,
+            "summary": {
+                "tracked_companies": len(watch_items),
+                "companies_with_new_alerts": sum(1 for item in watch_items if item["new_alerts"] > 0),
+                "companies_in_progress": sum(
+                    1 for item in watch_items if item["in_progress_alerts"] > 0 or item["task_count"] > 0
+                ),
+            },
+            "items": watch_items,
+        }
+
+    def add_watch_company(
+        self,
+        *,
+        company_name: str,
+        user_role: str = "management",
+        report_period: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        company = self._resolve_company(company_name, report_period)
+        if company is None:
+            raise ValueError(f"未找到公司：{company_name}")
+        period = report_period or company["report_period"]
+        manifest = _load_watchboard_manifest(self.settings)
+        records = manifest["records"]
+        existing = next(
+            (
+                item
+                for item in records
+                if item["company_name"] == company_name
+                and item["user_role"] == user_role
+                and item["report_period"] == period
+            ),
+            None,
+        )
+        if existing is None:
+            records.append(
+                {
+                    "company_name": company_name,
+                    "user_role": user_role,
+                    "report_period": period,
+                    "note": note,
+                    "created_at": _utcnow_iso(),
+                }
+            )
+        else:
+            existing["note"] = note
+            existing["updated_at"] = _utcnow_iso()
+        _write_watchboard_manifest(self.settings, manifest)
+        return self.watchboard(user_role=user_role, report_period=period)
+
+    def remove_watch_company(
+        self,
+        *,
+        company_name: str,
+        user_role: str = "management",
+        report_period: str | None = None,
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        manifest = _load_watchboard_manifest(self.settings)
+        manifest["records"] = [
+            item
+            for item in manifest["records"]
+            if not (
+                item["company_name"] == company_name
+                and item["user_role"] == user_role
+                and item["report_period"] == period
+            )
+        ]
+        _write_watchboard_manifest(self.settings, manifest)
+        return self.watchboard(user_role=user_role, report_period=period)
 
     def alert_workflow(self, report_period: str | None = None) -> dict[str, Any]:
         period = report_period or self._preferred_period()
@@ -3661,6 +3782,28 @@ def _write_task_board_manifest(settings: Settings, payload: dict[str, Any]) -> N
     payload["generated_at"] = _utcnow_iso()
     payload["record_count"] = len(payload.get("records", {}))
     manifest_path = settings.bronze_data_path / "manifests" / "workspace_task_board.json"
+    _write_json(manifest_path, payload)
+
+
+def _load_watchboard_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_watchboard.json"
+    if not manifest_path.exists():
+        payload = {"generated_at": _utcnow_iso(), "record_count": 0, "records": []}
+        _write_json(manifest_path, payload)
+        return payload
+    with manifest_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return {
+        "generated_at": payload.get("generated_at"),
+        "record_count": payload.get("record_count", len(payload.get("records", []))),
+        "records": payload.get("records", []),
+    }
+
+
+def _write_watchboard_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", []))
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_watchboard.json"
     _write_json(manifest_path, payload)
 
 

@@ -17,6 +17,7 @@ from opspilot.api.schemas import (
     RegisterRequest,
     ScoreRequest,
     TaskStatusUpdateRequest,
+    WatchCompanyRequest,
 )
 from opspilot.application.services import OpsPilotService
 from opspilot.config import get_settings
@@ -233,6 +234,39 @@ def alert_dispatch(request: AlertDispatchRequest, _: dict = Depends(require_curr
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/watchboard")
+def watchboard(
+    user_role: str = "management",
+    report_period: str | None = None,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().watchboard(user_role=user_role, report_period=report_period)
+
+
+@router.post("/watchboard/add")
+def watchboard_add(request: WatchCompanyRequest, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().add_watch_company(
+            company_name=request.company_name,
+            user_role=request.user_role,
+            report_period=request.report_period,
+            note=request.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/watchboard/remove")
+def watchboard_remove(
+    request: WatchCompanyRequest, _: dict = Depends(require_current_user)
+) -> dict:
+    return get_service().remove_watch_company(
+        company_name=request.company_name,
+        user_role=request.user_role,
+        report_period=request.report_period,
+    )
 
 
 @router.post("/chat/turn")
