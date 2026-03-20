@@ -48,9 +48,10 @@ services:
     working_dir: /app/frontend
     volumes:
       - ./:/app
+      - ui_node_modules:/app/frontend/node_modules
     environment:
       VITE_PROXY_TARGET: http://api:8000
-    command: ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0 --port 8080 --strictPort"]
+    command: ["sh", "-c", "if [ ! -x /app/frontend/node_modules/.bin/vite ]; then npm ci; fi && npm run dev -- --host 0.0.0.0 --port 8080 --strictPort"]
     ports:
       - "8080:8080"
     depends_on:
@@ -59,3 +60,4 @@ services:
 
 volumes:
   postgres_data:
+  ui_node_modules:

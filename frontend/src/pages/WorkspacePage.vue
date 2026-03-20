@@ -25,6 +25,7 @@ const {
   alertQueue,
   alertWorkflowSummary,
   overviewSummary,
+  executionBus,
   followUps,
   agentFlow,
   controlPlane,
@@ -58,6 +59,10 @@ async function runQuery(inputQuery?: string) {
 
 async function dispatchAlert(alertId: string) {
   await workspace.dispatchAlertToTask(alertId, session.activeRole.value || 'management')
+}
+
+function canNavigate(path?: string) {
+  return Boolean(path && path.startsWith('/') && !path.startsWith('/api/'))
 }
 
 onMounted(async () => {
@@ -172,6 +177,25 @@ watch(
             <strong>{{ item }}</strong>
             <span>继续深入</span>
           </button>
+        </div>
+
+        <div v-if="executionBus.length" class="subsection-label" style="margin-top: 18px;">执行总线</div>
+        <div class="timeline-list">
+          <div
+            v-for="item in executionBus.slice(0, 5)"
+            :key="`${item.bus_type}-${item.id}`"
+            class="timeline-item"
+          >
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.company_name || '系统记录' }} · {{ item.status }}</span>
+            <RouterLink
+              v-if="canNavigate(item.meta?.route?.path)"
+              class="inline-link"
+              :to="{ path: item.meta.route.path, query: item.meta.route.query || {} }"
+            >
+              查看入口
+            </RouterLink>
+          </div>
         </div>
       </aside>
 

@@ -18,6 +18,10 @@ type WorkspaceOverview = {
     active_companies: number
     preferred_period: string
   } | null
+  execution_bus_records?: {
+    total: number
+    records: any[]
+  } | null
 }
 
 export const useWorkspaceStore = defineStore('workspace', {
@@ -39,6 +43,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     alertQueue: (state) => state.overview?.alert_queue || [],
     alertWorkflowSummary: (state) => state.overview?.alert_workflow_summary || null,
     overviewSummary: (state) => state.overview?.alert_summary || null,
+    executionBus: (state) => state.overview?.execution_bus_records?.records || [],
     followUps: (state) => state.latestPayload?.follow_up_questions || [],
     agentFlow: (state) => state.latestPayload?.agent_flow || [],
     controlPlane: (state) => state.latestPayload?.control_plane || null,
