@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, RouterLink } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -12,12 +13,29 @@ import { get, post } from '@/lib/api'
 const state = useAsyncState<any>()
 const pipelineRunState = useAsyncState<any>()
 const resultsState = useAsyncState<any>()
+const detailState = useAsyncState<any>()
 const runningStage = ref('')
+const route = useRoute()
+
+const selectedStage = computed(() => String(route.query.stage || ''))
+const selectedReportId = computed(() => String(route.query.report_id || ''))
 
 onMounted(() => {
   void state.execute(() => get('/admin/overview'))
   void resultsState.execute(() => get('/admin/document-pipeline/results?limit=12'))
 })
+
+watch(
+  [selectedStage, selectedReportId],
+  async ([stage, reportId]) => {
+    if (!stage || !reportId) {
+      detailState.data.value = null
+      return
+    }
+    await detailState.execute(() => get(`/admin/document-pipeline/results/${encodeURIComponent(stage)}/${encodeURIComponent(reportId)}`))
+  },
+  { immediate: true },
+)
 
 async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_trace') {
   runningStage.value = stage
@@ -135,7 +153,59 @@ async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_tr
               <div class="metric-row"><span>报告</span><strong>{{ job.report_id }}</strong></div>
               <div class="metric-row"><span>摘要</span><strong>{{ job.artifact_summary || '-' }}</strong></div>
             </div>
+            <RouterLink
+              class="inline-link"
+              :to="{ path: '/admin', query: { stage: job.stage, report_id: job.report_id } }"
+            >
+              查看详情
+            </RouterLink>
           </article>
+        </div>
+      </section>
+
+      <section v-if="detailState.data.value" class="panel" style="margin-top: 24px;">
+        <div class="panel-header">
+          <h3>解析详情</h3>
+        </div>
+        <div class="detail-list">
+          <div class="detail-row"><span>阶段</span><strong>{{ detailState.data.value.job.stage }}</strong></div>
+          <div class="detail-row"><span>公司</span><strong>{{ detailState.data.value.job.company_name }}</strong></div>
+          <div class="detail-row"><span>报期</span><strong>{{ detailState.data.value.job.report_period || '-' }}</strong></div>
+          <div class="detail-row"><span>状态</span><strong>{{ detailState.data.value.job.status }}</strong></div>
+        </div>
+        <div class="timeline-list" style="margin-top: 16px;">
+          <div
+            v-for="section in detailState.data.value.consumable_sections || []"
+            :key="section.section_type"
+            class="timeline-item"
+          >
+            <strong>{{ section.title }}</strong>
+            <span>{{ section.count }} 条</span>
+            <div class="metric-list">
+              <div
+                v-for="item in section.items.slice(0, 5)"
+                :key="JSON.stringify(item)"
+                class="metric-row"
+              >
+                <span>{{ item.text || item.title || item.reason || '条目' }}</span>
+                <strong>{{ item.page || item.level || item.to_page || '-' }}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div
+          v-if="detailState.data.value.evidence_navigation?.links?.length"
+          class="tag-row"
+          style="margin-top: 16px;"
+        >
+          <RouterLink
+            v-for="link in detailState.data.value.evidence_navigation.links"
+            :key="`${link.path}-${link.label}`"
+            class="inline-link"
+            :to="{ path: link.path, query: link.query || {} }"
+          >
+            {{ link.label }}
+          </RouterLink>
         </div>
       </section>
 

@@ -189,6 +189,13 @@ class OpsPilotService:
             limit=200,
         )
         document_results = self.document_pipeline_results(limit=300)
+        execution_bus = _build_workspace_execution_bus_records(
+            task_board=task_board,
+            alert_workflow=alert_workflow,
+            watchboard=watchboard,
+            workspace_history=history,
+            limit=20,
+        )
         return {
             "preferred_period": preferred_period,
             "role_profile": role_profile,
@@ -202,11 +209,7 @@ class OpsPilotService:
                 "total": history["total"],
                 "records": history["records"][:10],
             },
-            "execution_bus_records": self.workspace_execution_bus(
-                user_role=user_role,
-                report_period=preferred_period,
-                limit=20,
-            ),
+            "execution_bus_records": execution_bus,
             "execution_bus_summary": _build_execution_bus_summary(
                 task_board=task_board,
                 alert_workflow=alert_workflow,
@@ -234,73 +237,19 @@ class OpsPilotService:
         limit: int = 50,
     ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
-        task_records = [
-            {
-                "bus_type": "task",
-                "id": item["task_id"],
-                "title": item["title"],
-                "company_name": item["company_name"],
-                "status": item["status"],
-                "created_at": item.get("updated_at"),
-                "meta": {
-                    "priority": item.get("priority"),
-                    "route": item.get("route"),
-                },
-            }
-            for item in self.task_board(user_role=user_role, report_period=period, limit=200)["tasks"]
-        ]
-        alert_records = [
-            {
-                "bus_type": "alert",
-                "id": item["alert_id"],
-                "title": f"{item['company_name']} 预警",
-                "company_name": item["company_name"],
-                "status": item["status"],
-                "created_at": item.get("updated_at"),
-                "meta": {
-                    "summary": item.get("summary"),
-                    "route": {"path": "/risk", "query": {"company": item["company_name"]}},
-                },
-            }
-            for item in self.alert_workflow(report_period=period)["alerts"]
-        ]
-        watch_records = [
-            {
-                "bus_type": "watchboard",
-                "id": f"watch::{item['company_name']}::{period}::{user_role}",
-                "title": "重点监测",
-                "company_name": item["company_name"],
-                "status": "tracked",
-                "created_at": None,
-                "meta": {
-                    "new_alerts": item.get("new_alerts"),
-                    "task_count": item.get("task_count"),
-                    "route": {"path": "/workspace", "query": {"company": item["company_name"]}},
-                },
-            }
-            for item in self.watchboard(user_role=user_role, report_period=period)["items"]
-        ]
         history = self.workspace_history(user_role=user_role, report_period=period, limit=200)
-        history_records = [
-            {
-                "bus_type": item["history_type"],
-                "id": item["id"],
-                "title": item["title"],
-                "company_name": item.get("company_name"),
-                "status": item.get("status"),
-                "created_at": item.get("created_at"),
-                "meta": item.get("meta"),
-            }
-            for item in history["records"]
-        ]
-        records = task_records + alert_records + watch_records + history_records
-        records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
-        return {
-            "user_role": user_role,
-            "report_period": period,
-            "total": len(records),
-            "records": records[:limit],
-        }
+        task_board = self.task_board(user_role=user_role, report_period=period, limit=200)
+        alert_workflow = self.alert_workflow(report_period=period)
+        watchboard = self.watchboard(user_role=user_role, report_period=period)
+        return _build_workspace_execution_bus_records(
+            task_board=task_board,
+            alert_workflow=alert_workflow,
+            watchboard=watchboard,
+            workspace_history=history,
+            limit=limit,
+            user_role=user_role,
+            report_period=period,
+        )
 
     def watchboard(
         self,
@@ -4118,6 +4067,84 @@ def _build_execution_bus_summary(
             "watchboard_scans": sum(1 for item in history_records if item.get("history_type") == "watchboard_scan"),
             "document_jobs": sum(1 for item in history_records if item.get("history_type") == "document_pipeline"),
         },
+    }
+
+
+def _build_workspace_execution_bus_records(
+    *,
+    task_board: dict[str, Any],
+    alert_workflow: dict[str, Any],
+    watchboard: dict[str, Any],
+    workspace_history: dict[str, Any],
+    limit: int,
+    user_role: str | None = None,
+    report_period: str | None = None,
+) -> dict[str, Any]:
+    task_records = [
+        {
+            "bus_type": "task",
+            "id": item["task_id"],
+            "title": item["title"],
+            "company_name": item["company_name"],
+            "status": item["status"],
+            "created_at": item.get("updated_at"),
+            "meta": {
+                "priority": item.get("priority"),
+                "route": item.get("route"),
+            },
+        }
+        for item in task_board["tasks"]
+    ]
+    alert_records = [
+        {
+            "bus_type": "alert",
+            "id": item["alert_id"],
+            "title": f"{item['company_name']} 预警",
+            "company_name": item["company_name"],
+            "status": item["status"],
+            "created_at": item.get("updated_at"),
+            "meta": {
+                "summary": item.get("summary"),
+                "route": {"path": "/risk", "query": {"company": item["company_name"]}},
+            },
+        }
+        for item in alert_workflow["alerts"]
+    ]
+    watch_records = [
+        {
+            "bus_type": "watchboard",
+            "id": f"watch::{item['company_name']}::{watchboard['report_period']}::{watchboard['user_role']}",
+            "title": "重点监测",
+            "company_name": item["company_name"],
+            "status": "tracked",
+            "created_at": None,
+            "meta": {
+                "new_alerts": item.get("new_alerts"),
+                "task_count": item.get("task_count"),
+                "route": {"path": "/workspace", "query": {"company": item["company_name"]}},
+            },
+        }
+        for item in watchboard["items"]
+    ]
+    history_records = [
+        {
+            "bus_type": item["history_type"],
+            "id": item["id"],
+            "title": item["title"],
+            "company_name": item.get("company_name"),
+            "status": item.get("status"),
+            "created_at": item.get("created_at"),
+            "meta": item.get("meta"),
+        }
+        for item in workspace_history["records"]
+    ]
+    records = task_records + alert_records + watch_records + history_records
+    records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    return {
+        "user_role": user_role or watchboard.get("user_role"),
+        "report_period": report_period or watchboard.get("report_period"),
+        "total": len(records),
+        "records": records[:limit],
     }
 
 
