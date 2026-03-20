@@ -258,6 +258,60 @@ class OpsPilotService:
             "items": watch_items,
         }
 
+    def scan_watchboard(
+        self,
+        *,
+        user_role: str = "management",
+        report_period: str | None = None,
+    ) -> dict[str, Any]:
+        board = self.watchboard(user_role=user_role, report_period=report_period)
+        run_id = _build_watchboard_run_id(user_role, board["report_period"])
+        manifest = _load_watchboard_runs_manifest(self.settings)
+        record = {
+            "run_id": run_id,
+            "user_role": user_role,
+            "report_period": board["report_period"],
+            "summary": board["summary"],
+            "companies": [item["company_name"] for item in board["items"]],
+            "items": board["items"],
+            "created_at": _utcnow_iso(),
+        }
+        manifest["records"].append(record)
+        _write_watchboard_runs_manifest(self.settings, manifest)
+        return {
+            "run": record,
+            "board": board,
+        }
+
+    def watchboard_runs(
+        self,
+        *,
+        user_role: str = "management",
+        report_period: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        manifest = _load_watchboard_runs_manifest(self.settings)
+        records = [
+            item
+            for item in manifest["records"]
+            if item.get("user_role") == user_role and item.get("report_period") == period
+        ]
+        records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        return {
+            "user_role": user_role,
+            "report_period": period,
+            "total": len(records),
+            "runs": records[:limit],
+        }
+
+    def watchboard_run_detail(self, run_id: str) -> dict[str, Any]:
+        manifest = _load_watchboard_runs_manifest(self.settings)
+        record = next((item for item in manifest["records"] if item.get("run_id") == run_id), None)
+        if record is None:
+            raise ValueError(f"未找到监测扫描记录：{run_id}")
+        return record
+
     def add_watch_company(
         self,
         *,
@@ -3805,6 +3859,32 @@ def _write_watchboard_manifest(settings: Settings, payload: dict[str, Any]) -> N
     payload["record_count"] = len(payload.get("records", []))
     manifest_path = settings.bronze_data_path / "manifests" / "workspace_watchboard.json"
     _write_json(manifest_path, payload)
+
+
+def _load_watchboard_runs_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_watchboard_runs.json"
+    if not manifest_path.exists():
+        payload = {"generated_at": _utcnow_iso(), "record_count": 0, "records": []}
+        _write_json(manifest_path, payload)
+        return payload
+    with manifest_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return {
+        "generated_at": payload.get("generated_at"),
+        "record_count": payload.get("record_count", len(payload.get("records", []))),
+        "records": payload.get("records", []),
+    }
+
+
+def _write_watchboard_runs_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", []))
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_watchboard_runs.json"
+    _write_json(manifest_path, payload)
+
+
+def _build_watchboard_run_id(user_role: str, report_period: str) -> str:
+    return f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{user_role}-{report_period.lower()}"
 
 
 def _build_task_id(report_period: str, company_name: str, priority: str, title: str) -> str:

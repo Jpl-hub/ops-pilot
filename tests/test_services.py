@@ -889,6 +889,17 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(board["items"][0]["company_name"], "测试公司")
             self.assertEqual(board["items"][0]["note"], "重点跟踪现金链和预警。")
 
+            scan = service.scan_watchboard(user_role="management", report_period="2025Q3")
+            self.assertEqual(scan["run"]["summary"]["tracked_companies"], 1)
+            self.assertEqual(scan["run"]["items"][0]["company_name"], "测试公司")
+
+            runs = service.watchboard_runs(user_role="management", report_period="2025Q3")
+            self.assertEqual(runs["total"], 1)
+            self.assertEqual(runs["runs"][0]["companies"], ["测试公司"])
+
+            run_detail = service.watchboard_run_detail(scan["run"]["run_id"])
+            self.assertEqual(run_detail["items"][0]["company_name"], "测试公司")
+
             board = service.remove_watch_company(
                 company_name="测试公司",
                 user_role="management",
@@ -896,6 +907,7 @@ class ServicesTestCase(unittest.TestCase):
             )
             self.assertEqual(board["summary"]["tracked_companies"], 0)
             self.assertTrue((root / "bronze" / "manifests" / "workspace_watchboard.json").exists())
+            self.assertTrue((root / "bronze" / "manifests" / "workspace_watchboard_runs.json").exists())
 
     def test_document_pipeline_results_and_detail(self) -> None:
         class StubRepository:

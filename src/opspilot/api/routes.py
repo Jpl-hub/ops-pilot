@@ -18,6 +18,7 @@ from opspilot.api.schemas import (
     ScoreRequest,
     TaskStatusUpdateRequest,
     WatchCompanyRequest,
+    WatchboardScanRequest,
 )
 from opspilot.application.services import OpsPilotService
 from opspilot.config import get_settings
@@ -267,6 +268,38 @@ def watchboard_remove(
         user_role=request.user_role,
         report_period=request.report_period,
     )
+
+
+@router.post("/watchboard/scan")
+def watchboard_scan(
+    request: WatchboardScanRequest, _: dict = Depends(require_current_user)
+) -> dict:
+    return get_service().scan_watchboard(
+        user_role=request.user_role,
+        report_period=request.report_period,
+    )
+
+
+@router.get("/watchboard/runs")
+def watchboard_runs(
+    user_role: str = "management",
+    report_period: str | None = None,
+    limit: int = 20,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().watchboard_runs(
+        user_role=user_role,
+        report_period=report_period,
+        limit=limit,
+    )
+
+
+@router.get("/watchboard/runs/{run_id}")
+def watchboard_run_detail(run_id: str, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().watchboard_run_detail(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/chat/turn")
