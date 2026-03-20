@@ -202,6 +202,11 @@ class OpsPilotService:
                 "total": history["total"],
                 "records": history["records"][:10],
             },
+            "execution_bus_records": self.workspace_execution_bus(
+                user_role=user_role,
+                report_period=preferred_period,
+                limit=20,
+            ),
             "execution_bus_summary": _build_execution_bus_summary(
                 task_board=task_board,
                 alert_workflow=alert_workflow,
@@ -217,8 +222,84 @@ class OpsPilotService:
                     1 for item in risk_payload["risk_board"] if item["risk_count"] > 0
                 ),
                 "preferred_period": preferred_period,
-                "active_companies": health["preferred_period_companies"],
+            "active_companies": health["preferred_period_companies"],
             },
+        }
+
+    def workspace_execution_bus(
+        self,
+        *,
+        user_role: str = "management",
+        report_period: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        task_records = [
+            {
+                "bus_type": "task",
+                "id": item["task_id"],
+                "title": item["title"],
+                "company_name": item["company_name"],
+                "status": item["status"],
+                "created_at": item.get("updated_at"),
+                "meta": {
+                    "priority": item.get("priority"),
+                    "route": item.get("route"),
+                },
+            }
+            for item in self.task_board(user_role=user_role, report_period=period, limit=200)["tasks"]
+        ]
+        alert_records = [
+            {
+                "bus_type": "alert",
+                "id": item["alert_id"],
+                "title": f"{item['company_name']} 预警",
+                "company_name": item["company_name"],
+                "status": item["status"],
+                "created_at": item.get("updated_at"),
+                "meta": {
+                    "summary": item.get("summary"),
+                    "route": {"path": "/risk", "query": {"company": item["company_name"]}},
+                },
+            }
+            for item in self.alert_workflow(report_period=period)["alerts"]
+        ]
+        watch_records = [
+            {
+                "bus_type": "watchboard",
+                "id": f"watch::{item['company_name']}::{period}::{user_role}",
+                "title": "重点监测",
+                "company_name": item["company_name"],
+                "status": "tracked",
+                "created_at": None,
+                "meta": {
+                    "new_alerts": item.get("new_alerts"),
+                    "task_count": item.get("task_count"),
+                    "route": {"path": "/workspace", "query": {"company": item["company_name"]}},
+                },
+            }
+            for item in self.watchboard(user_role=user_role, report_period=period)["items"]
+        ]
+        history = self.workspace_history(user_role=user_role, report_period=period, limit=200)
+        history_records = [
+            {
+                "bus_type": item["history_type"],
+                "id": item["id"],
+                "title": item["title"],
+                "company_name": item.get("company_name"),
+                "status": item.get("status"),
+                "created_at": item.get("created_at"),
+                "meta": item.get("meta"),
+            }
+            for item in history["records"]
+        ]
+        records = task_records + alert_records + watch_records + history_records
+        records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        return {
+            "user_role": user_role,
+            "report_period": period,
+            "total": len(records),
+            "records": records[:limit],
         }
 
     def watchboard(
@@ -1148,6 +1229,23 @@ class OpsPilotService:
                 }
             )
             edges.append({"source": period_node, "target": artifact_node, "label": "解析结果"})
+            evidence_navigation = item.get("evidence_navigation") or {}
+            primary_route = evidence_navigation.get("primary_route") or {}
+            if primary_route.get("path"):
+                evidence_node = _graph_node_id("artifact_evidence", f"{item['stage']}::{item['report_id']}")
+                nodes.append(
+                    {
+                        "id": evidence_node,
+                        "type": "artifact_evidence",
+                        "label": "证据导航",
+                        "meta": {
+                            "path": primary_route.get("path"),
+                            "page": primary_route.get("page"),
+                            "anchor_terms": evidence_navigation.get("anchor_terms", []),
+                        },
+                    }
+                )
+                edges.append({"source": artifact_node, "target": evidence_node, "label": "证据入口"})
 
         if workspace["watchboard"]["tracked"]:
             monitor_node = _graph_node_id("watchboard", company_name)
@@ -1164,6 +1262,22 @@ class OpsPilotService:
                 }
             )
             edges.append({"source": company_node, "target": monitor_node, "label": "持续监测"})
+
+        for stream in workspace["execution_stream"]["records"][:8]:
+            stream_node = _graph_node_id("stream", f"{stream['stream_type']}::{stream['id']}")
+            nodes.append(
+                {
+                    "id": stream_node,
+                    "type": "execution_stream",
+                    "label": stream["title"],
+                    "meta": {
+                        "stream_type": stream["stream_type"],
+                        "status": stream.get("status"),
+                        "created_at": stream.get("created_at"),
+                    },
+                }
+            )
+            edges.append({"source": company_node, "target": stream_node, "label": "执行流"})
 
         return {
             "company_name": company_name,

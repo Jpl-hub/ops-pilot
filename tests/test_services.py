@@ -1266,13 +1266,16 @@ class ServicesTestCase(unittest.TestCase):
             self.assertIn("/api/v1/admin/document-pipeline/results/title_hierarchy/demo-report", document_record["meta"]["route"]["path"])
             overview = service.workspace_overview(user_role="management")
             self.assertIn("execution_bus_summary", overview)
+            self.assertIn("execution_bus_records", overview)
             self.assertGreaterEqual(overview["execution_bus_summary"]["document_pipeline"]["total"], 1)
             self.assertGreaterEqual(overview["workspace_history"]["total"], 1)
+            self.assertGreaterEqual(overview["execution_bus_records"]["total"], 3)
             self.assertEqual(graph["company_name"], "测试公司")
             self.assertGreaterEqual(graph["summary"]["node_count"], 5)
             self.assertGreaterEqual(graph["summary"]["edge_count"], 4)
             self.assertEqual(graph["summary"]["run_count"], 1)
             self.assertTrue(graph["summary"]["watch_tracked"])
+            self.assertTrue(any(node["type"] == "execution_stream" for node in graph["nodes"]))
 
     def test_admin_overview_returns_health_data_and_job_catalog(self) -> None:
         class StubRepository:

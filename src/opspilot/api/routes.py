@@ -187,6 +187,20 @@ def workspace_history(
     )
 
 
+@router.get("/workspace/execution-bus")
+def workspace_execution_bus(
+    user_role: str = "management",
+    report_period: str | None = None,
+    limit: int = 50,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().workspace_execution_bus(
+        user_role=user_role,
+        report_period=report_period,
+        limit=limit,
+    )
+
+
 @router.get("/workspace/runs/{run_id}")
 def workspace_run_detail(run_id: str, _: dict = Depends(require_current_user)) -> dict:
     try:
