@@ -264,31 +264,120 @@ class ServicesTestCase(unittest.TestCase):
             def list_company_periods(self, company_name: str) -> list[str]:
                 return ["2025Q3"]
 
-        class StubSettings:
-            app_name = "OpsPilot"
-            env = "test"
-            default_period = "2025Q3"
-            audit_min_evidence = 0
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bronze" / "manifests").mkdir(parents=True, exist_ok=True)
 
-        payload = OpsPilotService(StubRepository(), StubSettings()).chat_turn(
-            query="请给测试公司做一份经营体检评分",
-            company_name="测试公司",
-            user_role="management",
-        )
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
 
-        self.assertEqual(payload["role_profile"]["label"], "企业管理者")
-        self.assertEqual(len(payload["agent_flow"]), 4)
-        self.assertTrue(payload["answer_sections"])
-        self.assertTrue(payload["follow_up_questions"])
-        self.assertEqual(payload["control_plane"]["query_type"], "company_scoring")
-        self.assertEqual(payload["control_plane"]["steps_completed"], 4)
-        self.assertIn("真实财报指标", payload["control_plane"]["data_sources"])
-        self.assertEqual(payload["agent_flow"][0]["tool"], "intent_router")
-        self.assertEqual(payload["agent_flow"][0]["route"]["path"], "/score")
-        self.assertEqual(payload["agent_flow"][1]["tool"], "score_engine")
-        self.assertEqual(payload["agent_flow"][2]["tool"], "evidence_auditor")
-        self.assertTrue(payload["agent_flow"][2]["route"]["path"].startswith("/evidence/") or payload["agent_flow"][2]["route"]["path"] == "/admin")
-        self.assertEqual(payload["agent_flow"][3]["tool"], "action_planner")
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            payload = OpsPilotService(StubRepository(), StubSettings()).chat_turn(
+                query="请给测试公司做一份经营体检评分",
+                company_name="测试公司",
+                user_role="management",
+            )
+
+            self.assertEqual(payload["role_profile"]["label"], "企业管理者")
+            self.assertEqual(len(payload["agent_flow"]), 4)
+            self.assertTrue(payload["answer_sections"])
+            self.assertTrue(payload["follow_up_questions"])
+            self.assertEqual(payload["control_plane"]["query_type"], "company_scoring")
+            self.assertEqual(payload["control_plane"]["steps_completed"], 4)
+            self.assertIn("真实财报指标", payload["control_plane"]["data_sources"])
+            self.assertEqual(payload["agent_flow"][0]["tool"], "intent_router")
+            self.assertEqual(payload["agent_flow"][0]["route"]["path"], "/score")
+            self.assertEqual(payload["agent_flow"][1]["tool"], "score_engine")
+            self.assertEqual(payload["agent_flow"][2]["tool"], "evidence_auditor")
+            self.assertTrue(payload["agent_flow"][2]["route"]["path"].startswith("/evidence/") or payload["agent_flow"][2]["route"]["path"] == "/admin")
+            self.assertEqual(payload["agent_flow"][3]["tool"], "action_planner")
+            self.assertIn("run_id", payload)
+            self.assertTrue((root / "bronze" / "manifests" / "workspace_runs.json").exists())
+
+    def test_workspace_runs_persist_and_can_be_read_back(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                return {
+                    "company_name": "测试公司",
+                    "report_period": "2025Q3",
+                    "subindustry": "储能",
+                    "metrics": {"G1": 12.0, "P2": 8.0, "C3": 11.2, "S4": 0.72, "S1": 1.08},
+                    "history": [],
+                    "metric_evidence": {},
+                    "formula_context": {},
+                    "label_evidence": {},
+                }
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    self.get_company("测试公司", "2025Q3"),
+                    {
+                        "company_name": "对标公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 15.0, "P2": 9.5, "C3": 2.0, "S4": 1.25, "S1": 1.42},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                ]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def find_company_from_query(self, query: str, report_period: str | None = None) -> str | None:
+                return "测试公司" if "测试公司" in query else None
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bronze" / "manifests").mkdir(parents=True, exist_ok=True)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            payload = service.chat_turn(
+                query="请给测试公司做一份经营体检评分",
+                company_name="测试公司",
+                user_role="management",
+            )
+
+            runs = service.workspace_runs(limit=5)
+            detail = service.workspace_run_detail(payload["run_id"])
+
+            self.assertEqual(runs["total"], 1)
+            self.assertEqual(detail["run"]["run_id"], payload["run_id"])
+            self.assertEqual(detail["detail"]["query"], "请给测试公司做一份经营体检评分")
 
     def test_task_queue_returns_prioritized_actions(self) -> None:
         class StubRepository:

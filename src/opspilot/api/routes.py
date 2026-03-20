@@ -160,6 +160,19 @@ def workspace_overview(user_role: str = "investor", _: dict = Depends(require_cu
     return get_service().workspace_overview(user_role)
 
 
+@router.get("/workspace/runs")
+def workspace_runs(limit: int = 20, _: dict = Depends(require_current_user)) -> dict:
+    return get_service().workspace_runs(limit=limit)
+
+
+@router.get("/workspace/runs/{run_id}")
+def workspace_run_detail(run_id: str, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().workspace_run_detail(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/tasks/board")
 def task_board(
     user_role: str = "management",

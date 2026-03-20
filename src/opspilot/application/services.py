@@ -1230,21 +1230,81 @@ class OpsPilotService:
         query_type = detect_query_type(query)
         if query_type == "company_scoring" and detected_company:
             payload = self.score_company(detected_company, period)
-            return _build_workspace_payload(payload, query=query, user_role=user_role)
+            workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
+            return self._persist_workspace_run(
+                workspace_payload,
+                query=query,
+                company_name=detected_company,
+                user_role=user_role,
+            )
         if query_type == "peer_benchmark" and detected_company:
             payload = self.benchmark_company(detected_company, period)
-            return _build_workspace_payload(payload, query=query, user_role=user_role)
+            workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
+            return self._persist_workspace_run(
+                workspace_payload,
+                query=query,
+                company_name=detected_company,
+                user_role=user_role,
+            )
         if query_type == "claim_verification" and detected_company:
             payload = self.verify_claim(detected_company, report_period)
-            return _build_workspace_payload(payload, query=query, user_role=user_role)
+            workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
+            return self._persist_workspace_run(
+                workspace_payload,
+                query=query,
+                company_name=detected_company,
+                user_role=user_role,
+            )
         if query_type == "brief_generation" and detected_company:
             payload = self.brief_company(detected_company, period)
-            return _build_workspace_payload(payload, query=query, user_role=user_role)
+            workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
+            return self._persist_workspace_run(
+                workspace_payload,
+                query=query,
+                company_name=detected_company,
+                user_role=user_role,
+            )
         if query_type == "risk_scan":
             payload = self.risk_scan(period)
-            return _build_workspace_payload(payload, query=query, user_role=user_role)
+            workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
+            return self._persist_workspace_run(
+                workspace_payload,
+                query=query,
+                company_name=detected_company,
+                user_role=user_role,
+            )
         payload = self.metric_query(query=query, company_name=detected_company, report_period=period)
-        return _build_workspace_payload(payload, query=query, user_role=user_role)
+        workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
+        return self._persist_workspace_run(
+            workspace_payload,
+            query=query,
+            company_name=detected_company,
+            user_role=user_role,
+        )
+
+    def workspace_runs(self, limit: int = 20) -> dict[str, Any]:
+        manifest = _load_workspace_run_manifest(self.settings)
+        records = sorted(
+            manifest["records"],
+            key=lambda item: item.get("created_at") or "",
+            reverse=True,
+        )
+        return {
+            "total": len(records),
+            "runs": records[:limit],
+        }
+
+    def workspace_run_detail(self, run_id: str) -> dict[str, Any]:
+        manifest = _load_workspace_run_manifest(self.settings)
+        record = next((item for item in manifest["records"] if item["run_id"] == run_id), None)
+        if record is None:
+            raise ValueError(f"未找到运行记录：{run_id}")
+        detail_path = Path(record["detail_path"])
+        if not detail_path.exists():
+            raise ValueError(f"未找到运行详情：{detail_path}")
+        with detail_path.open("r", encoding="utf-8") as file:
+            detail = json.load(file)
+        return {"run": record, "detail": detail}
 
     def metric_query(
         self, *, query: str, company_name: str | None, report_period: str | None
@@ -1287,6 +1347,57 @@ class OpsPilotService:
         if evidence is None:
             raise ValueError(f"未找到证据：{chunk_id}")
         return evidence
+
+    def _persist_workspace_run(
+        self,
+        payload: dict[str, Any],
+        *,
+        query: str,
+        company_name: str | None,
+        user_role: str,
+    ) -> dict[str, Any]:
+        run_id = _build_workspace_run_id(
+            payload.get("company_name") or company_name or "industry",
+            payload.get("query_type") or "unknown",
+        )
+        detail_path = _workspace_run_detail_path(self.settings, run_id)
+        detail_payload = {
+            "run_id": run_id,
+            "query": query,
+            "company_name": payload.get("company_name") or company_name,
+            "report_period": payload.get("report_period"),
+            "user_role": user_role,
+            "query_type": payload.get("query_type"),
+            "control_plane": payload.get("control_plane"),
+            "agent_flow": payload.get("agent_flow"),
+            "answer_sections": payload.get("answer_sections"),
+            "insight_cards": payload.get("insight_cards"),
+            "follow_up_questions": payload.get("follow_up_questions"),
+            "formula_cards": payload.get("formula_cards"),
+            "charts": payload.get("charts"),
+            "evidence_groups": payload.get("evidence_groups"),
+            "created_at": _utcnow_iso(),
+        }
+        _write_json(detail_path, detail_payload)
+
+        manifest = _load_workspace_run_manifest(self.settings)
+        record = {
+            "run_id": run_id,
+            "query": query,
+            "company_name": detail_payload["company_name"],
+            "report_period": detail_payload["report_period"],
+            "user_role": user_role,
+            "query_type": detail_payload["query_type"],
+            "detail_path": str(detail_path),
+            "created_at": detail_payload["created_at"],
+            "control_plane_status": payload.get("control_plane", {}).get("session_label"),
+        }
+        manifest["records"] = [
+            item for item in manifest["records"] if item.get("run_id") != run_id
+        ]
+        manifest["records"].append(record)
+        _write_workspace_run_manifest(self.settings, manifest)
+        return {**payload, "run_id": run_id}
 
     def _preferred_period(self) -> str:
         if hasattr(self.repository, "preferred_period"):
@@ -3602,6 +3713,36 @@ def _write_document_pipeline_job_manifest(settings: Settings, payload: dict[str,
     payload["record_count"] = len(payload.get("records", []))
     manifest_path = settings.bronze_data_path / "manifests" / "document_pipeline_jobs.json"
     _write_json(manifest_path, payload)
+
+
+def _load_workspace_run_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_runs.json"
+    if not manifest_path.exists():
+        return {"generated_at": _utcnow_iso(), "record_count": 0, "records": []}
+    with manifest_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return {
+        "generated_at": payload.get("generated_at", _utcnow_iso()),
+        "record_count": len(payload.get("records", [])),
+        "records": payload.get("records", []),
+    }
+
+
+def _write_workspace_run_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", []))
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_runs.json"
+    _write_json(manifest_path, payload)
+
+
+def _build_workspace_run_id(company_name: str, query_type: str) -> str:
+    company_slug = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fff]+", "-", company_name).strip("-").lower()
+    query_slug = re.sub(r"[^a-zA-Z0-9_]+", "-", query_type).strip("-").lower()
+    return f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{company_slug}-{query_slug}"
+
+
+def _workspace_run_detail_path(settings: Settings, run_id: str) -> Path:
+    return settings.bronze_data_path / "runs" / f"{run_id}.json"
 
 
 def _run_document_pipeline_job(
