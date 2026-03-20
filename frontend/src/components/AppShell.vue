@@ -19,6 +19,15 @@ const roleOptions: Array<{ value: UserRole; label: string }> = [
   { value: 'regulator', label: '风控视角' },
 ]
 
+const navItems = [
+  { to: '/', label: '首页', description: '进入系统总入口' },
+  { to: '/workspace', label: '对话分析台', description: '围绕公司与问题展开协同分析', auth: true },
+  { to: '/score', label: '企业体检', description: '查看评分、轨迹与关键风险', auth: true },
+  { to: '/risk', label: '行业风险', description: '横向观察预警与行业分布', auth: true },
+  { to: '/verify', label: '研报核验', description: '核对观点、预测与真实财报', auth: true },
+  { to: '/admin', label: '管理台', description: '查看作业、监测与解析链路', auth: true },
+]
+
 async function logout() {
   try {
     await post('/auth/logout', {})
@@ -36,21 +45,32 @@ async function logout() {
       <RouterLink class="brand-lockup" to="/">
         <span class="brand-kicker">{{ kicker || 'OpsPilot-X' }}</span>
         <strong class="brand-name">新能源运营决策系统</strong>
+        <span class="brand-subtitle">以真实财报、研报和证据链驱动持续监测与分析</span>
       </RouterLink>
 
       <div class="sidebar-group">
         <div class="sidebar-label">导航</div>
         <nav class="top-nav top-nav-main top-nav-vertical">
-          <RouterLink to="/">首页</RouterLink>
-          <RouterLink v-if="session.isAuthenticated.value" to="/workspace">对话分析台</RouterLink>
-          <RouterLink v-if="session.isAuthenticated.value" to="/score">企业体检</RouterLink>
-          <RouterLink v-if="session.isAuthenticated.value" to="/risk">行业风险</RouterLink>
-          <RouterLink v-if="session.isAuthenticated.value" to="/verify">研报核验</RouterLink>
-          <RouterLink v-if="session.isAuthenticated.value" to="/admin">管理台</RouterLink>
+          <RouterLink
+            v-for="item in navItems"
+            v-show="!item.auth || session.isAuthenticated.value"
+            :key="item.to"
+            :to="item.to"
+            class="sidebar-nav-item"
+          >
+            <strong>{{ item.label }}</strong>
+            <span>{{ item.description }}</span>
+          </RouterLink>
         </nav>
       </div>
 
       <div class="sidebar-footer">
+        <div class="system-status">
+          <span class="system-dot"></span>
+          <strong>系统在线</strong>
+          <span>数据链路与分析服务可用</span>
+        </div>
+
         <div v-if="session.isAuthenticated.value" class="sidebar-group">
           <div class="sidebar-label">分析视角</div>
           <div class="sidebar-control">
