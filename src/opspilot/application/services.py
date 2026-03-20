@@ -129,12 +129,16 @@ class OpsPilotService:
         data_status = self.official_data_status()
         quality_overview = _build_admin_quality_overview(self.settings, health["preferred_period"])
         document_pipeline = _build_document_pipeline_overview(data_status, self.settings)
+        innovation_radar = self.innovation_radar()
+        workspace_runs = self.workspace_runs(limit=8)
         return {
             "health": health,
             "data_status": data_status,
             "quality_overview": quality_overview,
             "document_pipeline": document_pipeline,
             "document_pipeline_jobs": self.document_pipeline_jobs(),
+            "innovation_radar": innovation_radar,
+            "workspace_runs": workspace_runs,
             "job_catalog": _build_admin_job_catalog(),
             "capabilities": [
                 "企业评分",
@@ -144,6 +148,29 @@ class OpsPilotService:
                 "机构观点轨迹",
                 "证据查看",
             ],
+        }
+
+    def innovation_radar(self) -> dict[str, Any]:
+        radar_path = _innovation_radar_path()
+        if not radar_path.exists():
+            return {
+                "generated_at": None,
+                "focus": "新能源企业运营决策系统",
+                "items": [],
+                "summary": {"total": 0, "in_progress": 0, "planned": 0},
+            }
+        with radar_path.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+        items = payload.get("items", [])
+        return {
+            "generated_at": payload.get("generated_at"),
+            "focus": payload.get("focus"),
+            "items": items,
+            "summary": {
+                "total": len(items),
+                "in_progress": sum(1 for item in items if item.get("adoption_status") == "in_progress"),
+                "planned": sum(1 for item in items if item.get("adoption_status") == "planned"),
+            },
         }
 
     def workspace_overview(self, user_role: str = "investor") -> dict[str, Any]:
@@ -548,6 +575,11 @@ class OpsPilotService:
                 "count": len(upgrade_items),
                 "items": upgrade_items,
             },
+            "recent_runs": _filter_workspace_runs_for_company(
+                self.workspace_runs(limit=50)["runs"],
+                company_name,
+                period,
+            ),
         }
 
     def company_graph(
@@ -622,6 +654,22 @@ class OpsPilotService:
             )
             edges.append({"source": period_node, "target": alert_node, "label": "主动预警"})
 
+        for run in workspace["recent_runs"]["items"][:4]:
+            run_node = _graph_node_id("run", run["run_id"])
+            nodes.append(
+                {
+                    "id": run_node,
+                    "type": "workspace_run",
+                    "label": run["query"],
+                    "meta": {
+                        "query_type": run.get("query_type"),
+                        "created_at": run.get("created_at"),
+                        "user_role": run.get("user_role"),
+                    },
+                }
+            )
+            edges.append({"source": company_node, "target": run_node, "label": "分析运行"})
+
         if workspace["research"]["status"] == "ready":
             research_label = workspace["research"]["report_title"]
             research_node = _graph_node_id("research", research_label)
@@ -665,6 +713,7 @@ class OpsPilotService:
                 "task_count": workspace["tasks"]["summary"]["total"],
                 "alert_count": workspace["alerts"]["summary"]["total"],
                 "document_upgrade_count": workspace["document_upgrades"]["count"],
+                "run_count": workspace["recent_runs"]["count"],
             },
         }
 
@@ -823,6 +872,9 @@ class OpsPilotService:
                     "artifact_path": item.get("artifact_path"),
                     "artifact_summary": item.get("artifact_summary"),
                     "completed_at": item.get("completed_at"),
+                    "detail_route": {
+                        "path": f"/api/v1/admin/document-pipeline/results/{item['stage']}/{item['report_id']}",
+                    },
                 }
             )
         return {
@@ -3743,6 +3795,29 @@ def _build_workspace_run_id(company_name: str, query_type: str) -> str:
 
 def _workspace_run_detail_path(settings: Settings, run_id: str) -> Path:
     return settings.bronze_data_path / "runs" / f"{run_id}.json"
+
+
+def _innovation_radar_path() -> Path:
+    return Path(__file__).resolve().parents[3] / "data" / "reference" / "innovation_radar_2026.json"
+
+
+def _filter_workspace_runs_for_company(
+    records: list[dict[str, Any]],
+    company_name: str,
+    report_period: str | None = None,
+    *,
+    limit: int = 8,
+) -> dict[str, Any]:
+    filtered = [
+        item
+        for item in records
+        if item.get("company_name") == company_name
+        and (report_period is None or item.get("report_period") == report_period)
+    ]
+    return {
+        "count": len(filtered),
+        "items": filtered[:limit],
+    }
 
 
 def _run_document_pipeline_job(

@@ -87,7 +87,7 @@ watch(
       <article class="panel workspace-brief">
         <div class="eyebrow">当前视角</div>
         <h3>{{ roleCopy.label }}</h3>
-        <p class="page-subtitle">{{ roleCopy.summary }}</p>
+        <p class="page-subtitle">{{ roleCopy.title }}</p>
       </article>
       <article class="panel workspace-stat-stack">
         <div class="workspace-mini-stat">

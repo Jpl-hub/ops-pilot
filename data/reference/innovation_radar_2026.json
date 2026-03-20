@@ -1,0 +1,82 @@
+{
+  "generated_at": "2026-03-20T00:00:00+08:00",
+  "focus": "新能源企业运营决策系统",
+  "items": [
+    {
+      "id": "agentar-fin-ocr",
+      "title": "Agentar-Fin-OCR",
+      "year": 2026,
+      "domain": "document_ai",
+      "source": "arXiv",
+      "url": "https://arxiv.org/abs/2603.11044",
+      "core_points": [
+        "跨页内容整合",
+        "文档级标题层级重构",
+        "单元格级视觉溯源"
+      ],
+      "system_mapping": [
+        "document_pipeline.cross_page_merge",
+        "document_pipeline.title_hierarchy",
+        "document_pipeline.cell_trace"
+      ],
+      "adoption_status": "in_progress"
+    },
+    {
+      "id": "a2rag",
+      "title": "A2RAG: Adaptive Agentic Graph Retrieval for Cost-Aware and Reliable Reasoning",
+      "year": 2026,
+      "domain": "graph_rag",
+      "source": "arXiv",
+      "url": "https://arxiv.org/abs/2601.21162",
+      "core_points": [
+        "自适应证据充分性校验",
+        "按难度升级图检索",
+        "图信号回映到原始文本证据"
+      ],
+      "system_mapping": [
+        "company_graph",
+        "workspace_runs",
+        "evidence_groups"
+      ],
+      "adoption_status": "planned"
+    },
+    {
+      "id": "igetr",
+      "title": "Bridging Graph Structure and Knowledge-Guided Editing for Interpretable Temporal Knowledge Graph Reasoning",
+      "year": 2026,
+      "domain": "temporal_kg",
+      "source": "arXiv",
+      "url": "https://arxiv.org/abs/2601.21978",
+      "core_points": [
+        "时序图候选路径约束",
+        "LLM 引导路径编辑",
+        "结构化时间一致性推理"
+      ],
+      "system_mapping": [
+        "company_timeline",
+        "company_workspace",
+        "alert_workflow"
+      ],
+      "adoption_status": "planned"
+    },
+    {
+      "id": "orchestra",
+      "title": "ORCHESTRA: AI-Driven Microservices Architecture to Create Personalized Experiences",
+      "year": 2026,
+      "domain": "agent_runtime",
+      "source": "ACL Anthology",
+      "url": "https://aclanthology.org/2026.iwsds-1.18/",
+      "core_points": [
+        "确定性控制流 + LLM 节点",
+        "多模态微服务编排",
+        "逐步骤可观测性"
+      ],
+      "system_mapping": [
+        "workspace_overview",
+        "company_workspace",
+        "workspace_runs"
+      ],
+      "adoption_status": "in_progress"
+    }
+  ]
+}

@@ -139,6 +139,49 @@ async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_tr
         </div>
       </section>
 
+      <section class="split-grid">
+        <article class="panel">
+          <div class="panel-header">
+            <h3>2026 技术雷达</h3>
+          </div>
+          <div class="timeline-list">
+            <div
+              v-for="item in state.data.value.innovation_radar.items"
+              :key="item.id"
+              class="timeline-item"
+            >
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.domain }} · {{ item.source }} · {{ item.year }}</span>
+              <div class="tag-row">
+                <TagPill v-for="point in item.core_points" :key="point" :label="point" />
+              </div>
+              <a class="inline-link" :href="item.url" target="_blank" rel="noreferrer">查看论文</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h3>最近运行历史</h3>
+          </div>
+          <div class="timeline-list">
+            <div
+              v-for="run in state.data.value.workspace_runs.runs"
+              :key="run.run_id"
+              class="timeline-item"
+            >
+              <strong>{{ run.company_name || '行业巡检' }}</strong>
+              <span>{{ run.query }}</span>
+              <div class="metric-list">
+                <div class="metric-row"><span>类型</span><strong>{{ run.query_type }}</strong></div>
+                <div class="metric-row"><span>角色</span><strong>{{ run.user_role }}</strong></div>
+                <div class="metric-row"><span>时间</span><strong>{{ run.created_at?.slice(0, 19).replace('T', ' ') }}</strong></div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
       <section>
         <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
           <h3>公司覆盖明细</h3>

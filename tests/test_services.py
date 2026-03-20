@@ -1080,6 +1080,31 @@ class ServicesTestCase(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (root / "bronze" / "runs").mkdir(parents=True, exist_ok=True)
+            (root / "bronze" / "runs" / "run-1.json").write_text(
+                json.dumps({"run_id": "run-1", "query": "请给测试公司做经营体检"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (root / "bronze" / "manifests" / "workspace_runs.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "run_id": "run-1",
+                                "query": "请给测试公司做经营体检",
+                                "company_name": "测试公司",
+                                "report_period": "2025Q3",
+                                "query_type": "company_scoring",
+                                "user_role": "management",
+                                "created_at": "2026-03-20T09:00:00+00:00",
+                                "detail_path": str(root / "bronze" / "runs" / "run-1.json"),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
 
             class StubSettings:
                 app_name = "OpsPilot"
@@ -1106,9 +1131,11 @@ class ServicesTestCase(unittest.TestCase):
             )
             self.assertTrue(workspace["tasks"]["items"])
             self.assertTrue(workspace["alerts"]["items"])
+            self.assertEqual(workspace["recent_runs"]["count"], 1)
             self.assertEqual(graph["company_name"], "测试公司")
             self.assertGreaterEqual(graph["summary"]["node_count"], 5)
             self.assertGreaterEqual(graph["summary"]["edge_count"], 4)
+            self.assertEqual(graph["summary"]["run_count"], 1)
 
     def test_admin_overview_returns_health_data_and_job_catalog(self) -> None:
         class StubRepository:
@@ -1155,6 +1182,8 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(payload["job_catalog"][0]["job_id"], "fetch_real_data")
             self.assertIn("企业评分", payload["capabilities"])
             self.assertIn("document_pipeline_jobs", payload)
+            self.assertIn("innovation_radar", payload)
+            self.assertGreaterEqual(payload["innovation_radar"]["summary"]["total"], 1)
 
     def test_document_pipeline_run_creates_upgrade_artifact(self) -> None:
         class StubRepository:

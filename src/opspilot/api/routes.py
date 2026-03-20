@@ -121,6 +121,11 @@ def admin_overview(_: dict = Depends(require_current_user)) -> dict:
     return get_service().admin_overview()
 
 
+@router.get("/admin/innovation-radar")
+def admin_innovation_radar(_: dict = Depends(require_current_user)) -> dict:
+    return get_service().innovation_radar()
+
+
 @router.get("/admin/document-pipeline/jobs")
 def admin_document_pipeline_jobs(_: dict = Depends(require_current_user)) -> dict:
     return get_service().document_pipeline_jobs()
