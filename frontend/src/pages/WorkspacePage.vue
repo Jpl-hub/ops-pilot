@@ -45,6 +45,16 @@ const starterQueries = computed(
   () => latestPayload.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries,
 )
 
+const workflowLanes = computed(() =>
+  agentFlow.value.map((item: any) => ({
+    key: `${item.step}-${item.agent}`,
+    step: item.step,
+    agent: item.agent,
+    title: item.title,
+    status: item.status === 'completed' ? '已完成' : '处理中',
+  })),
+)
+
 function appendWelcomeMessage() {
   workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
 }
@@ -88,25 +98,26 @@ watch(
     subtitle="任务控制台"
     compact
   >
-    <section class="workspace-header-grid">
-      <article class="panel workspace-brief">
-        <div class="eyebrow">当前视角</div>
-        <h3>{{ roleCopy.label }}</h3>
-        <p class="page-subtitle">{{ roleCopy.title }}</p>
+    <section class="workspace-overview-strip">
+      <article class="signal-card">
+        <div class="signal-code">当前视角</div>
+        <h4>{{ roleCopy.label }}</h4>
+        <p class="signal-subtitle">{{ roleCopy.title }}</p>
       </article>
-      <article class="panel workspace-stat-stack">
-        <div class="workspace-mini-stat">
-          <span>预警</span>
-          <strong>{{ overviewSummary?.total_alerts || 0 }}</strong>
-        </div>
-        <div class="workspace-mini-stat">
-          <span>覆盖公司</span>
-          <strong>{{ overviewSummary?.active_companies || 0 }}</strong>
-        </div>
-        <div class="workspace-mini-stat">
-          <span>处理中</span>
-          <strong>{{ taskSummary?.in_progress || 0 }}</strong>
-        </div>
+      <article class="signal-card">
+        <div class="signal-code">主周期预警</div>
+        <h4>{{ overviewSummary?.total_alerts || 0 }}</h4>
+        <p class="signal-subtitle">已进入统一预警工作流</p>
+      </article>
+      <article class="signal-card">
+        <div class="signal-code">覆盖公司</div>
+        <h4>{{ overviewSummary?.active_companies || 0 }}</h4>
+        <p class="signal-subtitle">当前可进入分析和监测的公司数</p>
+      </article>
+      <article class="signal-card">
+        <div class="signal-code">处理中任务</div>
+        <h4>{{ taskSummary?.in_progress || 0 }}</h4>
+        <p class="signal-subtitle">来自预警派发和工作台运行</p>
       </article>
     </section>
 
@@ -213,6 +224,26 @@ watch(
           </div>
         </div>
 
+        <div v-if="controlPlane || workflowLanes.length" class="chat-runbar">
+          <div v-if="controlPlane" class="chat-runbar-summary">
+            <div class="signal-code">执行状态</div>
+            <strong>{{ controlPlane.session_label }}</strong>
+            <span>{{ controlPlane.steps_completed }}/{{ controlPlane.step_total }} 个阶段完成</span>
+          </div>
+          <div class="chat-runbar-track">
+            <div
+              v-for="lane in workflowLanes.slice(0, 4)"
+              :key="lane.key"
+              class="chat-runbar-lane"
+            >
+              <div class="signal-code">STEP {{ lane.step }}</div>
+              <strong>{{ lane.agent }}</strong>
+              <span>{{ lane.title }}</span>
+              <em>{{ lane.status }}</em>
+            </div>
+          </div>
+        </div>
+
         <div class="chat-thread" ref="threadRef">
           <LoadingState v-if="loadingTurn" />
           <ErrorState v-else-if="turnError" :message="turnError" />
@@ -278,6 +309,17 @@ watch(
         </div>
 
         <div class="chat-composer">
+          <div class="chat-prompt-row">
+            <button
+              v-for="item in starterQueries.slice(0, 3)"
+              :key="`prompt-${item}`"
+              type="button"
+              class="chat-prompt-chip"
+              @click="runQuery(`${selectedCompany}${item}`)"
+            >
+              {{ item }}
+            </button>
+          </div>
           <div class="chat-input-wrap chat-input-wrap-wide">
             <textarea
               v-model="query"
