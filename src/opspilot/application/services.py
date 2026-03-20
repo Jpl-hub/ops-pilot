@@ -310,6 +310,19 @@ class OpsPilotService:
     ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
         manifest = _load_watchboard_manifest(self.settings)
+        alert_workflow = self.alert_workflow(report_period=period)
+        task_board = self.task_board(user_role=user_role, report_period=period, limit=200)
+        alert_items_by_company: dict[str, list[dict[str, Any]]] = {}
+        for item in alert_workflow["alerts"]:
+            alert_items_by_company.setdefault(item["company_name"], []).append(item)
+        task_items_by_company: dict[str, list[dict[str, Any]]] = {}
+        for item in task_board["tasks"]:
+            task_items_by_company.setdefault(item["company_name"], []).append(item)
+        document_items_by_company: dict[str, list[dict[str, Any]]] = {}
+        for item in self.document_pipeline_results(limit=300)["results"]:
+            if item.get("report_period") != period:
+                continue
+            document_items_by_company.setdefault(item["company_name"], []).append(item)
         records = [
             item
             for item in manifest["records"]
@@ -317,26 +330,36 @@ class OpsPilotService:
         ]
         watch_items: list[dict[str, Any]] = []
         for item in records:
-            workspace = self.company_workspace(
-                item["company_name"],
-                period,
-                user_role=user_role,
-            )
+            company_name = item["company_name"]
+            score_payload = self.score_company(company_name, period)
+            alert_items = alert_items_by_company.get(company_name, [])
+            task_items = task_items_by_company.get(company_name, [])
+            document_items = document_items_by_company.get(company_name, [])
+            try:
+                research_payload = self.verify_claim(company_name, period)
+                research_status = "ready"
+                research_title = research_payload["report_meta"]["title"]
+            except ValueError:
+                research_status = "missing"
+                research_title = None
             watch_items.append(
                 {
-                    "company_name": item["company_name"],
+                    "company_name": company_name,
                     "report_period": period,
                     "user_role": user_role,
                     "note": item.get("note"),
-                    "score": workspace["score_summary"]["total_score"],
-                    "grade": workspace["score_summary"]["grade"],
-                    "risk_count": workspace["score_summary"]["risk_count"],
-                    "task_count": workspace["tasks"]["summary"]["total"],
-                    "new_alerts": workspace["alerts"]["summary"]["new"],
-                    "in_progress_alerts": workspace["alerts"]["summary"]["in_progress"],
-                    "document_upgrade_count": workspace["document_upgrades"]["count"],
-                    "research_status": workspace["research"]["status"],
-                    "top_risks": workspace["top_risks"][:3],
+                    "score": score_payload["scorecard"]["total_score"],
+                    "grade": score_payload["scorecard"]["grade"],
+                    "risk_count": len(score_payload["scorecard"]["risk_labels"]),
+                    "task_count": len(task_items),
+                    "new_alerts": sum(1 for alert in alert_items if alert["status"] == "new"),
+                    "in_progress_alerts": sum(
+                        1 for alert in alert_items if alert["status"] == "in_progress"
+                    ),
+                    "document_upgrade_count": len(document_items),
+                    "research_status": research_status,
+                    "research_title": research_title,
+                    "top_risks": [risk["name"] for risk in score_payload["scorecard"]["risk_labels"][:3]],
                 }
             )
         watch_items.sort(
@@ -1499,6 +1522,7 @@ class OpsPilotService:
             },
             "artifact": artifact,
             "evidence_navigation": evidence_navigation,
+            "consumable_sections": _build_document_consumable_sections(artifact),
         }
 
     def run_document_pipeline_stage(self, stage: str, limit: int = 5) -> dict[str, Any]:
@@ -3849,6 +3873,78 @@ def _build_document_artifact_preview(artifact: dict[str, Any]) -> dict[str, Any]
             for item in tables[:5]
         ]
     return preview
+
+
+def _build_document_consumable_sections(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    if headings := artifact.get("headings"):
+        sections.append(
+            {
+                "section_type": "heading_outline",
+                "title": "标题层级",
+                "count": len(headings),
+                "items": [
+                    {
+                        "text": item.get("text"),
+                        "level": item.get("level"),
+                        "page": item.get("page"),
+                    }
+                    for item in headings[:20]
+                ],
+            }
+        )
+    if merges := artifact.get("merge_candidates") or artifact.get("merged_sections"):
+        sections.append(
+            {
+                "section_type": "cross_page_merge",
+                "title": "跨页候选",
+                "count": len(merges),
+                "items": [
+                    {
+                        "title": item.get("title"),
+                        "from_page": item.get("from_page") or item.get("page_start"),
+                        "to_page": item.get("to_page") or item.get("page_end"),
+                        "reason": item.get("reason"),
+                    }
+                    for item in merges[:20]
+                ],
+            }
+        )
+    if tables := artifact.get("tables"):
+        sections.append(
+            {
+                "section_type": "tables",
+                "title": "表格线索",
+                "count": len(tables),
+                "items": [
+                    {
+                        "title": item.get("title"),
+                        "page": item.get("page"),
+                        "continued": item.get("continued"),
+                    }
+                    for item in tables[:20]
+                ],
+            }
+        )
+    if cells := artifact.get("cells"):
+        sections.append(
+            {
+                "section_type": "cells",
+                "title": "单元格溯源",
+                "count": len(cells),
+                "items": cells[:20],
+            }
+        )
+    if not sections and artifact.get("summary"):
+        sections.append(
+            {
+                "section_type": "summary",
+                "title": "解析摘要",
+                "count": 1,
+                "items": [{"text": artifact["summary"]}],
+            }
+        )
+    return sections
 
 
 def _build_document_evidence_navigation(

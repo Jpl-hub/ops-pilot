@@ -990,6 +990,8 @@ class ServicesTestCase(unittest.TestCase):
             detail = service.document_pipeline_result_detail("title_hierarchy", "r-1")
             self.assertEqual(detail["job"]["report_id"], "r-1")
             self.assertTrue(detail["artifact"]["headings"])
+            self.assertTrue(detail["consumable_sections"])
+            self.assertEqual(detail["consumable_sections"][0]["section_type"], "heading_outline")
 
     def test_company_workspace_and_graph_aggregate_core_system_state(self) -> None:
         class StubRepository:
