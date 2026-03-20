@@ -182,15 +182,35 @@ class OpsPilotService:
         role_profile = ROLE_PROFILES.get(user_role, ROLE_PROFILES["investor"])
         task_board = self.task_board(user_role=user_role, report_period=preferred_period)
         alert_workflow = self.alert_workflow(report_period=preferred_period)
+        watchboard = self.watchboard(user_role=user_role, report_period=preferred_period)
+        history = self.workspace_history(
+            user_role=user_role,
+            report_period=preferred_period,
+            limit=200,
+        )
+        document_results = self.document_pipeline_results(limit=300)
         return {
             "preferred_period": preferred_period,
             "role_profile": role_profile,
             "companies": [item["company_name"] for item in risk_payload["risk_board"]],
-            "watchboard": self.watchboard(user_role=user_role, report_period=preferred_period),
+            "watchboard": watchboard,
             "alert_queue": _build_workspace_alert_queue(alert_workflow["alerts"], user_role),
             "alert_workflow_summary": alert_workflow["summary"],
             "task_queue": task_board["tasks"],
             "task_summary": task_board["summary"],
+            "workspace_history": {
+                "total": history["total"],
+                "records": history["records"][:10],
+            },
+            "execution_bus_summary": _build_execution_bus_summary(
+                task_board=task_board,
+                alert_workflow=alert_workflow,
+                watchboard=watchboard,
+                workspace_history=history,
+                document_results=document_results["results"],
+                report_period=preferred_period,
+                user_role=user_role,
+            ),
             "alert_summary": {
                 "total_alerts": len(risk_payload["alert_board"]),
                 "high_risk_companies": sum(
@@ -852,12 +872,17 @@ class OpsPilotService:
                 try:
                     detail = self.document_pipeline_result_detail(stage, item["report_id"])
                     artifact_preview = _build_document_artifact_preview(detail["artifact"])
+                    evidence_navigation = detail.get("evidence_navigation")
                 except ValueError:
                     artifact_preview = None
+                    evidence_navigation = None
+            else:
+                evidence_navigation = None
             enriched_items.append(
                 {
                     **item,
                     "artifact_preview": artifact_preview,
+                    "evidence_navigation": evidence_navigation,
                     "route": {
                         "path": "/admin",
                         "query": {
@@ -1212,6 +1237,12 @@ class OpsPilotService:
             raise ValueError(f"未找到解析产物：{artifact_path}")
         with artifact_path.open("r", encoding="utf-8") as file:
             artifact = json.load(file)
+        evidence_navigation = _build_document_evidence_navigation(
+            repository=self.repository,
+            company_name=job["company_name"],
+            report_period=job.get("report_period"),
+            artifact=artifact,
+        )
         return {
             "job": {
                 "stage": job["stage"],
@@ -1225,6 +1256,7 @@ class OpsPilotService:
                 "artifact_summary": job.get("artifact_summary"),
             },
             "artifact": artifact,
+            "evidence_navigation": evidence_navigation,
         }
 
     def run_document_pipeline_stage(self, stage: str, limit: int = 5) -> dict[str, Any]:
@@ -3575,6 +3607,180 @@ def _build_document_artifact_preview(artifact: dict[str, Any]) -> dict[str, Any]
             for item in tables[:5]
         ]
     return preview
+
+
+def _build_document_evidence_navigation(
+    *,
+    repository: Any,
+    company_name: str,
+    report_period: str | None,
+    artifact: dict[str, Any],
+) -> dict[str, Any] | None:
+    get_company = getattr(repository, "get_company", None)
+    if get_company is None:
+        return _build_document_navigation_fallback(artifact)
+    company = get_company(company_name, report_period) if report_period else get_company(company_name)
+    if company is None:
+        return _build_document_navigation_fallback(artifact)
+
+    candidate_pages = _collect_document_artifact_pages(artifact)
+    candidate_chunk_ids = _collect_company_evidence_refs(company)
+    evidence_items = repository.resolve_evidence(candidate_chunk_ids)
+    if candidate_pages:
+        paged_items = [item for item in evidence_items if item.get("page") in candidate_pages]
+    else:
+        paged_items = []
+    selected_items = paged_items or evidence_items[:1]
+    if not selected_items:
+        return _build_document_navigation_fallback(artifact)
+
+    anchor_terms = _collect_document_artifact_anchor_terms(artifact)
+    links = [
+        {
+            "chunk_id": item["chunk_id"],
+            "label": f"第{item.get('page', '?')}页证据" if item.get("page") else "证据",
+            "path": f"/evidence/{item['chunk_id']}",
+            "query": {
+                "context": "文档升级结果",
+                "terms": ",".join(anchor_terms[:6]),
+            },
+            "source_title": item.get("source_title"),
+            "page": item.get("page"),
+        }
+        for item in selected_items[:5]
+    ]
+    return {
+        "count": len(links),
+        "anchor_terms": anchor_terms[:6],
+        "pages": sorted({item.get("page") for item in selected_items if item.get("page") is not None}),
+        "links": links,
+        "primary_route": links[0] if links else None,
+    }
+
+
+def _build_document_navigation_fallback(artifact: dict[str, Any]) -> dict[str, Any]:
+    anchor_terms = _collect_document_artifact_anchor_terms(artifact)
+    pages = _collect_document_artifact_pages(artifact)
+    route = {
+        "label": "查看解析结果",
+        "path": "/admin",
+        "query": {
+            "context": "文档升级结果",
+            "terms": ",".join(anchor_terms[:6]),
+        },
+        "page": pages[0] if pages else None,
+    }
+    return {
+        "count": 1,
+        "anchor_terms": anchor_terms[:6],
+        "pages": pages,
+        "links": [route],
+        "primary_route": route,
+    }
+
+
+def _collect_document_artifact_pages(artifact: dict[str, Any]) -> list[int]:
+    pages: list[int] = []
+    for heading in artifact.get("headings", []):
+        page = heading.get("page")
+        if isinstance(page, int):
+            pages.append(page)
+    for section in artifact.get("merged_sections", []):
+        for field in ("page", "page_start", "page_end", "from_page", "to_page"):
+            page = section.get(field)
+            if isinstance(page, int):
+                pages.append(page)
+        page_range = section.get("page_range") or []
+        for page in page_range:
+            if isinstance(page, int):
+                pages.append(page)
+    for table in artifact.get("tables", []):
+        page = table.get("page")
+        if isinstance(page, int):
+            pages.append(page)
+    for cell in artifact.get("cells", []):
+        page = cell.get("page")
+        if isinstance(page, int):
+            pages.append(page)
+    return sorted(set(pages))
+
+
+def _collect_document_artifact_anchor_terms(artifact: dict[str, Any]) -> list[str]:
+    terms: list[str] = []
+    for heading in artifact.get("headings", []):
+        text = (heading.get("text") or "").strip()
+        if text:
+            terms.append(text[:24])
+    for section in artifact.get("merged_sections", []):
+        title = (section.get("title") or "").strip()
+        if title:
+            terms.append(title[:24])
+    if summary := artifact.get("summary"):
+        terms.append(str(summary)[:24])
+    deduped: list[str] = []
+    for term in terms:
+        if term not in deduped:
+            deduped.append(term)
+    return deduped
+
+
+def _collect_company_evidence_refs(company: dict[str, Any]) -> list[str]:
+    chunk_ids: list[str] = []
+    if company.get("summary_chunk_id"):
+        chunk_ids.append(company["summary_chunk_id"])
+    for refs in company.get("metric_evidence", {}).values():
+        chunk_ids.extend(refs)
+    for refs in company.get("label_evidence", {}).values():
+        chunk_ids.extend(refs)
+    deduped: list[str] = []
+    for chunk_id in chunk_ids:
+        if chunk_id not in deduped:
+            deduped.append(chunk_id)
+    return deduped
+
+
+def _build_execution_bus_summary(
+    *,
+    task_board: dict[str, Any],
+    alert_workflow: dict[str, Any],
+    watchboard: dict[str, Any],
+    workspace_history: dict[str, Any],
+    document_results: list[dict[str, Any]],
+    report_period: str,
+    user_role: str,
+) -> dict[str, Any]:
+    filtered_document_results = [
+        item for item in document_results if item.get("report_period") == report_period
+    ]
+    history_records = workspace_history.get("records", [])
+    return {
+        "user_role": user_role,
+        "report_period": report_period,
+        "tasks": {
+            "total": task_board["summary"]["total"],
+            "active": task_board["summary"]["queued"] + task_board["summary"]["in_progress"],
+            "blocked": task_board["summary"]["blocked"],
+        },
+        "alerts": {
+            "total": alert_workflow["summary"]["total"],
+            "new": alert_workflow["summary"]["new"],
+            "in_progress": alert_workflow["summary"]["in_progress"],
+            "dispatched": alert_workflow["summary"]["dispatched"],
+        },
+        "watchboard": watchboard["summary"],
+        "document_pipeline": {
+            "total": len(filtered_document_results),
+            "completed": sum(1 for item in filtered_document_results if item.get("status") == "completed"),
+            "pending": sum(1 for item in filtered_document_results if item.get("status") == "pending"),
+            "blocked": sum(1 for item in filtered_document_results if item.get("status") == "blocked"),
+        },
+        "history": {
+            "total": workspace_history.get("total", 0),
+            "analysis_runs": sum(1 for item in history_records if item.get("history_type") == "analysis_run"),
+            "watchboard_scans": sum(1 for item in history_records if item.get("history_type") == "watchboard_scan"),
+            "document_jobs": sum(1 for item in history_records if item.get("history_type") == "document_pipeline"),
+        },
+    }
 
 
 def _graph_node_id(prefix: str, value: str) -> str:
