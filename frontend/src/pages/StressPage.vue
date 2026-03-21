@@ -35,6 +35,8 @@ const transmissionMatrix = computed(() => stressState.data.value?.transmission_m
 const simulationLog = computed(() => stressState.data.value?.simulation_log || [])
 const stressWavefront = computed(() => stressState.data.value?.stress_wavefront || [])
 const stressImpactTape = computed(() => stressState.data.value?.stress_impact_tape || [])
+const stressCommandSurface = computed(() => stressState.data.value?.stress_command_surface || null)
+const stressRecoverySequence = computed(() => stressState.data.value?.stress_recovery_sequence || [])
 const modulePulses = computed(() => runtimeState.data.value?.module_pulses || [])
 const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.value] || null)
 const activeWavefront = computed(
@@ -199,6 +201,30 @@ onBeforeUnmount(() => {
                     <span>{{ stressState.loading.value ? '正在推演冲击传导…' : '冲击路径已生成' }}</span>
                   </div>
                 </div>
+                <div v-if="stressCommandSurface" class="stress-command-radar">
+                  <div class="stress-command-radar-copy">
+                    <span>{{ stressCommandSurface.title }}</span>
+                    <strong>{{ stressCommandSurface.headline }}</strong>
+                    <small>{{ stressCommandSurface.log_headline }}</small>
+                  </div>
+                  <div class="stress-command-radar-grid">
+                    <div
+                      v-for="item in stressCommandSurface.watch_items || []"
+                      :key="item.label"
+                      class="stress-command-radar-cell"
+                    >
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.value }}</strong>
+                    </div>
+                  </div>
+                  <div class="stress-energy-curve">
+                    <i
+                      v-for="(value, index) in stressCommandSurface.energy_curve || []"
+                      :key="`energy-${index}`"
+                      :style="{ height: `${Math.max(18, value || 0)}%` }"
+                    />
+                  </div>
+                </div>
                 <div class="stress-stage-banner">
                   <div class="stress-stage-banner-copy">
                     <span>当前传导</span>
@@ -296,6 +322,23 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="graph-support-strip stress-support-strip">
+            <section class="graph-support-card">
+              <div v-if="stressRecoverySequence.length" class="stress-recovery-sequence">
+                <div
+                  v-for="item in stressRecoverySequence"
+                  :key="`recovery-${item.step}`"
+                  class="stress-recovery-step"
+                  :class="`tone-${item.tone || 'accent'}`"
+                >
+                  <em>0{{ item.step }}</em>
+                  <div class="stress-recovery-copy">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.detail }}</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <section class="graph-support-card">
               <div class="timeline-list compact-timeline">
                 <div v-for="item in stressState.data.value?.actions || []" :key="item.title" class="timeline-item">

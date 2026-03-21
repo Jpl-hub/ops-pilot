@@ -2005,6 +2005,15 @@ class OpsPilotService:
             "inference_path": inference_path,
             "phase_track": phase_track,
             "signal_stream": signal_stream,
+            "graph_command_surface": _build_graph_command_surface(
+                company_name=company_name,
+                intent=intent,
+                focal_nodes=focal_nodes,
+                inference_path=inference_path,
+                phase_track=phase_track,
+                signal_stream=signal_stream,
+                workspace=workspace,
+            ),
             "graph_live_frames": _build_graph_query_live_frames(
                 focal_nodes=focal_nodes,
                 inference_path=inference_path,
@@ -2012,6 +2021,10 @@ class OpsPilotService:
                 signal_stream=signal_stream,
             ),
             "graph_signal_tape": _build_graph_signal_tape(
+                inference_path=inference_path,
+                signal_stream=signal_stream,
+            ),
+            "graph_route_bands": _build_graph_route_bands(
                 inference_path=inference_path,
                 signal_stream=signal_stream,
             ),
@@ -2510,6 +2523,14 @@ class OpsPilotService:
             "propagation_steps": propagation_steps,
             "transmission_matrix": transmission_matrix,
             "simulation_log": simulation_log,
+            "stress_command_surface": _build_stress_command_surface(
+                company_name=company_name,
+                scenario=scenario,
+                severity=severity,
+                transmission_matrix=transmission_matrix,
+                simulation_log=simulation_log,
+                workspace=workspace,
+            ),
             "stress_wavefront": _build_stress_wavefront(
                 propagation_steps=propagation_steps,
                 transmission_matrix=transmission_matrix,
@@ -2519,6 +2540,11 @@ class OpsPilotService:
             "stress_impact_tape": _build_stress_impact_tape(
                 transmission_matrix=transmission_matrix,
                 simulation_log=simulation_log,
+                severity=severity,
+            ),
+            "stress_recovery_sequence": _build_stress_recovery_sequence(
+                actions=workspace["action_cards"],
+                top_risks=workspace["top_risks"],
                 severity=severity,
             ),
             "actions": [
@@ -4435,6 +4461,50 @@ def _build_stress_affected_dimensions(workspace: dict[str, Any]) -> list[dict[st
     ]
 
 
+def _build_stress_command_surface(
+    *,
+    company_name: str,
+    scenario: str,
+    severity: dict[str, Any],
+    transmission_matrix: list[dict[str, Any]],
+    simulation_log: list[dict[str, Any]],
+    workspace: dict[str, Any],
+) -> dict[str, Any]:
+    dominant = max(
+        transmission_matrix,
+        key=lambda item: int(item.get("impact_score", 0)),
+        default={},
+    )
+    return {
+        "title": f"{company_name} 冲击推演",
+        "scenario": scenario,
+        "severity": severity["level"],
+        "severity_label": severity["label"],
+        "headline": dominant.get("headline") or "等待冲击传导",
+        "impact_label": dominant.get("impact_label") or severity["label"],
+        "impact_score": int(dominant.get("impact_score", 0)),
+        "energy_curve": [
+            int(item.get("impact_score", 0))
+            for item in transmission_matrix[:3]
+        ],
+        "watch_items": [
+            {
+                "label": "风险标签",
+                "value": str(workspace["score_summary"]["risk_count"]),
+            },
+            {
+                "label": "在办任务",
+                "value": str(workspace["tasks"]["summary"]["in_progress"]),
+            },
+            {
+                "label": "新增预警",
+                "value": str(workspace["alerts"]["summary"]["new"]),
+            },
+        ],
+        "log_headline": simulation_log[-1]["detail"] if simulation_log else "等待推演日志",
+    }
+
+
 def _build_stress_evidence_links(workspace: dict[str, Any]) -> list[dict[str, Any]]:
     links: list[dict[str, Any]] = []
     for item in workspace["document_upgrades"]["items"][:2]:
@@ -4614,6 +4684,34 @@ def _build_stress_impact_tape(
             }
         )
     return tape
+
+
+def _build_stress_recovery_sequence(
+    *,
+    actions: list[dict[str, Any]],
+    top_risks: list[str],
+    severity: dict[str, Any],
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for index, action in enumerate(actions[:4]):
+        items.append(
+            {
+                "step": index + 1,
+                "title": action.get("title") or f"动作 {index + 1}",
+                "detail": action.get("reason") or action.get("action") or "等待动作建议",
+                "tone": "risk" if severity["level"] == "CRITICAL" and index == 0 else "accent",
+            }
+        )
+    if not items:
+        items.append(
+            {
+                "step": 1,
+                "title": "继续跟踪",
+                "detail": "、".join(top_risks[:2]) or "等待恢复路径",
+                "tone": "accent",
+            }
+        )
+    return items
 
 
 def _build_vision_phase_track(
@@ -6107,6 +6205,82 @@ def _build_graph_signal_tape(
             }
         )
     return tape
+
+
+def _build_graph_command_surface(
+    *,
+    company_name: str,
+    intent: str,
+    focal_nodes: list[dict[str, Any]],
+    inference_path: list[dict[str, Any]],
+    phase_track: list[dict[str, Any]],
+    signal_stream: list[dict[str, Any]],
+    workspace: dict[str, Any],
+) -> dict[str, Any]:
+    focus = focal_nodes[0] if focal_nodes else {}
+    latest_phase = phase_track[-1] if phase_track else {}
+    dominant_signal = signal_stream[0] if signal_stream else {}
+    return {
+        "title": f"{company_name} 图谱检索",
+        "intent": intent,
+        "focus_label": focus.get("label") or "等待焦点节点",
+        "focus_type": focus.get("type") or "graph",
+        "headline": latest_phase.get("headline") or "等待图谱推理",
+        "metric": latest_phase.get("metric") or "GRAPH",
+        "intensity": min(100, 42 + len(inference_path) * 11),
+        "route_count": len(inference_path),
+        "watch_items": [
+            {
+                "label": "风险标签",
+                "value": str(workspace["score_summary"]["risk_count"]),
+            },
+            {
+                "label": "执行记录",
+                "value": str(len(workspace["execution_stream"]["records"])),
+            },
+            {
+                "label": "证据入口",
+                "value": str(len(workspace["document_upgrades"]["items"])),
+            },
+        ],
+        "dominant_signal": {
+            "label": dominant_signal.get("label") or "等待信号",
+            "value": dominant_signal.get("value") or dominant_signal.get("label") or "N/A",
+            "tone": dominant_signal.get("tone") or "accent",
+        },
+    }
+
+
+def _build_graph_route_bands(
+    *,
+    inference_path: list[dict[str, Any]],
+    signal_stream: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    bands: list[dict[str, Any]] = []
+    for index, item in enumerate(inference_path):
+        signal = signal_stream[index % len(signal_stream)] if signal_stream else {}
+        bands.append(
+            {
+                "step": item.get("step", index + 1),
+                "headline": item.get("title") or f"阶段 {index + 1}",
+                "detail": item.get("detail") or "等待路径说明",
+                "tone": signal.get("tone") or "accent",
+                "signal": signal.get("value") or signal.get("label") or "等待信号",
+                "intensity": min(100, 36 + index * 17),
+            }
+        )
+    if not bands:
+        bands.append(
+            {
+                "step": 1,
+                "headline": "等待推理",
+                "detail": "图谱路径生成后会出现在这里。",
+                "tone": "accent",
+                "signal": "等待信号",
+                "intensity": 0,
+            }
+        )
+    return bands
 
 
 def _build_graph_query_evidence_navigation(workspace: dict[str, Any]) -> dict[str, Any]:

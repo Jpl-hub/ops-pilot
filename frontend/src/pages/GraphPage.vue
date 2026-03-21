@@ -43,6 +43,8 @@ const phaseTrack = computed(() => graphState.data.value?.phase_track || [])
 const signalStream = computed(() => graphState.data.value?.signal_stream || [])
 const graphLiveFrames = computed(() => graphState.data.value?.graph_live_frames || [])
 const graphSignalTape = computed(() => graphState.data.value?.graph_signal_tape || [])
+const graphCommandSurface = computed(() => graphState.data.value?.graph_command_surface || null)
+const graphRouteBands = computed(() => graphState.data.value?.graph_route_bands || [])
 const modulePulses = computed(() => runtimeState.data.value?.module_pulses || [])
 const activePhaseIndex = computed(() =>
   phaseTrack.value.length ? activePathStep.value % phaseTrack.value.length : 0,
@@ -215,7 +217,7 @@ async function openGraphRun(runId: string) {
             </div>
           </div>
 
-          <div class="graph-stage graph-stage-dynamic">
+            <div class="graph-stage graph-stage-dynamic">
             <div v-if="modulePulses.length" class="mode-pulse-strip">
               <RouterLink
                 v-for="item in modulePulses"
@@ -229,6 +231,23 @@ async function openGraphRun(runId: string) {
               </RouterLink>
             </div>
             <section class="graph-canvas-panel">
+              <div v-if="graphCommandSurface" class="graph-command-surface">
+                <div class="graph-command-surface-copy">
+                  <span>{{ graphCommandSurface.title }}</span>
+                  <strong>{{ graphCommandSurface.headline }}</strong>
+                </div>
+                <div class="graph-command-surface-metric">
+                  <div class="graph-command-meter">
+                    <label>Intensity</label>
+                    <strong>{{ graphCommandSurface.intensity }}</strong>
+                    <i :style="{ width: `${graphCommandSurface.intensity || 0}%` }" />
+                  </div>
+                  <div class="graph-command-signal" :class="`tone-${graphCommandSurface.dominant_signal?.tone || 'accent'}`">
+                    <span>{{ graphCommandSurface.dominant_signal?.label }}</span>
+                    <strong>{{ graphCommandSurface.dominant_signal?.value }}</strong>
+                  </div>
+                </div>
+              </div>
               <div class="graph-stage-banner">
                 <div class="graph-stage-banner-copy">
                   <span>{{ phaseTrack[activePhaseIndex]?.phase || 'GRAPH RAG' }}</span>
@@ -311,6 +330,25 @@ async function openGraphRun(runId: string) {
                   <div v-if="activeGraphFrame?.signal" class="graph-frame-signal">
                     <span>{{ activeGraphFrame.signal.label }}</span>
                     <strong>{{ activeGraphFrame.signal.value }}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section class="graph-support-card">
+                <div v-if="graphRouteBands.length" class="graph-route-bands">
+                  <div
+                    v-for="item in graphRouteBands"
+                    :key="`band-${item.step}`"
+                    class="graph-route-band"
+                    :class="[`tone-${item.tone || 'accent'}`, { active: item.step === activePathId }]"
+                    @mouseenter="focusStep(item.step - 1)"
+                  >
+                    <em>0{{ item.step }}</em>
+                    <div class="graph-route-band-copy">
+                      <strong>{{ item.headline }}</strong>
+                      <span>{{ item.signal }}</span>
+                    </div>
+                    <i :style="{ width: `${item.intensity || 0}%` }" />
                   </div>
                 </div>
               </section>
