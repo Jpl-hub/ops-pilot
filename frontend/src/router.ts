@@ -16,6 +16,7 @@ const router = createRouter({
     { path: '/score', component: () => import('@/pages/ScorePage.vue'), meta: { requiresAuth: true } },
     { path: '/risk', component: () => import('@/pages/RiskPage.vue'), meta: { requiresAuth: true } },
     { path: '/verify', component: () => import('@/pages/VerifyPage.vue'), meta: { requiresAuth: true } },
+    { path: '/profile', component: () => import('@/pages/ProfilePage.vue'), meta: { requiresAuth: true } },
     { path: '/admin', component: () => import('@/pages/AdminPage.vue'), meta: { requiresAuth: true } },
     { path: '/evidence/:chunkId', component: () => import('@/pages/EvidencePage.vue'), props: true, meta: { requiresAuth: true } },
   ],

@@ -71,12 +71,6 @@ async function logout() {
       </div>
 
       <div class="sidebar-footer">
-        <div class="system-status">
-          <span class="system-dot"></span>
-          <strong>System Online</strong>
-          <span>数据链路与分析服务可用</span>
-        </div>
-
         <div v-if="session.isAuthenticated.value" class="sidebar-group">
           <div class="sidebar-label">分析视角</div>
           <div class="sidebar-control">
@@ -92,15 +86,16 @@ async function logout() {
         </div>
 
         <div class="sidebar-group">
-          <div v-if="session.isAuthenticated.value" class="user-panel">
-            <div class="sidebar-label">当前账户</div>
+          <RouterLink v-if="session.isAuthenticated.value" to="/profile" class="sidebar-utility-card">
+            <span class="sidebar-utility-label">个人中心</span>
             <strong>{{ session.currentUser.value?.display_name }}</strong>
-            <span>{{ session.currentUser.value?.username }}</span>
-          </div>
+            <small>{{ session.currentUser.value?.username }}</small>
+          </RouterLink>
           <div class="top-nav top-nav-actions top-nav-vertical">
             <RouterLink v-if="!session.isAuthenticated.value" to="/login">登录</RouterLink>
             <RouterLink v-if="!session.isAuthenticated.value" to="/register">注册</RouterLink>
-            <button v-if="session.isAuthenticated.value" class="button-secondary logout-button" @click="logout">
+            <button v-if="session.isAuthenticated.value" class="button-secondary logout-button sidebar-utility-card" @click="logout">
+              <span class="sidebar-utility-label">账户操作</span>
               退出登录
             </button>
           </div>
