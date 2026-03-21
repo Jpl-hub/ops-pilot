@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
@@ -8,6 +8,18 @@ import LoadingState from '@/components/LoadingState.vue'
 import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
+
+type GraphInferenceStep = {
+  step: number
+  title: string
+  detail: string
+}
+
+type GraphFocalNode = {
+  id: string
+  label: string
+  type: string
+}
 
 const overviewState = useAsyncState<any>()
 const graphState = useAsyncState<any>()
@@ -18,10 +30,46 @@ const selectedCompany = ref('')
 const selectedPeriod = ref('')
 const graphIntent = ref('碳酸锂价格下跌对下游盈利和风险的影响传导')
 const graphIntentDraft = ref(graphIntent.value)
+const activePathStep = ref(0)
+let graphTicker: number | null = null
 
 const companies = computed(() => overviewState.data.value?.companies || [])
-const focalNodes = computed(() => graphState.data.value?.focal_nodes || [])
-const inferencePath = computed(() => graphState.data.value?.inference_path || [])
+const focalNodes = computed<GraphFocalNode[]>(() => graphState.data.value?.focal_nodes || [])
+const inferencePath = computed<GraphInferenceStep[]>(() => graphState.data.value?.inference_path || [])
+const activePathId = computed(() => inferencePath.value[activePathStep.value]?.step ?? null)
+
+const graphCanvasNodes = computed(() => {
+  const pathNodes = inferencePath.value.map((item: GraphInferenceStep, index: number) => ({
+    id: `path-${item.step}`,
+    label: item.title,
+    detail: item.detail,
+    kind: index === 0 ? 'source' : index === inferencePath.value.length - 1 ? 'impact' : 'core',
+    x: [10, 30, 50, 72][index] ?? 72,
+    y: [54, 33, 55, 78][index] ?? 78,
+    step: item.step,
+  }))
+  const supportNodes = focalNodes.value.slice(0, 4).map((node: GraphFocalNode, index: number) => ({
+    id: node.id,
+    label: node.label,
+    detail: node.type,
+    kind: ['risk_label', 'alert'].includes(node.type) ? 'risk' : 'support',
+    x: [16, 34, 56, 82][index] ?? 82,
+    y: 86,
+    step: null,
+  }))
+  return [...pathNodes, ...supportNodes]
+})
+
+const graphCanvasLinks = computed(() =>
+  inferencePath.value.slice(0, -1).map((item: GraphInferenceStep, index: number) => ({
+    id: `link-${item.step}`,
+    active: activePathId.value === item.step || activePathId.value === inferencePath.value[index + 1]?.step,
+    x1: [10, 30, 50, 72][index] ?? 72,
+    y1: [54, 33, 55, 78][index] ?? 78,
+    x2: [10, 30, 50, 72][index + 1] ?? 72,
+    y2: [54, 33, 55, 78][index + 1] ?? 78,
+  })),
+)
 
 async function loadGraph() {
   const company = selectedCompany.value
@@ -39,6 +87,7 @@ async function loadGraph() {
     ),
     streamState.execute(() => get(`/company/execution-stream?${params.toString()}&user_role=management&limit=8`)),
   ])
+  activePathStep.value = 0
 }
 
 onMounted(async () => {
@@ -47,6 +96,17 @@ onMounted(async () => {
     (typeof route.query.company === 'string' ? route.query.company : '') || companies.value[0] || ''
   selectedPeriod.value = typeof route.query.period === 'string' ? route.query.period : ''
   await loadGraph()
+  graphTicker = window.setInterval(() => {
+    if (!inferencePath.value.length) return
+    activePathStep.value = (activePathStep.value + 1) % inferencePath.value.length
+  }, 1800)
+})
+
+onBeforeUnmount(() => {
+  if (graphTicker) {
+    window.clearInterval(graphTicker)
+    graphTicker = null
+  }
 })
 
 watch(selectedCompany, async () => {
@@ -109,34 +169,49 @@ async function submitIntent() {
             </div>
           </div>
 
-          <div class="graph-stage">
-            <div class="graph-stage-main">
-              <div class="signal-code">影响路径</div>
-              <div class="graph-path-flow">
-                <div v-for="item in inferencePath" :key="item.step" class="graph-path-card">
-                  <span class="graph-path-step">0{{ item.step }}</span>
-                  <strong>{{ item.title }}</strong>
-                  <small>{{ item.detail }}</small>
+          <div class="graph-stage graph-stage-dynamic">
+            <section class="graph-canvas-panel">
+              <div class="signal-code">图谱推演</div>
+              <div class="graph-canvas">
+                <svg class="graph-canvas-links" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <line
+                    v-for="link in graphCanvasLinks"
+                    :key="link.id"
+                    class="graph-link"
+                    :class="{ active: link.active }"
+                    :x1="link.x1"
+                    :y1="link.y1"
+                    :x2="link.x2"
+                    :y2="link.y2"
+                  />
+                </svg>
+                <div
+                  v-for="node in graphCanvasNodes"
+                  :key="node.id"
+                  class="graph-floating-node"
+                  :class="[`kind-${node.kind}`, { active: node.step === activePathId }]"
+                  :style="{ left: `${node.x}%`, top: `${node.y}%` }"
+                >
+                  <strong>{{ node.label }}</strong>
+                  <span>{{ node.detail }}</span>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div class="graph-support-strip">
+            <div class="graph-support-strip graph-support-strip-dynamic">
               <section class="graph-support-card">
-                <div class="signal-code">关键节点</div>
-                <div class="graph-node-stack">
+                <div class="signal-code">影响路径</div>
+                <div class="graph-path-ribbon">
                   <div
-                    v-for="node in focalNodes"
-                    :key="node.id"
-                    class="graph-node"
-                    :class="{
-                      core: ['company', 'report_period', 'watchboard', 'research_report'].includes(node.type),
-                      risk: ['risk_label', 'alert'].includes(node.type),
-                      action: ['task', 'execution_stream'].includes(node.type),
-                      evidence: ['document_artifact', 'artifact_evidence'].includes(node.type),
-                    }"
+                    v-for="item in inferencePath"
+                    :key="`ribbon-${item.step}`"
+                    class="graph-ribbon-step"
+                    :class="{ active: item.step === activePathId }"
                   >
-                    {{ node.label }}
+                    <em>0{{ item.step }}</em>
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.detail }}</span>
+                    <i v-if="item.step !== inferencePath[inferencePath.length - 1]?.step">→</i>
                   </div>
                 </div>
               </section>

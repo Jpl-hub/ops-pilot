@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ChatTurnRequest(BaseModel):
@@ -40,6 +40,14 @@ class GraphQueryRequest(BaseModel):
     intent: str = Field(..., min_length=4, max_length=240)
     report_period: str | None = None
     user_role: Literal["investor", "management", "regulator"] = "management"
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_question_alias(cls, value: object) -> object:
+        if isinstance(value, dict) and not value.get("intent") and value.get("question"):
+            value = dict(value)
+            value["intent"] = value["question"]
+        return value
 
 
 class VisionAnalyzeRequest(BaseModel):
