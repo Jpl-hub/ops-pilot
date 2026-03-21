@@ -232,9 +232,78 @@ class OpsPilotService:
         cache["sequence"] = int(cache.get("sequence") or 0) + 1
 
         top_risk_companies = risk_payload["risk_board"][:8]
+        recent_records = workspace_history["records"][:10]
         subindustry_counts: dict[str, int] = {}
         for item in risk_payload["risk_board"]:
             subindustry_counts[item["subindustry"]] = subindustry_counts.get(item["subindustry"], 0) + 1
+
+        market_tape = [
+            {
+                "label": "主周期预警",
+                "value": str(alert_workflow["summary"]["new"] + alert_workflow["summary"]["in_progress"]),
+                "delta": f"+{alert_workflow['summary']['new']} 新增",
+                "tone": "risk",
+            },
+            {
+                "label": "在办任务",
+                "value": str(task_board["summary"]["in_progress"]),
+                "delta": f"{task_board['summary']['done']} 已完成",
+                "tone": "accent",
+            },
+            {
+                "label": "监测公司",
+                "value": str(watchboard["summary"]["tracked_companies"]),
+                "delta": f"{watchboard['summary']['companies_with_new_alerts']} 家新增关注",
+                "tone": "success",
+            },
+            {
+                "label": "文档升级",
+                "value": str(data_status.get("bronze_periodic_reports", {}).get("record_count", 0)),
+                "delta": f"{data_status.get('silver_financial_metrics', {}).get('record_count', 0)} 条结构化",
+                "tone": "default",
+            },
+        ]
+
+        execution_flash = [
+            {
+                "title": item["title"],
+                "summary": item["type_label"],
+                "status": item["status_label"],
+                "route": item.get("route"),
+            }
+            for item in recent_records[:6]
+        ]
+
+        attention_matrix = [
+            {
+                "company_name": item["company_name"],
+                "subindustry": item["subindustry"],
+                "risk_count": item["risk_count"],
+                "headline": item["risk_labels"][0] if item["risk_labels"] else "继续跟踪",
+                "route": item["route"],
+            }
+            for item in top_risk_companies[:4]
+        ]
+
+        live_events = []
+        for item in watchboard["items"][:5]:
+            live_events.append(
+                {
+                    "company_name": item["company_name"],
+                    "headline": item["top_risks"][0] if item["top_risks"] else "持续监测",
+                    "status": (
+                        "新增预警"
+                        if item["new_alerts"]
+                        else "任务处理中"
+                        if item["task_count"]
+                        else "持续监测"
+                    ),
+                    "route": {
+                        "path": "/score",
+                        "query": {"company": item["company_name"], "period": preferred_period},
+                    },
+                }
+            )
 
         payload = {
             "report_period": preferred_period,
@@ -288,6 +357,10 @@ class OpsPilotService:
                 "silver_metrics": data_status.get("silver_financial_metrics", {}).get("record_count", 0),
                 "bronze_reports": data_status.get("bronze_periodic_reports", {}).get("record_count", 0),
             },
+            "market_tape": market_tape,
+            "execution_flash": execution_flash,
+            "attention_matrix": attention_matrix,
+            "live_events": live_events,
             "top_risk_companies": [
                 {
                     "company_name": item["company_name"],

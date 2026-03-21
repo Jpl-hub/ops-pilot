@@ -16,6 +16,10 @@ const wsStatus = ref<'connecting' | 'connected' | 'disconnected'>('connecting')
 let socket: WebSocket | null = null
 
 const payload = computed(() => livePayload.value || state.data.value)
+const marketTape = computed(() => payload.value?.market_tape || [])
+const executionFlash = computed(() => payload.value?.execution_flash || [])
+const liveEvents = computed(() => payload.value?.live_events || [])
+const attentionMatrix = computed(() => payload.value?.attention_matrix || [])
 
 function connectStream() {
   const token = loadAccessToken()
@@ -65,9 +69,9 @@ onBeforeUnmount(() => {
     <LoadingState v-if="state.loading.value && !payload" />
     <ErrorState v-else-if="state.error.value && !payload" :message="state.error.value" />
     <template v-else-if="payload">
-      <section class="brain-hero">
+      <section class="brain-hero brain-hero-terminal">
         <div class="brain-title-block">
-          <h2 class="hero-title compact">先看市场变化，再看重点公司。</h2>
+          <h2 class="hero-title compact">先看变化，再锁定公司，再进入处置。</h2>
         </div>
         <div class="brain-header-actions">
           <TagPill
@@ -82,18 +86,16 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section class="brain-board">
-        <article class="panel brain-main-panel">
-          <div class="brain-inline-metrics">
-            <StatCard
-              v-for="item in payload.metrics"
-              :key="item.label"
-              :label="item.label"
-              :value="item.value"
-              :hint="item.hint"
-              :tone="item.tone"
-            />
-          </div>
+      <section class="brain-market-tape">
+        <div v-for="item in marketTape" :key="item.label" class="brain-market-cell" :data-tone="item.tone">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+          <em>{{ item.delta }}</em>
+        </div>
+      </section>
+
+      <section class="brain-terminal-stage">
+        <article class="panel brain-terminal-main">
           <div class="brain-chart-stack">
             <ChartPanel
               v-for="chart in payload.charts.slice(0, 1)"
@@ -101,56 +103,55 @@ onBeforeUnmount(() => {
               :title="chart.title"
               :options="chart.options"
             />
-            <div class="brain-signal-tape">
-              <div
-                v-for="item in payload.metrics"
-                :key="`tape-${item.label}`"
-                class="brain-signal-item"
-              >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
+          </div>
+
+          <div class="brain-live-ribbon">
+            <div
+              v-for="item in liveEvents"
+              :key="`${item.company_name}-${item.headline}`"
+              class="brain-live-event"
+            >
+              <RouterLink class="brain-live-link" :to="{ path: item.route.path, query: item.route.query || {} }">
+                <strong>{{ item.company_name }}</strong>
+                <span>{{ item.headline }}</span>
+                <em>{{ item.status }}</em>
+              </RouterLink>
             </div>
           </div>
         </article>
 
-        <aside class="brain-side-stack">
+        <aside class="brain-terminal-rail">
           <article class="panel">
             <div class="panel-header">
-              <div>
-                <h3>优先观察名单</h3>
-              </div>
+              <div><h3>优先观察</h3></div>
               <div class="signal-subtitle">{{ payload.report_period }}</div>
             </div>
             <div class="timeline-list compact-timeline">
               <RouterLink
-                v-for="item in payload.top_risk_companies"
+                v-for="item in attentionMatrix"
                 :key="item.company_name"
                 class="timeline-item interactive-card"
                 :to="{ path: item.route.path, query: item.route.query || {} }"
               >
                 <strong>{{ item.company_name }}</strong>
-                <span>{{ item.subindustry }} · {{ item.risk_labels.slice(0, 2).join(' / ') || '持续跟踪' }}</span>
+                <span>{{ item.subindustry }} · {{ item.headline }}</span>
               </RouterLink>
             </div>
           </article>
 
           <article class="panel">
             <div class="panel-header">
-              <div>
-                <h3>待跟进事项</h3>
-              </div>
-              <div class="signal-subtitle">{{ payload.top_risk_companies.length }} 项</div>
+              <div><h3>最新运行</h3></div>
             </div>
             <div class="timeline-list compact-timeline">
               <RouterLink
-                v-for="item in payload.top_risk_companies.slice(0, 5)"
-                :key="`${item.company_name}-followup`"
+                v-for="item in executionFlash"
+                :key="`${item.title}-${item.status}`"
                 class="timeline-item interactive-card"
-                :to="{ path: item.route.path, query: item.route.query || {} }"
+                :to="item.route ? { path: item.route.path, query: item.route.query || {} } : { path: '/workspace' }"
               >
-                <strong>{{ item.company_name }}</strong>
-                <span>{{ item.risk_labels.slice(0, 2).join(' / ') || '继续跟进' }}</span>
+                <strong>{{ item.title }}</strong>
+                <span>{{ item.summary }} · {{ item.status }}</span>
               </RouterLink>
             </div>
           </article>
@@ -160,11 +161,7 @@ onBeforeUnmount(() => {
       <section class="split-grid">
         <article class="panel">
           <div class="panel-header">
-            <div>
-              <div class="eyebrow">风险分布</div>
-              <h3>当前需要优先盯住的公司</h3>
-            </div>
-            <div class="signal-subtitle">{{ payload.report_period }}</div>
+            <div><h3>重点公司</h3></div>
           </div>
           <div class="company-grid">
             <RouterLink

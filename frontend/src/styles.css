@@ -1183,6 +1183,85 @@ select,
   align-items: end;
   margin-bottom: 18px;
 }
+.brain-hero-terminal {
+  align-items: center;
+}
+.brain-market-tape {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.brain-market-cell {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: rgba(15, 23, 42, 0.92);
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+}
+.brain-market-cell span,
+.brain-market-cell em {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: normal;
+}
+.brain-market-cell strong {
+  font-size: 24px;
+  line-height: 1;
+}
+.brain-market-cell[data-tone='risk'] strong {
+  color: #f87171;
+}
+.brain-market-cell[data-tone='success'] strong {
+  color: #34d399;
+}
+.brain-market-cell[data-tone='accent'] strong {
+  color: #60a5fa;
+}
+.brain-terminal-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.8fr);
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.brain-terminal-main {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.brain-terminal-rail {
+  display: grid;
+  gap: 18px;
+}
+.brain-live-ribbon {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.brain-live-event {
+  border: 1px solid rgba(52, 211, 153, 0.16);
+  border-radius: 18px;
+  background: rgba(10, 14, 18, 0.94);
+  overflow: hidden;
+}
+.brain-live-link {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  color: inherit;
+  text-decoration: none;
+}
+.brain-live-link strong {
+  font-size: 14px;
+}
+.brain-live-link span,
+.brain-live-link em {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: normal;
+}
 .brain-board {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.75fr);
@@ -2006,6 +2085,7 @@ h5,
   .chat-workspace { grid-template-columns: 220px minmax(0, 1fr); }
   .chat-sidebar:last-child { grid-column: 1 / -1; height: auto; }
   .workspace-stage,
+  .brain-terminal-stage,
   .brain-board,
   .brain-hero,
   .mode-stage,
@@ -2068,6 +2148,8 @@ h5,
   .chat-runbar-track,
   .execution-meta div,
   .execution-metrics,
+  .brain-market-tape,
+  .brain-live-ribbon,
   .brain-inline-metrics,
   .brain-signal-tape,
   .mission-stats { grid-template-columns: 1fr 1fr; }
@@ -2085,6 +2167,8 @@ h5,
   .chat-runbar-track,
   .execution-meta div,
   .execution-metrics,
+  .brain-market-tape,
+  .brain-live-ribbon,
   .brain-inline-metrics,
   .brain-signal-tape,
   .mission-stats { grid-template-columns: 1fr; }
