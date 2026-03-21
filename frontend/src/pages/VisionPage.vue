@@ -19,6 +19,9 @@ const selectedPeriod = ref('')
 
 const resultItems = computed(() => visionState.data.value?.result?.items || [])
 const selectedResult = computed(() => visionState.data.value?.result || null)
+const phaseTrack = computed(() => selectedResult.value?.phase_track || [])
+const extractionStream = computed(() => selectedResult.value?.extraction_stream || [])
+const analysisLog = computed(() => selectedResult.value?.analysis_log || [])
 
 async function loadVision() {
   if (!selectedCompany.value) return
@@ -87,9 +90,33 @@ watch(selectedPeriod, async () => {
 
           <div class="vision-layout">
             <section class="vision-input-zone">
-              <div class="vision-dropzone">
+              <div class="vision-dropzone vision-dropzone-terminal">
                 <div class="vision-drop-icon">◫</div>
-                <strong>选择结果</strong>
+                <strong>{{ selectedResult?.headline || '等待解析结果' }}</strong>
+                <span>{{ selectedResult?.status_label || 'pending' }}</span>
+              </div>
+              <div class="graph-phase-track vision-phase-track">
+                <div
+                  v-for="(phase, index) in phaseTrack"
+                  :key="phase.phase"
+                  class="graph-phase-card"
+                  :class="{ active: index === 2 }"
+                >
+                  <span>{{ phase.phase }}</span>
+                  <strong>{{ phase.headline }}</strong>
+                  <small>{{ phase.metric }}</small>
+                </div>
+              </div>
+              <div class="graph-signal-stream vision-signal-stream">
+                <div
+                  v-for="item in extractionStream"
+                  :key="item.label + item.value"
+                  class="graph-signal-chip"
+                  :class="`tone-${item.tone || 'accent'}`"
+                >
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
               </div>
               <div class="timeline-list compact-timeline">
                 <div
@@ -135,6 +162,16 @@ watch(selectedPeriod, async () => {
                     </div>
                   </div>
                 </article>
+              </div>
+              <div v-if="analysisLog.length" class="timeline-list compact-timeline vision-analysis-log">
+                <div
+                  v-for="item in analysisLog"
+                  :key="`analysis-${item.step}`"
+                  class="timeline-item"
+                >
+                  <strong>{{ item.step }}. {{ item.title }}</strong>
+                  <span>{{ item.detail }}</span>
+                </div>
               </div>
               <div v-else class="vision-empty">
                 <span>等待分析结果</span>

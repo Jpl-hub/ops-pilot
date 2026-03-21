@@ -32,6 +32,7 @@ const presetScenarios = [
 const propagationSteps = computed(() => stressState.data.value?.propagation_steps || [])
 const transmissionMatrix = computed(() => stressState.data.value?.transmission_matrix || [])
 const simulationLog = computed(() => stressState.data.value?.simulation_log || [])
+const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.value] || null)
 const stageCards = computed(() => {
   const steps = propagationSteps.value
   return [
@@ -167,6 +168,15 @@ onBeforeUnmount(() => {
                     <span>{{ stressState.loading.value ? '正在推演冲击传导…' : '冲击路径已生成' }}</span>
                   </div>
                 </div>
+                <div class="stress-stage-banner">
+                  <div class="stress-stage-banner-copy">
+                    <span>当前传导</span>
+                    <strong>{{ activeSimulationLog?.title || '等待推演' }}</strong>
+                  </div>
+                  <div class="stress-stage-banner-metric">
+                    {{ activeSimulationLog?.step ? `STEP 0${activeSimulationLog.step}` : 'SIM' }}
+                  </div>
+                </div>
                 <div class="stress-stage-cards">
                   <div
                     v-for="card in stageCards"
@@ -196,10 +206,10 @@ onBeforeUnmount(() => {
 
               <div class="stress-transmission-grid">
                 <article
-                  v-for="item in transmissionMatrix"
+                  v-for="(item, index) in transmissionMatrix"
                   :key="item.stage"
                   class="stress-transmission-card"
-                  :class="`tone-${item.tone || 'warning'}`"
+                  :class="[`tone-${item.tone || 'warning'}`, { active: index === activeStressStep }]"
                 >
                   <span>{{ item.stage }}</span>
                   <strong>{{ item.headline }}</strong>

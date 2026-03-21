@@ -1753,6 +1753,51 @@ select,
   padding: 18px 18px 20px;
 }
 
+.graph-stage-banner,
+.stress-stage-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    radial-gradient(circle at top left, rgba(52, 211, 153, 0.08), transparent 46%),
+    rgba(255, 255, 255, 0.025);
+}
+
+.graph-stage-banner-copy,
+.stress-stage-banner-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.graph-stage-banner-copy span,
+.stress-stage-banner-copy span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.graph-stage-banner-copy strong,
+.stress-stage-banner-copy strong {
+  font-size: 18px;
+  line-height: 1.18;
+}
+
+.graph-stage-banner-metric,
+.stress-stage-banner-metric {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: #7ee9b8;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(52, 211, 153, 0.16);
+  background: rgba(52, 211, 153, 0.06);
+}
+
 .graph-phase-track {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1804,6 +1849,17 @@ select,
   overflow: hidden;
 }
 
+.graph-canvas-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+  background-size: 92px 92px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.25));
+  pointer-events: none;
+}
+
 .graph-canvas::after {
   content: '';
   position: absolute;
@@ -1847,6 +1903,7 @@ select,
   background: rgba(18, 19, 22, 0.92);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.28);
   transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+  cursor: pointer;
 }
 
 .graph-floating-node strong {
@@ -1893,6 +1950,26 @@ select,
   align-items: start;
 }
 
+.graph-run-highlight {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(87, 131, 255, 0.18);
+  background: rgba(87, 131, 255, 0.08);
+}
+
+.graph-run-highlight strong {
+  font-size: 14px;
+}
+
+.graph-run-highlight span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .graph-signal-stream {
   display: flex;
   flex-wrap: wrap;
@@ -1926,6 +2003,11 @@ select,
 .graph-signal-chip.tone-success {
   border-color: rgba(52, 211, 153, 0.2);
   background: rgba(52, 211, 153, 0.06);
+}
+
+.graph-signal-chip.tone-warning {
+  border-color: rgba(245, 158, 11, 0.2);
+  background: rgba(245, 158, 11, 0.06);
 }
 
 .graph-path-ribbon,
@@ -2118,6 +2200,7 @@ select,
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
 }
 
 .stress-transmission-card span {
@@ -2156,6 +2239,34 @@ select,
 .stress-transmission-card.tone-success {
   border-color: rgba(52, 211, 153, 0.2);
   background: rgba(52, 211, 153, 0.06);
+}
+
+.stress-transmission-card.active {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.26);
+}
+
+.vision-dropzone-terminal {
+  gap: 8px;
+}
+
+.vision-dropzone-terminal span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.vision-phase-track {
+  margin: 0;
+}
+
+.vision-signal-stream {
+  margin-bottom: 2px;
+}
+
+.vision-analysis-log {
+  margin-top: 14px;
 }
 
 @keyframes graphSweep {

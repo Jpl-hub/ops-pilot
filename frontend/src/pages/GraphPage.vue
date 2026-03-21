@@ -40,6 +40,10 @@ const inferencePath = computed<GraphInferenceStep[]>(() => graphState.data.value
 const activePathId = computed(() => inferencePath.value[activePathStep.value]?.step ?? null)
 const phaseTrack = computed(() => graphState.data.value?.phase_track || [])
 const signalStream = computed(() => graphState.data.value?.signal_stream || [])
+const activePhaseIndex = computed(() =>
+  phaseTrack.value.length ? activePathStep.value % phaseTrack.value.length : 0,
+)
+const activeRun = computed(() => runsState.data.value?.runs?.[0] || null)
 
 const graphCanvasNodes = computed(() => {
   const pathNodes = inferencePath.value.map((item: GraphInferenceStep, index: number) => ({
@@ -127,6 +131,10 @@ async function submitIntent() {
   graphIntent.value = graphIntentDraft.value.trim() || graphIntent.value
   await loadGraph()
 }
+
+function focusStep(index: number) {
+  activePathStep.value = index
+}
 </script>
 
 <template>
@@ -177,13 +185,21 @@ async function submitIntent() {
 
           <div class="graph-stage graph-stage-dynamic">
             <section class="graph-canvas-panel">
-              <div class="signal-code">图谱推演</div>
+              <div class="graph-stage-banner">
+                <div class="graph-stage-banner-copy">
+                  <span>图谱推演</span>
+                  <strong>{{ phaseTrack[activePhaseIndex]?.headline || '等待推演' }}</strong>
+                </div>
+                <div class="graph-stage-banner-metric">
+                  {{ phaseTrack[activePhaseIndex]?.metric || 'GRAPH' }}
+                </div>
+              </div>
               <div class="graph-phase-track">
                 <div
                   v-for="(phase, index) in phaseTrack"
                   :key="phase.phase"
                   class="graph-phase-card"
-                  :class="{ active: index === activePathStep % Math.max(phaseTrack.length, 1) }"
+                  :class="{ active: index === activePhaseIndex }"
                 >
                   <span>{{ phase.phase }}</span>
                   <strong>{{ phase.headline }}</strong>
@@ -191,6 +207,7 @@ async function submitIntent() {
                 </div>
               </div>
               <div class="graph-canvas">
+                <div class="graph-canvas-grid" />
                 <svg class="graph-canvas-links" viewBox="0 0 100 100" preserveAspectRatio="none">
                   <line
                     v-for="link in graphCanvasLinks"
@@ -209,6 +226,7 @@ async function submitIntent() {
                   class="graph-floating-node"
                   :class="[`kind-${node.kind}`, { active: node.step === activePathId }]"
                   :style="{ left: `${node.x}%`, top: `${node.y}%` }"
+                  @mouseenter="node.step ? focusStep(node.step - 1) : undefined"
                 >
                   <strong>{{ node.label }}</strong>
                   <span>{{ node.detail }}</span>
@@ -225,6 +243,7 @@ async function submitIntent() {
                     :key="`ribbon-${item.step}`"
                     class="graph-ribbon-step"
                     :class="{ active: item.step === activePathId }"
+                    @mouseenter="focusStep(item.step - 1)"
                   >
                     <em>0{{ item.step }}</em>
                     <strong>{{ item.title }}</strong>
@@ -265,6 +284,10 @@ async function submitIntent() {
 
               <section class="graph-support-card">
                 <div class="signal-code">最近检索</div>
+                <div v-if="activeRun" class="graph-run-highlight">
+                  <strong>{{ activeRun.company_name }}</strong>
+                  <span>{{ activeRun.intent }}</span>
+                </div>
                 <div class="timeline-list compact-timeline">
                   <div
                     v-for="item in runsState.data.value?.runs || []"

@@ -1757,6 +1757,22 @@ class OpsPilotService:
             }
             for item in upgrades["items"][:8]
         ]
+        phase_track = _build_vision_phase_track(
+            company_name=company_name,
+            report_period=workspace["report_period"],
+            selected_item=selected_item,
+            detail=detail,
+        )
+        extraction_stream = _build_vision_extraction_stream(
+            detail=detail,
+            selected_item=selected_item,
+        )
+        analysis_log = _build_vision_analysis_log(
+            company_name=company_name,
+            report_period=workspace["report_period"],
+            selected_item=selected_item,
+            detail=detail,
+        )
         return {
             "company_name": company_name,
             "report_period": workspace["report_period"],
@@ -1771,6 +1787,10 @@ class OpsPilotService:
                 or selected_item.get("artifact_summary")
                 or selected_item.get("artifact_preview")
                 else "处理中",
+                "phase_track": phase_track,
+                "extraction_stream": extraction_stream,
+                "analysis_log": analysis_log,
+                "source_preview": selected_item.get("artifact_preview"),
                 "items": result_items,
                 "sections": section_items,
                 "evidence_navigation": (
@@ -3940,6 +3960,101 @@ def _build_stress_simulation_log(
             "detail": detail,
         }
         for index, (title, detail) in enumerate(checkpoints)
+    ]
+
+
+def _build_vision_phase_track(
+    *,
+    company_name: str,
+    report_period: str,
+    selected_item: dict[str, Any],
+    detail: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    sections = detail.get("consumable_sections", []) if detail else []
+    return [
+        {
+            "phase": "载入报告",
+            "status": "done",
+            "headline": company_name,
+            "metric": report_period,
+        },
+        {
+            "phase": "解析工序",
+            "status": "done" if selected_item.get("status") == "done" else "active",
+            "headline": selected_item.get("stage", "document"),
+            "metric": selected_item.get("status", "pending"),
+        },
+        {
+            "phase": "结构抽取",
+            "status": "done" if sections else "active",
+            "headline": "标题/表格/片段",
+            "metric": f"{len(sections)} sections",
+        },
+        {
+            "phase": "证据挂接",
+            "status": "active",
+            "headline": "可回看原证据",
+            "metric": f"{len((detail or {}).get('evidence_navigation', {}).get('links', []))} links",
+        },
+    ]
+
+
+def _build_vision_extraction_stream(
+    *,
+    detail: dict[str, Any] | None,
+    selected_item: dict[str, Any],
+) -> list[dict[str, Any]]:
+    stream: list[dict[str, Any]] = []
+    sections = detail.get("consumable_sections", []) if detail else []
+    for section in sections[:4]:
+        stream.append(
+            {
+                "label": section.get("title", "section"),
+                "value": str(section.get("count", 0)),
+                "tone": "accent" if section.get("section_type") in {"heading_outline", "summary"} else "success",
+            }
+        )
+    if not stream:
+        stream.append(
+            {
+                "label": selected_item.get("stage", "document"),
+                "value": selected_item.get("status", "pending"),
+                "tone": "warning",
+            }
+        )
+    return stream[:6]
+
+
+def _build_vision_analysis_log(
+    *,
+    company_name: str,
+    report_period: str,
+    selected_item: dict[str, Any],
+    detail: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    sections = detail.get("consumable_sections", []) if detail else []
+    checkpoints = [
+        ("初始化", f"{company_name} / {report_period}"),
+        ("定位报告", selected_item.get("report_id") or selected_item.get("stage", "document")),
+        ("抽取结构", "、".join(section.get("title", "section") for section in sections[:3]) or "等待结构化结果"),
+        (
+            "生成摘要",
+            selected_item.get("artifact_summary")
+            or selected_item.get("artifact_preview")
+            or "等待摘要结果",
+        ),
+        (
+            "挂接证据",
+            f"{len((detail or {}).get('evidence_navigation', {}).get('links', []))} 个入口",
+        ),
+    ]
+    return [
+        {
+            "step": index + 1,
+            "title": title,
+            "detail": detail_text,
+        }
+        for index, (title, detail_text) in enumerate(checkpoints)
     ]
 
 
