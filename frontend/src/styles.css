@@ -59,6 +59,9 @@ a { color: inherit; }
   flex-direction: column;
   gap: 20px;
   background: #0c0c0d;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  z-index: 6;
 }
 
 .shell-main {
@@ -68,6 +71,8 @@ a { color: inherit; }
   min-height: 100vh;
   overflow: visible;
   background: linear-gradient(180deg, #181818 0%, #141414 100%);
+  position: relative;
+  z-index: 1;
 }
 
 .sidebar-group,
@@ -89,6 +94,7 @@ a { color: inherit; }
 .sidebar-footer {
   margin-top: auto;
   gap: 14px;
+  padding-bottom: 8px;
 }
 
 .sidebar-utility-stack {
@@ -260,16 +266,15 @@ a { color: inherit; }
 .top-nav-vertical .button-secondary {
   width: 100%;
   justify-content: flex-start;
-  min-height: 46px;
+  min-height: 52px;
   padding: 0 14px;
   border-radius: 14px;
 }
 
 .sidebar-nav-item {
-  display: grid !important;
-  gap: 4px;
-  align-content: center;
-  min-height: 64px !important;
+  display: flex !important;
+  align-items: center;
+  min-height: 56px !important;
   padding: 12px 14px !important;
   background: transparent !important;
   border: 1px solid transparent !important;
@@ -288,14 +293,7 @@ a { color: inherit; }
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.sidebar-nav-item span {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .button-primary {
@@ -332,7 +330,7 @@ a { color: inherit; }
 .sidebar-utility-card {
   width: 100%;
   min-height: 60px;
-  padding: 12px 14px;
+  padding: 0 14px;
   border-radius: 16px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
@@ -360,6 +358,10 @@ a { color: inherit; }
 .sidebar-utility-card small,
 .sidebar-utility-label {
   display: none;
+}
+
+.role-switch-card {
+  min-height: 60px;
 }
 
 .role-switch,
@@ -1268,7 +1270,6 @@ select,
 .graph-stage {
   min-height: 520px;
   display: grid;
-  grid-template-columns: minmax(0, 1.38fr) minmax(280px, 0.62fr);
   gap: 16px;
   padding: 18px;
   border-radius: 18px;
@@ -1276,8 +1277,7 @@ select,
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.graph-stage-main,
-.graph-stage-side {
+.graph-stage-main {
   display: grid;
   gap: 14px;
   align-content: start;
@@ -1287,8 +1287,16 @@ select,
   margin-bottom: 14px;
 }
 
+.graph-context-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(180px, 0.5fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .graph-path-flow {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
@@ -1325,7 +1333,8 @@ select,
 }
 
 .graph-node-stack {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -1358,6 +1367,18 @@ select,
 .graph-node.evidence {
   border-color: rgba(245, 184, 80, 0.24);
   background: rgba(245, 184, 80, 0.08);
+}
+
+.graph-support-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(280px, 0.92fr);
+  gap: 18px;
+}
+
+.graph-support-card {
+  display: grid;
+  gap: 14px;
+  align-content: start;
 }
 
 .graph-path-strip {
@@ -1586,7 +1607,9 @@ h5,
   .profile-grid,
   .stress-layout,
   .vision-layout,
-  .graph-stage {
+  .graph-stage,
+  .graph-support-strip,
+  .graph-context-bar {
     grid-template-columns: 1fr;
   }
   .workspace-rail {
@@ -1610,7 +1633,9 @@ h5,
   .mode-stage,
   .stress-layout,
   .vision-layout,
-  .chart-grid { grid-template-columns: 1fr; }
+  .chart-grid,
+  .graph-support-strip,
+  .graph-context-bar { grid-template-columns: 1fr; }
   .chat-thread-shell,
   .chat-sidebar { height: auto; min-height: 0; }
   .workspace-rail {

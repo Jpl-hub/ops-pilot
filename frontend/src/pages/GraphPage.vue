@@ -79,7 +79,7 @@ async function submitIntent() {
       </section>
 
       <section class="mode-stage graph-mode-stage">
-        <article class="panel mode-main-panel">
+        <article class="panel mode-main-panel graph-main-stage">
           <div class="mode-query-panel">
             <div class="graph-search-icon">⌕</div>
             <div class="mode-query-copy">
@@ -90,6 +90,19 @@ async function submitIntent() {
               <TagPill :label="`Nodes ${graphState.data.value?.graph?.node_count || 0}`" />
               <TagPill :label="`Edges ${graphState.data.value?.graph?.edge_count || 0}`" />
             </div>
+          </div>
+
+          <div class="graph-context-bar">
+            <label class="field">
+              <span>公司</span>
+              <select v-model="selectedCompany">
+                <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>报期</span>
+              <input v-model="selectedPeriod" class="text-input" placeholder="默认主周期" />
+            </label>
           </div>
 
           <div class="chat-composer graph-query-composer">
@@ -114,81 +127,49 @@ async function submitIntent() {
                 </div>
               </div>
             </div>
-            <div class="graph-stage-side">
-              <div class="signal-code">焦点节点</div>
-              <div class="graph-node-stack">
-                <div
-                  v-for="node in focalNodes"
-                  :key="node.id"
-                  class="graph-node"
-                  :class="{
-                    core: ['company', 'report_period', 'watchboard', 'research_report'].includes(node.type),
-                    risk: ['risk_label', 'alert'].includes(node.type),
-                    action: ['task', 'execution_stream'].includes(node.type),
-                    evidence: ['document_artifact', 'artifact_evidence'].includes(node.type),
-                  }"
-                >
-                  {{ node.label }}
+
+            <div class="graph-support-strip">
+              <section class="graph-support-card">
+                <div class="signal-code">焦点节点</div>
+                <div class="graph-node-stack">
+                  <div
+                    v-for="node in focalNodes"
+                    :key="node.id"
+                    class="graph-node"
+                    :class="{
+                      core: ['company', 'report_period', 'watchboard', 'research_report'].includes(node.type),
+                      risk: ['risk_label', 'alert'].includes(node.type),
+                      action: ['task', 'execution_stream'].includes(node.type),
+                      evidence: ['document_artifact', 'artifact_evidence'].includes(node.type),
+                    }"
+                  >
+                    {{ node.label }}
+                  </div>
                 </div>
-              </div>
+              </section>
+
+              <section class="graph-support-card">
+                <div class="signal-code">证据与动作</div>
+                <div class="timeline-list compact-timeline">
+                  <RouterLink
+                    v-for="item in graphState.data.value?.evidence_navigation?.links || []"
+                    :key="item.label + item.path"
+                    class="timeline-item interactive-card"
+                    :to="{ path: item.path, query: item.query || {} }"
+                  >
+                    <strong>{{ item.label }}</strong>
+                  </RouterLink>
+                </div>
+                <div class="timeline-list compact-timeline">
+                  <div v-for="item in streamState.data.value?.records || []" :key="item.id" class="timeline-item">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.stream_type }} · {{ item.status }}</span>
+                  </div>
+                </div>
+              </section>
             </div>
           </div>
         </article>
-
-        <aside class="mode-side-panel">
-          <section class="panel side-panel-block">
-            <div class="panel-header">
-              <div>
-                <div class="eyebrow">检索上下文</div>
-                <h3>当前图谱</h3>
-              </div>
-            </div>
-            <label class="field">
-              <span>公司</span>
-              <select v-model="selectedCompany">
-                <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>报期</span>
-              <input v-model="selectedPeriod" class="text-input" placeholder="默认主周期" />
-            </label>
-          </section>
-
-          <section class="panel side-panel-block">
-            <div class="panel-header">
-              <div>
-                <div class="eyebrow">证据入口</div>
-                <h3>继续下钻</h3>
-              </div>
-            </div>
-            <div class="timeline-list compact-timeline">
-              <RouterLink
-                v-for="item in graphState.data.value?.evidence_navigation?.links || []"
-                :key="item.label + item.path"
-                class="timeline-item interactive-card"
-                :to="{ path: item.path, query: item.query || {} }"
-              >
-                <strong>{{ item.label }}</strong>
-              </RouterLink>
-            </div>
-          </section>
-
-          <section class="panel side-panel-block">
-            <div class="panel-header">
-              <div>
-                <div class="eyebrow">执行流</div>
-                <h3>最近关联动作</h3>
-              </div>
-            </div>
-            <div class="timeline-list compact-timeline">
-              <div v-for="item in streamState.data.value?.records || []" :key="item.id" class="timeline-item">
-                <strong>{{ item.title }}</strong>
-                <span>{{ item.stream_type }} · {{ item.status }}</span>
-              </div>
-            </div>
-          </section>
-        </aside>
       </section>
     </template>
   </AppShell>

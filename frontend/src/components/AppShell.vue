@@ -65,7 +65,6 @@ async function logout() {
             class="sidebar-nav-item"
           >
             <strong>{{ item.label }}</strong>
-            <span>{{ item.description }}</span>
           </RouterLink>
         </nav>
       </div>
