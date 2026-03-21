@@ -138,15 +138,20 @@ onBeforeUnmount(() => {
           <article class="panel">
             <div class="panel-header">
               <div>
-                <h3>最新变化</h3>
+                <h3>待跟进事项</h3>
               </div>
-              <div class="signal-subtitle">{{ payload.radar_events.length }} 条</div>
+              <div class="signal-subtitle">{{ payload.top_risk_companies.length }} 项</div>
             </div>
             <div class="timeline-list compact-timeline">
-              <div v-for="item in payload.radar_events.slice(0, 5)" :key="item.title" class="timeline-item">
-                <strong>{{ item.title }}</strong>
-                <span>{{ item.source }} · {{ item.date || item.published_at || '2026' }}</span>
-              </div>
+              <RouterLink
+                v-for="item in payload.top_risk_companies.slice(0, 5)"
+                :key="`${item.company_name}-followup`"
+                class="timeline-item interactive-card"
+                :to="{ path: item.route.path, query: item.route.query || {} }"
+              >
+                <strong>{{ item.company_name }}</strong>
+                <span>{{ item.risk_labels.slice(0, 2).join(' / ') || '继续跟进' }}</span>
+              </RouterLink>
             </div>
           </article>
         </aside>
