@@ -1872,6 +1872,46 @@ select,
     linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0.008));
 }
 
+.mode-pulse-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.mode-pulse-card {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  text-decoration: none;
+}
+
+.mode-pulse-card span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.mode-pulse-card strong {
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.mode-pulse-card em {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(52, 211, 153, 0.86), rgba(96, 165, 250, 0.82));
+  transition: width 0.32s ease;
+}
+
 .graph-canvas-panel,
 .stress-command-surface {
   position: relative;
@@ -2025,6 +2065,21 @@ select,
   filter: drop-shadow(0 0 10px rgba(52, 211, 153, 0.35));
 }
 
+.graph-link-orb {
+  fill: rgba(96, 165, 250, 0);
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.graph-link-orb.active {
+  fill: rgba(110, 231, 183, 0.96);
+  opacity: 1;
+  animation: graphOrbTravel 2.4s linear infinite;
+  animation-delay: var(--orb-delay, 0s);
+  filter: drop-shadow(0 0 8px rgba(52, 211, 153, 0.42));
+}
+
 .graph-floating-node {
   position: absolute;
   min-width: 148px;
@@ -2109,6 +2164,73 @@ select,
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.graph-signal-tape,
+.stress-impact-tape {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.graph-tape-cell,
+.stress-impact-cell {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+.graph-tape-cell span,
+.stress-impact-cell span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.graph-tape-cell strong,
+.stress-impact-cell strong {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.graph-tape-cell i,
+.stress-impact-cell i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(52, 211, 153, 0.92), rgba(96, 165, 250, 0.82));
+}
+
+.graph-tape-cell.active,
+.stress-impact-cell.active {
+  border-color: rgba(52, 211, 153, 0.26);
+  background: rgba(52, 211, 153, 0.06);
+}
+
+.graph-tape-cell.tone-risk,
+.stress-impact-cell.tone-risk {
+  border-color: rgba(239, 68, 68, 0.22);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.graph-tape-cell.tone-warning,
+.stress-impact-cell.tone-warning {
+  border-color: rgba(245, 158, 11, 0.2);
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.graph-tape-cell.tone-success,
+.stress-impact-cell.tone-success {
+  border-color: rgba(52, 211, 153, 0.2);
+  background: rgba(52, 211, 153, 0.05);
 }
 
 .graph-signal-chip {
@@ -2434,6 +2556,23 @@ select,
 @keyframes graphSweep {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
+}
+
+@keyframes graphOrbTravel {
+  0% {
+    transform: translate(0, 0) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(var(--travel-x) * 1%), calc(var(--travel-y) * 1%)) scale(1.15);
+    opacity: 0;
+  }
 }
 
 @keyframes stressPulse {

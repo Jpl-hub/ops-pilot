@@ -13,6 +13,7 @@ import { get, post } from '@/lib/api'
 const overviewState = useAsyncState<any>()
 const stressState = useAsyncState<any>()
 const runsState = useAsyncState<any>()
+const runtimeState = useAsyncState<any>()
 const route = useRoute()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
@@ -33,6 +34,8 @@ const propagationSteps = computed(() => stressState.data.value?.propagation_step
 const transmissionMatrix = computed(() => stressState.data.value?.transmission_matrix || [])
 const simulationLog = computed(() => stressState.data.value?.simulation_log || [])
 const stressWavefront = computed(() => stressState.data.value?.stress_wavefront || [])
+const stressImpactTape = computed(() => stressState.data.value?.stress_impact_tape || [])
+const modulePulses = computed(() => runtimeState.data.value?.module_pulses || [])
 const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.value] || null)
 const activeWavefront = computed(
   () => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null,
@@ -81,6 +84,13 @@ async function runStress() {
       )}&user_role=management&limit=6`,
     ),
   )
+  await runtimeState.execute(() =>
+    get(
+      `/company/intelligence-runtime?company_name=${encodeURIComponent(selectedCompany.value)}&report_period=${encodeURIComponent(
+        selectedPeriod.value || '',
+      )}&user_role=management`,
+    ),
+  )
   activeStressStep.value = 0
 }
 
@@ -123,8 +133,8 @@ onBeforeUnmount(() => {
           <div class="mode-query-panel">
             <div class="graph-search-icon">ϟ</div>
             <div class="mode-query-copy">
-              <strong>当前冲击</strong>
-              <span>{{ stressState.data.value?.scenario || scenario }}</span>
+              <strong>{{ stressState.data.value?.scenario || scenario }}</strong>
+              <span>{{ selectedCompany }} · {{ selectedPeriod || '默认主周期' }}</span>
             </div>
             <div class="mode-query-metrics">
               <TagPill
@@ -149,8 +159,19 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="stress-dynamic-layout">
+            <div v-if="modulePulses.length" class="mode-pulse-strip">
+              <RouterLink
+                v-for="item in modulePulses"
+                :key="item.module_key"
+                class="mode-pulse-card"
+                :to="{ path: item.route.path, query: item.route.query || {} }"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.signal }}</strong>
+                <em :style="{ width: `${item.intensity || 0}%` }" />
+              </RouterLink>
+            </div>
             <section class="stress-inputs stress-inputs-dynamic">
-              <div class="signal-code">预设场景</div>
               <div class="timeline-list compact-timeline">
                 <button
                   v-for="item in presetScenarios"
@@ -163,7 +184,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               <label class="field">
-                <span>自定义场景</span>
+                <span>场景</span>
                 <textarea v-model="scenario" class="text-area stress-input" />
               </label>
               <button class="button-primary stress-submit" @click="runStress">启动推演</button>
@@ -229,6 +250,19 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
+              <div class="stress-impact-tape">
+                <div
+                  v-for="item in stressImpactTape"
+                  :key="`impact-${item.step}`"
+                  class="stress-impact-cell"
+                  :class="[`tone-${item.tone || 'warning'}`, { active: item.step - 1 === activeStressStep }]"
+                >
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.headline }}</strong>
+                  <i :style="{ width: `${item.intensity || 0}%` }" />
+                </div>
+              </div>
+
               <div class="stress-transmission-grid">
                 <article
                   v-for="(item, index) in transmissionMatrix"
@@ -263,7 +297,6 @@ onBeforeUnmount(() => {
 
           <div class="graph-support-strip stress-support-strip">
             <section class="graph-support-card">
-              <div class="signal-code">优先动作</div>
               <div class="timeline-list compact-timeline">
                 <div v-for="item in stressState.data.value?.actions || []" :key="item.title" class="timeline-item">
                   <strong>{{ item.priority }} {{ item.title }}</strong>
@@ -273,7 +306,6 @@ onBeforeUnmount(() => {
             </section>
 
             <section class="graph-support-card">
-              <div class="signal-code">继续下钻</div>
               <div class="timeline-list compact-timeline">
                 <RouterLink
                   v-for="item in stressState.data.value?.related_routes || []"
@@ -308,7 +340,6 @@ onBeforeUnmount(() => {
             </section>
 
             <section class="graph-support-card">
-              <div class="signal-code">模拟日志</div>
               <div class="timeline-list compact-timeline">
                 <div
                   v-for="item in simulationLog"

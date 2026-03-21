@@ -28,6 +28,7 @@ const {
   executionBus,
   workspaceHistory,
   companyRuntimeCapsule,
+  companyRuntimeBus,
   followUps,
   agentFlow,
   controlPlane,
@@ -280,7 +281,7 @@ watch(selectedCompany, async (company, previous) => {
             </div>
           </section>
 
-        <section v-if="companyRuntimeCapsule?.modules?.length" class="panel rail-section rail-section-primary">
+        <section v-if="companyRuntimeBus.length || companyRuntimeCapsule?.modules?.length" class="panel rail-section rail-section-primary">
           <div class="panel-header">
             <div>
               <h3>运行胶囊</h3>
@@ -288,7 +289,7 @@ watch(selectedCompany, async (company, previous) => {
           </div>
           <div class="timeline-list compact-timeline">
             <RouterLink
-              v-for="item in companyRuntimeCapsule.modules"
+              v-for="item in (companyRuntimeBus.length ? companyRuntimeBus : companyRuntimeCapsule?.modules || [])"
               :key="item.module_key"
               class="timeline-item interactive-card"
               :to="{ path: item.route.path, query: item.route.query || {} }"
@@ -297,8 +298,9 @@ watch(selectedCompany, async (company, previous) => {
                 <strong>{{ item.label }}</strong>
                 <span>{{ item.status === 'ready' ? '已运行' : '待运行' }}</span>
               </div>
-              <div class="execution-title">{{ item.summary }}</div>
-              <span v-if="item.details?.length">{{ item.details.join(' · ') }}</span>
+              <div class="execution-title">{{ item.headline || item.summary }}</div>
+              <span v-if="item.signal">{{ item.signal }}</span>
+              <span v-else-if="item.details?.length">{{ item.details.join(' · ') }}</span>
             </RouterLink>
           </div>
         </section>

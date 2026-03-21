@@ -1116,6 +1116,11 @@ class OpsPilotService:
                 "stage_summary": document_upgrades["stage_summary"],
                 "items": document_upgrades["items"],
             },
+            "intelligence_runtime": self.company_intelligence_runtime(
+                company_name,
+                period,
+                user_role=user_role,
+            ),
             "runtime_capsule": runtime_capsule,
             "execution_stream": self.company_execution_stream(
                 company_name,
@@ -1235,6 +1240,291 @@ class OpsPilotService:
                 "latest_label": latest_label,
             },
             "modules": modules,
+            "runtime_bus": {
+                "total": len([item for item in modules if item["status"] != "idle"]),
+                "records": [
+                    {
+                        "module_key": item["module_key"],
+                        "label": item["label"],
+                        "status": item["status"],
+                        "headline": item["summary"],
+                        "signal": " / ".join(item.get("details", [])) if item.get("details") else "pending",
+                        "route": item["route"],
+                        "meta": item.get("meta", {}),
+                    }
+                    for item in modules
+                ],
+            },
+        }
+
+    def company_intelligence_runtime(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        capsule = self.company_runtime_capsule(
+            company_name,
+            period,
+            user_role=user_role,
+        )
+        latest_graph_runs = self.graph_query_runs(
+            company_name=company_name,
+            report_period=period,
+            user_role=user_role,
+            limit=1,
+        )["runs"]
+        latest_stress_runs = self.stress_test_runs(
+            company_name=company_name,
+            report_period=period,
+            user_role=user_role,
+            limit=1,
+        )["runs"]
+        latest_vision_runs = self.vision_runs(
+            company_name=company_name,
+            report_period=period,
+            user_role=user_role,
+            limit=1,
+        )["runs"]
+        latest_analysis = _filter_workspace_runs_for_company(
+            self.workspace_runs(limit=200)["runs"],
+            company_name,
+            period,
+            limit=1,
+        )["items"]
+        vision_runtime = self.company_vision_runtime(
+            company_name,
+            period,
+            user_role=user_role,
+        )
+
+        graph_detail = (
+            self.graph_query_run_detail(latest_graph_runs[0]["run_id"])
+            if latest_graph_runs
+            else None
+        )
+        stress_detail = (
+            self.stress_test_run_detail(latest_stress_runs[0]["run_id"])
+            if latest_stress_runs
+            else None
+        )
+
+        runs = [item for item in (latest_analysis[0] if latest_analysis else None, latest_graph_runs[0] if latest_graph_runs else None, latest_stress_runs[0] if latest_stress_runs else None, latest_vision_runs[0] if latest_vision_runs else None) if item]
+        runs.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+
+        module_pulses = [
+            {
+                "module_key": "analysis",
+                "label": "协同分析",
+                "status": "ready" if latest_analysis else "idle",
+                "headline": (latest_analysis[0].get("query") if latest_analysis else "等待分析任务"),
+                "signal": (latest_analysis[0].get("query_type") if latest_analysis else "pending"),
+                "intensity": 72 if latest_analysis else 0,
+                "route": {
+                    "path": "/workspace",
+                    "query": {"company": company_name, "period": period},
+                },
+            },
+            {
+                "module_key": "graph",
+                "label": "图谱检索",
+                "status": "ready" if latest_graph_runs else "idle",
+                "headline": (
+                    latest_graph_runs[0].get("intent")
+                    if latest_graph_runs
+                    else "等待图谱检索"
+                ),
+                "signal": (
+                    f"{len(graph_detail.get('graph_live_frames', []))} 帧"
+                    if graph_detail
+                    else "pending"
+                ),
+                "intensity": (
+                    max(
+                        (frame.get("intensity", 0) for frame in graph_detail.get("graph_live_frames", [])),
+                        default=0,
+                    )
+                    if graph_detail
+                    else 0
+                ),
+                "route": {
+                    "path": "/graph",
+                    "query": {"company": company_name, "period": period},
+                },
+            },
+            {
+                "module_key": "stress",
+                "label": "压力测试",
+                "status": "ready" if latest_stress_runs else "idle",
+                "headline": (
+                    latest_stress_runs[0].get("scenario")
+                    if latest_stress_runs
+                    else "等待冲击推演"
+                ),
+                "signal": (
+                    stress_detail.get("severity", {}).get("level")
+                    if stress_detail
+                    else "pending"
+                ),
+                "intensity": (
+                    max(
+                        (frame.get("impact_score", 0) for frame in stress_detail.get("stress_wavefront", [])),
+                        default=0,
+                    )
+                    if stress_detail
+                    else 0
+                ),
+                "route": {
+                    "path": "/stress",
+                    "query": {"company": company_name, "period": period},
+                },
+            },
+            {
+                "module_key": "vision",
+                "label": "多模态解析",
+                "status": (
+                    "ready"
+                    if any(item["status"] == "completed" for item in vision_runtime["stages"])
+                    else "idle"
+                ),
+                "headline": vision_runtime["vision"].get("headline") or "等待解析结果",
+                "signal": f"{len(vision_runtime['stages'])} 阶段",
+                "intensity": min(
+                    100,
+                    28
+                    + 24
+                    * sum(1 for item in vision_runtime["stages"] if item["status"] == "completed"),
+                ),
+                "route": {
+                    "path": "/vision",
+                    "query": {"company": company_name, "period": period},
+                },
+            },
+        ]
+        runtime_bus = [
+            {
+                "module_key": "analysis",
+                "label": "协同分析",
+                "status": "ready" if latest_analysis else "idle",
+                "headline": (latest_analysis[0].get("query") if latest_analysis else "等待分析任务"),
+                "signal": (latest_analysis[0].get("query_type") if latest_analysis else "pending"),
+                "intensity": 72 if latest_analysis else 0,
+                "route": {
+                    "path": "/workspace",
+                    "query": {"company": company_name, "period": period},
+                },
+                "meta": {
+                    "created_at": latest_analysis[0].get("created_at") if latest_analysis else None,
+                    "run_id": latest_analysis[0].get("run_id") if latest_analysis else None,
+                },
+            },
+            {
+                "module_key": "graph",
+                "label": "图谱检索",
+                "status": "ready" if latest_graph_runs else "idle",
+                "headline": (
+                    latest_graph_runs[0].get("intent")
+                    if latest_graph_runs
+                    else "等待图谱检索"
+                ),
+                "signal": (
+                    f"{len(graph_detail.get('graph_live_frames', []))} 帧"
+                    if graph_detail
+                    else "pending"
+                ),
+                "intensity": (
+                    max(
+                        (frame.get("intensity", 0) for frame in graph_detail.get("graph_live_frames", [])),
+                        default=0,
+                    )
+                    if graph_detail
+                    else 0
+                ),
+                "route": {
+                    "path": "/graph",
+                    "query": {"company": company_name, "period": period},
+                },
+                "meta": {
+                    "created_at": latest_graph_runs[0].get("created_at") if latest_graph_runs else None,
+                    "run_id": latest_graph_runs[0].get("run_id") if latest_graph_runs else None,
+                },
+            },
+            {
+                "module_key": "stress",
+                "label": "压力测试",
+                "status": "ready" if latest_stress_runs else "idle",
+                "headline": (
+                    latest_stress_runs[0].get("scenario")
+                    if latest_stress_runs
+                    else "等待冲击推演"
+                ),
+                "signal": (
+                    stress_detail.get("severity", {}).get("level")
+                    if stress_detail
+                    else "pending"
+                ),
+                "intensity": (
+                    max(
+                        (frame.get("impact_score", 0) for frame in stress_detail.get("stress_wavefront", [])),
+                        default=0,
+                    )
+                    if stress_detail
+                    else 0
+                ),
+                "route": {
+                    "path": "/stress",
+                    "query": {"company": company_name, "period": period},
+                },
+                "meta": {
+                    "created_at": latest_stress_runs[0].get("created_at") if latest_stress_runs else None,
+                    "run_id": latest_stress_runs[0].get("run_id") if latest_stress_runs else None,
+                },
+            },
+            {
+                "module_key": "vision",
+                "label": "多模态解析",
+                "status": (
+                    "ready"
+                    if any(item["status"] == "completed" for item in vision_runtime["stages"])
+                    else "idle"
+                ),
+                "headline": vision_runtime["vision"].get("headline") or "等待解析结果",
+                "signal": f"{len(vision_runtime['stages'])} 阶段",
+                "intensity": min(
+                    100,
+                    28
+                    + 24
+                    * sum(1 for item in vision_runtime["stages"] if item["status"] == "completed"),
+                ),
+                "route": {
+                    "path": "/vision",
+                    "query": {"company": company_name, "period": period},
+                },
+                "meta": {
+                    "created_at": latest_vision_runs[0].get("created_at") if latest_vision_runs else None,
+                    "run_id": latest_vision_runs[0].get("run_id") if latest_vision_runs else None,
+                },
+            },
+        ]
+
+        return {
+            "company_name": company_name,
+            "report_period": period,
+            "user_role": user_role,
+            "summary": {
+                "active_modules": capsule["summary"]["active_modules"],
+                "latest_label": capsule["summary"].get("latest_label"),
+                "latest_created_at": runs[0].get("created_at") if runs else None,
+                "run_count": len(runs),
+            },
+            "module_pulses": module_pulses,
+            "runtime_bus": {
+                "total": len([item for item in runtime_bus if item["status"] != "idle"]),
+                "records": runtime_bus,
+            },
+            "runtime_capsule": capsule,
         }
 
     def company_execution_stream(
@@ -1721,6 +2011,10 @@ class OpsPilotService:
                 phase_track=phase_track,
                 signal_stream=signal_stream,
             ),
+            "graph_signal_tape": _build_graph_signal_tape(
+                inference_path=inference_path,
+                signal_stream=signal_stream,
+            ),
             "execution_stream": workspace["execution_stream"]["records"][:6],
             "related_routes": [
                 {
@@ -1827,14 +2121,10 @@ class OpsPilotService:
         *,
         user_role: str = "management",
     ) -> dict[str, Any]:
-        workspace = self.company_workspace(
-            company_name,
-            report_period,
-            user_role=user_role,
-        )
+        period = report_period or self._preferred_period()
         upgrades = self.company_document_upgrades(
             company_name,
-            workspace["report_period"],
+            period,
             limit=12,
         )
         selected_item = next(
@@ -1848,7 +2138,7 @@ class OpsPilotService:
         if selected_item is None:
             return {
                 "company_name": company_name,
-                "report_period": workspace["report_period"],
+                "report_period": period,
                 "user_role": user_role,
                 "result": {
                     "company_name": company_name,
@@ -1885,13 +2175,13 @@ class OpsPilotService:
             {
                 "kind": item["stage"],
                 "title": item.get("artifact_summary") or item["stage"],
-                "summary": f"{item.get('report_period') or workspace['report_period']} · {item.get('status')}",
+                "summary": f"{item.get('report_period') or period} · {item.get('status')}",
             }
             for item in upgrades["items"][:8]
         ]
         phase_track = _build_vision_phase_track(
             company_name=company_name,
-            report_period=workspace["report_period"],
+            report_period=period,
             selected_item=selected_item,
             detail=detail,
         )
@@ -1901,13 +2191,13 @@ class OpsPilotService:
         )
         analysis_log = _build_vision_analysis_log(
             company_name=company_name,
-            report_period=workspace["report_period"],
+            report_period=period,
             selected_item=selected_item,
             detail=detail,
         )
         return {
             "company_name": company_name,
-            "report_period": workspace["report_period"],
+            "report_period": period,
             "user_role": user_role,
             "result": {
                 "company_name": company_name,
@@ -1940,14 +2230,10 @@ class OpsPilotService:
         *,
         user_role: str = "management",
     ) -> dict[str, Any]:
-        workspace = self.company_workspace(
-            company_name,
-            report_period,
-            user_role=user_role,
-        )
-        period = workspace["report_period"]
+        period = report_period or self._preferred_period()
         upgrades = self.company_document_upgrades(company_name, period, limit=20)
         jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
+        ocr_runtime = _settings_ocr_runtime(self.settings)
         stages: list[dict[str, Any]] = []
         latest_jobs: list[dict[str, Any]] = []
         for stage in ("cross_page_merge", "title_hierarchy", "cell_trace"):
@@ -1964,7 +2250,7 @@ class OpsPilotService:
             )
             job = stage_jobs[0] if stage_jobs else None
             latest_jobs.extend(stage_jobs[:1])
-            if stage == "cell_trace" and not self.settings.ocr_runtime_enabled:
+            if stage == "cell_trace" and not ocr_runtime["runtime_enabled"]:
                 status = "blocked"
             else:
                 status = job.get("status", "missing") if job else "missing"
@@ -2009,10 +2295,10 @@ class OpsPilotService:
             "report_period": period,
             "user_role": user_role,
             "runtime": {
-                "provider": self.settings.ocr_provider,
-                "model": self.settings.ocr_model,
-                "runtime_enabled": self.settings.ocr_runtime_enabled,
-                "layout_engine": self.settings.doc_layout_engine,
+                "provider": ocr_runtime["provider"],
+                "model": ocr_runtime["model"],
+                "runtime_enabled": ocr_runtime["runtime_enabled"],
+                "layout_engine": ocr_runtime["layout_engine"],
                 "next_action": next_action,
             },
             "stages": stages,
@@ -2031,7 +2317,7 @@ class OpsPilotService:
         period = report_period or self._preferred_period()
         jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
         requested_stages = ["cross_page_merge", "title_hierarchy"]
-        if self.settings.ocr_runtime_enabled:
+        if _settings_ocr_runtime(self.settings)["runtime_enabled"]:
             requested_stages.append("cell_trace")
         executed: list[dict[str, Any]] = []
         for stage in requested_stages:
@@ -2226,6 +2512,11 @@ class OpsPilotService:
             "simulation_log": simulation_log,
             "stress_wavefront": _build_stress_wavefront(
                 propagation_steps=propagation_steps,
+                transmission_matrix=transmission_matrix,
+                simulation_log=simulation_log,
+                severity=severity,
+            ),
+            "stress_impact_tape": _build_stress_impact_tape(
                 transmission_matrix=transmission_matrix,
                 simulation_log=simulation_log,
                 severity=severity,
@@ -4293,6 +4584,38 @@ def _build_stress_wavefront(
     return frames
 
 
+def _build_stress_impact_tape(
+    *,
+    transmission_matrix: list[dict[str, Any]],
+    simulation_log: list[dict[str, Any]],
+    severity: dict[str, Any],
+) -> list[dict[str, Any]]:
+    tape: list[dict[str, Any]] = []
+    for index, item in enumerate(transmission_matrix):
+        log_entry = simulation_log[min(index, len(simulation_log) - 1)] if simulation_log else {}
+        impact_score = int(item.get("impact_score", 0))
+        tape.append(
+            {
+                "step": index + 1,
+                "label": item.get("stage") or f"阶段 {index + 1}",
+                "headline": item.get("headline") or log_entry.get("title") or severity["label"],
+                "intensity": max(12, min(100, impact_score + 18)),
+                "tone": item.get("tone") or "warning",
+            }
+        )
+    if not tape:
+        tape.append(
+            {
+                "step": 1,
+                "label": "等待推演",
+                "headline": severity["label"],
+                "intensity": 0,
+                "tone": "warning",
+            }
+        )
+    return tape
+
+
 def _build_vision_phase_track(
     *,
     company_name: str,
@@ -5756,6 +6079,36 @@ def _build_graph_query_live_frames(
     return frames
 
 
+def _build_graph_signal_tape(
+    *,
+    inference_path: list[dict[str, Any]],
+    signal_stream: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    tape: list[dict[str, Any]] = []
+    for index, item in enumerate(inference_path):
+        signal = signal_stream[index % len(signal_stream)] if signal_stream else {}
+        tape.append(
+            {
+                "step": item.get("step", index + 1),
+                "label": item.get("title") or f"阶段 {index + 1}",
+                "value": signal.get("value") or signal.get("label") or "等待信号",
+                "tone": signal.get("tone") or "accent",
+                "intensity": min(100, 30 + index * 18),
+            }
+        )
+    if not tape:
+        tape.append(
+            {
+                "step": 1,
+                "label": "等待推理",
+                "value": "等待信号",
+                "tone": "accent",
+                "intensity": 0,
+            }
+        )
+    return tape
+
+
 def _build_graph_query_evidence_navigation(workspace: dict[str, Any]) -> dict[str, Any]:
     links: list[dict[str, Any]] = []
     for item in workspace["document_upgrades"]["items"]:
@@ -6360,6 +6713,7 @@ def _build_admin_job_catalog() -> list[dict[str, Any]]:
 def _build_document_pipeline_overview(
     data_status: dict[str, Any], settings: Settings
 ) -> dict[str, Any]:
+    ocr_runtime = _settings_ocr_runtime(settings)
     bronze_count = data_status.get("bronze_periodic_reports", {}).get("record_count", 0)
     silver_count = data_status.get("silver_financial_metrics", {}).get("record_count", 0)
     periodic_count = data_status.get("periodic_reports", {}).get("record_count", 0)
@@ -6375,9 +6729,9 @@ def _build_document_pipeline_overview(
         1 for item in records if item["stage"] == "cell_trace" and item["status"] == "blocked"
     )
     return {
-        "layout_engine": settings.doc_layout_engine,
-        "ocr_engine": f"{settings.ocr_provider} / {settings.ocr_model}",
-        "ocr_runtime_enabled": settings.ocr_runtime_enabled,
+        "layout_engine": ocr_runtime["layout_engine"],
+        "ocr_engine": f"{ocr_runtime['provider']} / {ocr_runtime['model']}",
+        "ocr_runtime_enabled": ocr_runtime["runtime_enabled"],
         "cross_page_merge": {
             "enabled": True,
             "status": f"completed {cross_page_completed}",
@@ -6389,8 +6743,8 @@ def _build_document_pipeline_overview(
             "summary": "已支持从真实页块中恢复标题层级，用于目录导航和段落定位。",
         },
         "cell_trace": {
-            "enabled": settings.ocr_runtime_enabled,
-            "status": "runtime-ready" if settings.ocr_runtime_enabled else f"blocked {cell_blocked}",
+            "enabled": ocr_runtime["runtime_enabled"],
+            "status": "runtime-ready" if ocr_runtime["runtime_enabled"] else f"blocked {cell_blocked}",
             "summary": "单元格级溯源需要 OCR 运行时和表格结构输出，当前已挂入作业队列。",
         },
         "coverage": [
@@ -6407,6 +6761,15 @@ def _document_stage_label(stage: str) -> str:
         "title_hierarchy": "标题层级",
         "cell_trace": "单元格溯源",
     }.get(stage, stage)
+
+
+def _settings_ocr_runtime(settings: Settings) -> dict[str, Any]:
+    return {
+        "provider": getattr(settings, "ocr_provider", "PaddleOCR-VL"),
+        "model": getattr(settings, "ocr_model", "PaddleOCR-VL-1.5"),
+        "runtime_enabled": getattr(settings, "ocr_runtime_enabled", False),
+        "layout_engine": getattr(settings, "doc_layout_engine", "PP-DocLayout-V3 + PyMuPDF"),
+    }
 
 
 def _load_task_board_manifest(settings: Settings) -> dict[str, Any]:
@@ -6582,6 +6945,7 @@ def _load_document_pipeline_job_manifest(settings: Settings) -> dict[str, Any]:
     parsed_reports = _load_manifest_records(
         settings.bronze_data_path / "manifests" / "parsed_periodic_reports_manifest.json"
     )
+    ocr_runtime = _settings_ocr_runtime(settings)
     desired_jobs: dict[tuple[str, str], dict[str, Any]] = {}
     for record in parsed_reports:
         report_id = record.get("report_id")
@@ -6589,7 +6953,7 @@ def _load_document_pipeline_job_manifest(settings: Settings) -> dict[str, Any]:
             continue
         for stage in ("cross_page_merge", "title_hierarchy", "cell_trace"):
             artifact_path = _document_pipeline_artifact_path(settings, stage, record)
-            status = "blocked" if stage == "cell_trace" and not settings.ocr_runtime_enabled else "pending"
+            status = "blocked" if stage == "cell_trace" and not ocr_runtime["runtime_enabled"] else "pending"
             if artifact_path.exists():
                 status = "completed"
             desired_jobs[(report_id, stage)] = {

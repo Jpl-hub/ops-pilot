@@ -428,6 +428,23 @@ def company_workspace(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/company/intelligence-runtime")
+def company_intelligence_runtime(
+    company_name: str,
+    report_period: str | None = None,
+    user_role: str = "management",
+    _: dict = Depends(require_current_user),
+) -> dict:
+    try:
+        return get_service().company_intelligence_runtime(
+            company_name,
+            report_period,
+            user_role=user_role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/company/document-upgrades")
 def company_document_upgrades(
     company_name: str,

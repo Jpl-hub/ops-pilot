@@ -25,6 +25,7 @@ const overviewState = useAsyncState<any>()
 const graphState = useAsyncState<any>()
 const streamState = useAsyncState<any>()
 const runsState = useAsyncState<any>()
+const runtimeState = useAsyncState<any>()
 const route = useRoute()
 
 const selectedCompany = ref('')
@@ -41,6 +42,8 @@ const activePathId = computed(() => inferencePath.value[activePathStep.value]?.s
 const phaseTrack = computed(() => graphState.data.value?.phase_track || [])
 const signalStream = computed(() => graphState.data.value?.signal_stream || [])
 const graphLiveFrames = computed(() => graphState.data.value?.graph_live_frames || [])
+const graphSignalTape = computed(() => graphState.data.value?.graph_signal_tape || [])
+const modulePulses = computed(() => runtimeState.data.value?.module_pulses || [])
 const activePhaseIndex = computed(() =>
   phaseTrack.value.length ? activePathStep.value % phaseTrack.value.length : 0,
 )
@@ -85,6 +88,18 @@ const graphCanvasLinks = computed(() =>
   })),
 )
 
+const graphLinkOrbs = computed(() =>
+  graphCanvasLinks.value.map((link, index) => ({
+    id: `orb-${link.id}`,
+    active: link.active,
+    cx: link.x1,
+    cy: link.y1,
+    dx: link.x2 - link.x1,
+    dy: link.y2 - link.y1,
+    delay: `${index * 0.22}s`,
+  })),
+)
+
 async function loadGraph() {
   const company = selectedCompany.value
   if (!company) return
@@ -102,6 +117,9 @@ async function loadGraph() {
     streamState.execute(() => get(`/company/execution-stream?${params.toString()}&user_role=management&limit=8`)),
     runsState.execute(() =>
       get(`/graph-query/runs?${params.toString()}&user_role=management&limit=6`),
+    ),
+    runtimeState.execute(() =>
+      get(`/company/intelligence-runtime?${params.toString()}&user_role=management`),
     ),
   ])
   activePathStep.value = 0
@@ -164,8 +182,8 @@ async function openGraphRun(runId: string) {
           <div class="mode-query-panel">
             <div class="graph-search-icon">⌕</div>
             <div class="mode-query-copy">
-              <strong>当前问题</strong>
-              <span>{{ graphState.data.value?.intent || graphIntent }}</span>
+              <strong>{{ graphState.data.value?.intent || graphIntent }}</strong>
+              <span>{{ selectedCompany }} · {{ selectedPeriod || '默认主周期' }}</span>
             </div>
             <div class="mode-query-metrics">
               <TagPill :label="`Nodes ${graphState.data.value?.graph?.node_count || 0}`" />
@@ -198,10 +216,22 @@ async function openGraphRun(runId: string) {
           </div>
 
           <div class="graph-stage graph-stage-dynamic">
+            <div v-if="modulePulses.length" class="mode-pulse-strip">
+              <RouterLink
+                v-for="item in modulePulses"
+                :key="item.module_key"
+                class="mode-pulse-card"
+                :to="{ path: item.route.path, query: item.route.query || {} }"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.signal }}</strong>
+                <em :style="{ width: `${item.intensity || 0}%` }" />
+              </RouterLink>
+            </div>
             <section class="graph-canvas-panel">
               <div class="graph-stage-banner">
                 <div class="graph-stage-banner-copy">
-                  <span>图谱推演</span>
+                  <span>{{ phaseTrack[activePhaseIndex]?.phase || 'GRAPH RAG' }}</span>
                   <strong>{{ phaseTrack[activePhaseIndex]?.headline || '等待推演' }}</strong>
                 </div>
                 <div class="graph-stage-banner-metric">
@@ -233,6 +263,20 @@ async function openGraphRun(runId: string) {
                     :x2="link.x2"
                     :y2="link.y2"
                   />
+                  <circle
+                    v-for="orb in graphLinkOrbs"
+                    :key="orb.id"
+                    class="graph-link-orb"
+                    :class="{ active: orb.active }"
+                    :cx="orb.cx"
+                    :cy="orb.cy"
+                    r="0.7"
+                    :style="{
+                      '--travel-x': `${orb.dx}`,
+                      '--travel-y': `${orb.dy}`,
+                      '--orb-delay': orb.delay,
+                    }"
+                  />
                 </svg>
                 <div
                   v-for="node in graphCanvasNodes"
@@ -250,7 +294,6 @@ async function openGraphRun(runId: string) {
 
             <div class="graph-support-strip graph-support-strip-dynamic">
               <section class="graph-support-card graph-frame-console">
-                <div class="signal-code">当前推演帧</div>
                 <div class="graph-frame-console-body">
                   <div class="graph-frame-copy">
                     <strong>{{ activeGraphFrame?.headline || '等待推演' }}</strong>
@@ -273,7 +316,6 @@ async function openGraphRun(runId: string) {
               </section>
 
               <section class="graph-support-card">
-                <div class="signal-code">影响路径</div>
                 <div class="graph-path-ribbon">
                   <div
                     v-for="item in inferencePath"
@@ -291,7 +333,21 @@ async function openGraphRun(runId: string) {
               </section>
 
               <section class="graph-support-card">
-                <div class="signal-code">实时信号</div>
+                <div class="graph-signal-tape">
+                  <div
+                    v-for="item in graphSignalTape"
+                    :key="`tape-${item.step}`"
+                    class="graph-tape-cell"
+                    :class="[`tone-${item.tone || 'accent'}`, { active: item.step === activePathId }]"
+                  >
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                    <i :style="{ width: `${item.intensity || 0}%` }" />
+                  </div>
+                </div>
+              </section>
+
+              <section class="graph-support-card">
                 <div class="graph-signal-stream">
                   <div
                     v-for="item in signalStream"
@@ -306,7 +362,6 @@ async function openGraphRun(runId: string) {
               </section>
 
               <section class="graph-support-card">
-                <div class="signal-code">继续查看</div>
                 <div class="timeline-list compact-timeline">
                   <RouterLink
                     v-for="item in graphState.data.value?.evidence_navigation?.links || []"
@@ -320,7 +375,6 @@ async function openGraphRun(runId: string) {
               </section>
 
               <section class="graph-support-card">
-                <div class="signal-code">最近检索</div>
                 <div v-if="activeRun" class="graph-run-highlight">
                   <strong>{{ activeRun.company_name }}</strong>
                   <span>{{ activeRun.intent }}</span>

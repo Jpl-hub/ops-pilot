@@ -31,6 +31,12 @@ type WorkspaceOverview = {
 type CompanyWorkspace = {
   company_name: string
   report_period: string
+  intelligence_runtime?: {
+    runtime_bus?: {
+      total: number
+      records: any[]
+    }
+  } | null
   runtime_capsule?: {
     summary?: {
       active_modules: number
@@ -65,6 +71,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     executionBus: (state) => state.overview?.execution_bus_records?.records || [],
     workspaceHistory: (state) => state.overview?.workspace_history?.records || [],
     companyRuntimeCapsule: (state) => state.companyWorkspace?.runtime_capsule || null,
+    companyRuntimeBus: (state) => state.companyWorkspace?.intelligence_runtime?.runtime_bus?.records || [],
     followUps: (state) => state.latestPayload?.follow_up_questions || [],
     agentFlow: (state) => state.latestPayload?.agent_flow || [],
     controlPlane: (state) => state.latestPayload?.control_plane || null,

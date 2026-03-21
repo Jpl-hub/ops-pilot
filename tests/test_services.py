@@ -317,6 +317,8 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(len(payload["propagation_steps"]), 4)
             self.assertTrue(payload["stress_wavefront"])
             self.assertIn("active_stage", payload["stress_wavefront"][0])
+            self.assertTrue(payload["stress_impact_tape"])
+            self.assertIn("intensity", payload["stress_impact_tape"][0])
             self.assertTrue(payload["actions"])
             self.assertTrue(payload["chart"])
             self.assertIn("run_id", payload)
@@ -408,6 +410,8 @@ class ServicesTestCase(unittest.TestCase):
             self.assertGreaterEqual(len(payload["inference_path"]), 3)
             self.assertTrue(payload["graph_live_frames"])
             self.assertIn("active_nodes", payload["graph_live_frames"][0])
+            self.assertTrue(payload["graph_signal_tape"])
+            self.assertIn("intensity", payload["graph_signal_tape"][0])
             self.assertEqual(payload["inference_path"][0]["title"], "测试公司")
             self.assertIn("动作收口", payload["inference_path"][-1]["title"])
             self.assertIn("links", payload["evidence_navigation"])
@@ -1877,6 +1881,11 @@ class ServicesTestCase(unittest.TestCase):
 
             service = OpsPilotService(StubRepository(), StubSettings())
             workspace = service.company_workspace("测试公司", "2025Q3", user_role="management")
+            intelligence_runtime = service.company_intelligence_runtime(
+                "测试公司",
+                "2025Q3",
+                user_role="management",
+            )
             graph = service.company_graph("测试公司", "2025Q3", user_role="management")
 
             self.assertEqual(workspace["company_name"], "测试公司")
@@ -1897,6 +1906,15 @@ class ServicesTestCase(unittest.TestCase):
             self.assertTrue(workspace["tasks"]["items"])
             self.assertTrue(workspace["alerts"]["items"])
             self.assertGreaterEqual(workspace["execution_stream"]["total"], 3)
+            self.assertEqual(intelligence_runtime["company_name"], "测试公司")
+            self.assertEqual(len(intelligence_runtime["module_pulses"]), 4)
+            self.assertGreaterEqual(intelligence_runtime["runtime_bus"]["total"], 1)
+            self.assertEqual(len(intelligence_runtime["runtime_bus"]["records"]), 4)
+            self.assertTrue(
+                any(item["module_key"] == "graph" and item["intensity"] >= 0 for item in intelligence_runtime["module_pulses"])
+            )
+            self.assertIn("intelligence_runtime", workspace)
+            self.assertGreaterEqual(workspace["intelligence_runtime"]["runtime_bus"]["total"], 1)
             self.assertGreaterEqual(workspace["execution_stream"]["summary"]["document_upgrades"], 1)
             self.assertEqual(workspace["recent_runs"]["count"], 1)
             self.assertTrue(workspace["watchboard"]["tracked"])
