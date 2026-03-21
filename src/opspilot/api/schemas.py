@@ -42,6 +42,12 @@ class GraphQueryRequest(BaseModel):
     user_role: Literal["investor", "management", "regulator"] = "management"
 
 
+class VisionAnalyzeRequest(BaseModel):
+    company_name: str
+    report_period: str | None = None
+    user_role: Literal["investor", "management", "regulator"] = "management"
+
+
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=32)
     display_name: str = Field(..., min_length=2, max_length=32)

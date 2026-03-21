@@ -1487,6 +1487,99 @@ class OpsPilotService:
             },
         }
 
+    def company_vision_analyze(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        workspace = self.company_workspace(
+            company_name,
+            report_period,
+            user_role=user_role,
+        )
+        upgrades = self.company_document_upgrades(
+            company_name,
+            workspace["report_period"],
+            limit=12,
+        )
+        selected_item = next(
+            (
+                item
+                for item in upgrades["items"]
+                if item.get("artifact_summary") or item.get("artifact_preview")
+            ),
+            upgrades["items"][0] if upgrades["items"] else None,
+        )
+        if selected_item is None:
+            return {
+                "company_name": company_name,
+                "report_period": workspace["report_period"],
+                "user_role": user_role,
+                "result": {
+                    "company_name": company_name,
+                    "headline": "暂无可用解析结果",
+                    "status_label": "等待解析",
+                    "items": [],
+                    "sections": [],
+                    "evidence_navigation": {"links": []},
+                },
+            }
+
+        detail = None
+        try:
+            detail = self.document_pipeline_result_detail(
+                selected_item["stage"],
+                selected_item["report_id"],
+            )
+        except ValueError:
+            detail = None
+
+        section_items = []
+        if detail is not None:
+            for section in detail.get("consumable_sections", []):
+                section_items.append(
+                    {
+                        "section_type": section.get("section_type"),
+                        "title": section.get("title"),
+                        "count": section.get("count", 0),
+                        "items": section.get("items", [])[:6],
+                    }
+                )
+
+        result_items = [
+            {
+                "kind": item["stage"],
+                "title": item.get("artifact_summary") or item["stage"],
+                "summary": f"{item.get('report_period') or workspace['report_period']} · {item.get('status')}",
+            }
+            for item in upgrades["items"][:8]
+        ]
+        return {
+            "company_name": company_name,
+            "report_period": workspace["report_period"],
+            "user_role": user_role,
+            "result": {
+                "company_name": company_name,
+                "headline": selected_item.get("artifact_summary")
+                or selected_item.get("report_id")
+                or "解析结果",
+                "status_label": "已生成"
+                if detail is not None
+                or selected_item.get("artifact_summary")
+                or selected_item.get("artifact_preview")
+                else "处理中",
+                "items": result_items,
+                "sections": section_items,
+                "evidence_navigation": (
+                    detail.get("evidence_navigation")
+                    if detail is not None
+                    else selected_item.get("evidence_navigation") or {"links": []}
+                ),
+            },
+        }
+
     def company_stress_test(
         self,
         company_name: str,
@@ -1621,8 +1714,11 @@ class OpsPilotService:
         detail_path = Path(record["detail_path"])
         if not detail_path.exists():
             raise ValueError(f"未找到压力测试详情：{run_id}")
-        with detail_path.open("r", encoding="utf-8") as file:
-            payload = json.load(file)
+        try:
+            with detail_path.open("r", encoding="utf-8") as file:
+                payload = json.load(file)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"运行记录损坏：{run_id}") from exc
         payload["run_meta"] = {
             "run_id": run_id,
             "created_at": record.get("created_at"),
@@ -1814,8 +1910,11 @@ class OpsPilotService:
         artifact_path = Path(job["artifact_path"])
         if not artifact_path.exists():
             raise ValueError(f"未找到解析产物：{artifact_path}")
-        with artifact_path.open("r", encoding="utf-8") as file:
-            artifact = json.load(file)
+        try:
+            with artifact_path.open("r", encoding="utf-8") as file:
+                artifact = json.load(file)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"解析产物损坏：{artifact_path}") from exc
         evidence_navigation = _build_document_evidence_navigation(
             repository=self.repository,
             company_name=job["company_name"],
@@ -2384,8 +2483,11 @@ class OpsPilotService:
         detail_path = Path(record["detail_path"])
         if not detail_path.exists():
             raise ValueError(f"未找到运行详情：{detail_path}")
-        with detail_path.open("r", encoding="utf-8") as file:
-            detail = json.load(file)
+        try:
+            with detail_path.open("r", encoding="utf-8") as file:
+                detail = json.load(file)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"压力测试记录损坏：{run_id}") from exc
         return {"run": record, "detail": detail}
 
     def metric_query(

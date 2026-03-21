@@ -1236,6 +1236,181 @@ class ServicesTestCase(unittest.TestCase):
             self.assertTrue(detail["consumable_sections"])
             self.assertEqual(detail["consumable_sections"][0]["section_type"], "heading_outline")
 
+    def test_document_pipeline_result_detail_handles_malformed_artifact(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bronze = root / "bronze" / "official"
+            manifests = bronze / "manifests"
+            upgrades = bronze / "upgrades"
+            manifests.mkdir(parents=True, exist_ok=True)
+            upgrades.mkdir(parents=True, exist_ok=True)
+            bad_artifact = upgrades / "bad.json"
+            bad_artifact.write_text('{"broken": true', encoding="utf-8")
+            (manifests / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-bad",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司2025年三季度报告",
+                                "page_json_path": str(upgrades / "page.json"),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests / "document_pipeline_jobs.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-bad",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "stage": "title_hierarchy",
+                                "status": "completed",
+                                "artifact_path": str(bad_artifact),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            class StubRepository:
+                def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                    return []
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                ocr_runtime_enabled = False
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = bronze
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            with self.assertRaisesRegex(ValueError, "解析产物损坏"):
+                service.document_pipeline_result_detail("title_hierarchy", "r-bad")
+
+    def test_company_vision_analyze_returns_consumable_result(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bronze = root / "bronze" / "official"
+            manifests = bronze / "manifests"
+            upgrades = bronze / "upgrades" / "title_hierarchy"
+            manifests.mkdir(parents=True, exist_ok=True)
+            upgrades.mkdir(parents=True, exist_ok=True)
+            artifact_path = upgrades / "r-vision.json"
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "report_id": "r-vision",
+                        "summary": "目录恢复完成",
+                        "headings": [{"level": 1, "text": "第一节", "page": 1}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-vision",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司2025年三季度报告",
+                                "report_period": "2025Q3",
+                                "page_json_path": str(upgrades / "page.json"),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests / "document_pipeline_jobs.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-vision",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "report_period": "2025Q3",
+                                "stage": "title_hierarchy",
+                                "status": "completed",
+                                "artifact_path": str(artifact_path),
+                                "artifact_summary": "目录恢复完成",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            class StubRepository:
+                def preferred_period(self) -> str:
+                    return "2025Q3"
+
+                def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                    return {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 12.0, "G2": 8.0, "C1": 1.2, "C3": 24.0, "S1": 1.1, "S4": 0.9},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    }
+
+                def list_companies(self, report_period: str | None = None) -> list[dict]:
+                    return [self.get_company("测试公司", "2025Q3")]
+
+                def list_company_periods(self, company_name: str) -> list[str]:
+                    return ["2025Q3"]
+
+                def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                    return []
+
+                def get_evidence(self, chunk_id: str) -> dict | None:
+                    return None
+
+                def list_company_names(self) -> list[str]:
+                    return ["测试公司"]
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                ocr_runtime_enabled = False
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = bronze
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            payload = service.company_vision_analyze("测试公司", "2025Q3", user_role="management")
+            self.assertEqual(payload["result"]["company_name"], "测试公司")
+            self.assertEqual(payload["result"]["status_label"], "已生成")
+            self.assertTrue(payload["result"]["items"])
+            self.assertTrue(payload["result"]["sections"])
+
     def test_company_workspace_and_graph_aggregate_core_system_state(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

@@ -59,7 +59,7 @@ onBeforeUnmount(() => {
 <template>
   <AppShell
     title="新能源产业大脑"
-    subtitle="实时流数据监控"
+    subtitle="产业大脑"
     compact
   >
     <LoadingState v-if="state.loading.value && !payload" />
@@ -67,9 +67,7 @@ onBeforeUnmount(() => {
     <template v-else-if="payload">
       <section class="brain-hero">
         <div class="brain-title-block">
-          <div class="eyebrow">Real-time macro & micro industry metrics</div>
-          <h2 class="hero-title compact">把实时价格、重点公司和外部扰动放进同一块主屏</h2>
-          <p class="hero-text">先看正在跳动的产业信号，再看哪些公司需要盯住，最后再下钻到体检、图谱和证据。</p>
+          <h2 class="hero-title compact">先看市场变化，再看重点公司。</h2>
         </div>
         <div class="brain-header-actions">
           <TagPill
@@ -120,7 +118,6 @@ onBeforeUnmount(() => {
           <article class="panel">
             <div class="panel-header">
               <div>
-                <div class="eyebrow">重点公司</div>
                 <h3>优先观察名单</h3>
               </div>
               <div class="signal-subtitle">{{ payload.report_period }}</div>
@@ -141,8 +138,7 @@ onBeforeUnmount(() => {
           <article class="panel">
             <div class="panel-header">
               <div>
-                <div class="eyebrow">外部扰动流</div>
-                <h3>最新政策与技术变量</h3>
+                <h3>最新变化</h3>
               </div>
               <div class="signal-subtitle">{{ payload.radar_events.length }} 条</div>
             </div>

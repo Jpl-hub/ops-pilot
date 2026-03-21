@@ -56,20 +56,13 @@ onMounted(async () => {
 </script>
 
 <template>
-  <AppShell title="产业链压力测试" subtitle="Stress Test" compact>
+  <AppShell title="压力测试" subtitle="压力测试" compact>
     <LoadingState v-if="overviewState.loading.value && !stressState.data.value" />
     <ErrorState
       v-else-if="overviewState.error.value || stressState.error.value"
       :message="String(overviewState.error.value || stressState.error.value)"
     />
     <template v-else>
-      <section class="mode-header">
-        <div class="mode-header-copy">
-          <div class="eyebrow">Shock injection & propagation</div>
-          <h2 class="hero-title compact">把宏观冲击注进去，再看它怎样传导到风险、动作和证据。</h2>
-        </div>
-      </section>
-
       <section class="mode-stage stress-mode-stage">
         <article class="panel mode-main-panel stress-main-panel">
           <div class="mode-query-panel">
@@ -102,7 +95,7 @@ onMounted(async () => {
 
           <div class="stress-layout">
             <section class="stress-inputs">
-              <div class="signal-code">预设冲击事件</div>
+              <div class="signal-code">预设场景</div>
               <div class="timeline-list compact-timeline">
                 <button
                   v-for="item in presetScenarios"
@@ -115,7 +108,7 @@ onMounted(async () => {
                 </button>
               </div>
               <label class="field">
-                <span>自定义冲击</span>
+                <span>自定义场景</span>
                 <textarea v-model="scenario" class="text-area stress-input" />
               </label>
               <button class="button-primary stress-submit" @click="runStress">启动推演</button>
@@ -124,7 +117,7 @@ onMounted(async () => {
             <section class="stress-output">
               <div class="stress-hero">
                 <div>
-                  <div class="signal-code">Propagation</div>
+                  <div class="signal-code">推演结果</div>
                   <h3>{{ stressState.data.value?.scenario }}</h3>
                 </div>
               </div>

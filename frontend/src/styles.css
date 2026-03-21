@@ -44,7 +44,8 @@ a { color: inherit; }
 
 .shell-layout {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .shell-sidebar {
@@ -60,6 +61,7 @@ a { color: inherit; }
   gap: 20px;
   background: #0c0c0d;
   overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-gutter: stable;
   z-index: 6;
 }
@@ -69,7 +71,8 @@ a { color: inherit; }
   min-width: 0;
   padding: 20px 24px 24px;
   min-height: 100vh;
-  overflow: visible;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: linear-gradient(180deg, #181818 0%, #141414 100%);
   position: relative;
   z-index: 1;
@@ -95,6 +98,9 @@ a { color: inherit; }
   margin-top: auto;
   gap: 14px;
   padding-bottom: 8px;
+  position: relative;
+  z-index: 5;
+  background: #0c0c0d;
 }
 
 .sidebar-utility-stack {
@@ -102,19 +108,38 @@ a { color: inherit; }
   gap: 10px;
 }
 
+.sidebar-collapse {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: #111112;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sidebar-collapse:hover {
+  border-color: rgba(52, 211, 153, 0.22);
+  background: rgba(52, 211, 153, 0.05);
+}
+
 .sidebar-control {
   position: relative;
   z-index: 4;
 }
 
-.sidebar-label,
 .eyebrow,
 .stat-label,
 .signal-code,
 .subsection-label,
 .field span,
 .brand-kicker,
-.brand-subtitle,
 .role-switch span {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
@@ -188,7 +213,7 @@ a { color: inherit; }
 
 .brand-copy {
   display: grid;
-  gap: 5px;
+  gap: 3px;
 }
 
 .brand-kicker {
@@ -200,12 +225,6 @@ a { color: inherit; }
   font-size: 15px;
   letter-spacing: 0.08em;
   color: #ffffff;
-}
-
-.brand-subtitle {
-  color: rgba(52, 211, 153, 0.82);
-  font-size: 10px;
-  line-height: 1.55;
 }
 
 .page-title { font-size: clamp(22px, 2vw, 28px); line-height: 1.08; }
@@ -276,8 +295,8 @@ a { color: inherit; }
   align-items: center;
   min-height: 56px !important;
   padding: 12px 14px !important;
-  background: transparent !important;
-  border: 1px solid transparent !important;
+  background: #111112 !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
 }
 
 .sidebar-nav-item.router-link-active,
@@ -294,6 +313,10 @@ a { color: inherit; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sidebar-nav-item-subtle {
+  min-height: 48px !important;
 }
 
 .button-primary {
@@ -329,11 +352,11 @@ a { color: inherit; }
 
 .sidebar-utility-card {
   width: 100%;
-  min-height: 60px;
+  min-height: 52px;
   padding: 0 14px;
   border-radius: 16px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: #111112;
   color: var(--text);
   text-decoration: none;
   display: flex;
@@ -350,6 +373,17 @@ a { color: inherit; }
   white-space: nowrap;
 }
 
+.sidebar-utility-card-compact {
+  min-height: 44px;
+  border-radius: 14px;
+}
+
+.sidebar-utility-card strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .sidebar-utility-card-action:hover {
   border-color: rgba(52, 211, 153, 0.22);
   background: rgba(52, 211, 153, 0.06);
@@ -361,7 +395,7 @@ a { color: inherit; }
 }
 
 .role-switch-card {
-  min-height: 60px;
+  min-height: 52px;
 }
 
 .role-switch,
@@ -377,8 +411,15 @@ a { color: inherit; }
 }
 
 .role-switch-card select {
-  min-height: 52px;
+  min-height: 48px;
   border-radius: 16px;
+  background: #111112;
+}
+
+select,
+.field select {
+  position: relative;
+  z-index: 8;
 }
 
 .panel,
@@ -393,7 +434,7 @@ a { color: inherit; }
   border: 1px solid var(--border);
   background: var(--surface);
   border-radius: 18px;
-  box-shadow: var(--shadow);
+  box-shadow: none;
   overflow: visible;
 }
 

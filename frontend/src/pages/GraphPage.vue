@@ -64,26 +64,19 @@ async function submitIntent() {
 </script>
 
 <template>
-  <AppShell title="图谱增强检索" subtitle="Graph RAG" compact>
+  <AppShell title="图谱检索" subtitle="图谱检索" compact>
     <LoadingState v-if="overviewState.loading.value && !graphState.data.value" />
     <ErrorState
       v-else-if="overviewState.error.value || graphState.error.value || streamState.error.value"
       :message="String(overviewState.error.value || graphState.error.value || streamState.error.value)"
     />
     <template v-else>
-      <section class="mode-header">
-        <div class="mode-header-copy">
-          <div class="eyebrow">New energy supply chain knowledge graph</div>
-          <h2 class="hero-title compact">先压缩查询意图，再沿图谱把传导路径和证据入口拉出来。</h2>
-        </div>
-      </section>
-
       <section class="mode-stage graph-mode-stage">
         <article class="panel mode-main-panel graph-main-stage">
           <div class="mode-query-panel">
             <div class="graph-search-icon">⌕</div>
             <div class="mode-query-copy">
-              <strong>检索意图</strong>
+              <strong>当前问题</strong>
               <span>{{ graphState.data.value?.intent || graphIntent }}</span>
             </div>
             <div class="mode-query-metrics">
@@ -110,7 +103,7 @@ async function submitIntent() {
               <textarea
                 v-model="graphIntentDraft"
                 class="text-area chat-input"
-                placeholder="输入一个图谱检索问题，例如：碳酸锂价格下跌会如何传导到动力电池毛利率和整车盈利。"
+                placeholder="输入一个问题，例如：碳酸锂价格下跌会怎样影响下游盈利。"
               />
               <button class="button-primary chat-send" @click="submitIntent">开始检索</button>
             </div>
@@ -118,7 +111,7 @@ async function submitIntent() {
 
           <div class="graph-stage">
             <div class="graph-stage-main">
-              <div class="signal-code">核心路径</div>
+              <div class="signal-code">影响路径</div>
               <div class="graph-path-flow">
                 <div v-for="item in inferencePath" :key="item.step" class="graph-path-card">
                   <span class="graph-path-step">0{{ item.step }}</span>
@@ -130,7 +123,7 @@ async function submitIntent() {
 
             <div class="graph-support-strip">
               <section class="graph-support-card">
-                <div class="signal-code">焦点节点</div>
+                <div class="signal-code">关键节点</div>
                 <div class="graph-node-stack">
                   <div
                     v-for="node in focalNodes"
@@ -149,7 +142,7 @@ async function submitIntent() {
               </section>
 
               <section class="graph-support-card">
-                <div class="signal-code">证据与动作</div>
+                <div class="signal-code">继续查看</div>
                 <div class="timeline-list compact-timeline">
                   <RouterLink
                     v-for="item in graphState.data.value?.evidence_navigation?.links || []"

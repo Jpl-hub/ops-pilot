@@ -24,6 +24,7 @@ from opspilot.api.schemas import (
     WatchCompanyRequest,
     WatchboardDispatchRequest,
     WatchboardScanRequest,
+    VisionAnalyzeRequest,
 )
 from opspilot.application.services import OpsPilotService
 from opspilot.config import get_settings
@@ -485,6 +486,23 @@ def company_graph_query(
             request.intent,
             request.report_period,
             user_role=request.user_role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/company/vision-analyze")
+def company_vision_analyze(
+    company_name: str,
+    report_period: str | None = None,
+    user_role: str = "management",
+    _: dict = Depends(require_current_user),
+) -> dict:
+    try:
+        return get_service().company_vision_analyze(
+            company_name=company_name,
+            report_period=report_period,
+            user_role=user_role,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
