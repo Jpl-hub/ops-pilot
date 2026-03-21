@@ -1578,6 +1578,17 @@ class OpsPilotService:
             },
             "focal_nodes": focal_nodes,
             "inference_path": inference_path,
+            "phase_track": _build_graph_query_phase_track(
+                company_name=company_name,
+                intent=intent,
+                workspace=workspace,
+                inference_path=inference_path,
+            ),
+            "signal_stream": _build_graph_query_signal_stream(
+                focal_nodes=focal_nodes,
+                workspace=workspace,
+                graph_node_count=len(graph["nodes"]),
+            ),
             "execution_stream": workspace["execution_stream"]["records"][:6],
             "related_routes": [
                 {
@@ -1901,6 +1912,17 @@ class OpsPilotService:
             "score_summary": workspace["score_summary"],
             "affected_dimensions": _build_stress_affected_dimensions(workspace),
             "propagation_steps": propagation_steps,
+            "transmission_matrix": _build_stress_transmission_matrix(
+                propagation_steps=propagation_steps,
+                severity=severity,
+                workspace=workspace,
+            ),
+            "simulation_log": _build_stress_simulation_log(
+                company_name=company_name,
+                scenario=scenario,
+                propagation_steps=propagation_steps,
+                workspace=workspace,
+            ),
             "actions": [
                 {
                     "priority": item["priority"],
@@ -3856,6 +3878,71 @@ def _build_stress_test_chart(steps: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _build_stress_transmission_matrix(
+    *,
+    propagation_steps: list[dict[str, Any]],
+    severity: dict[str, Any],
+    workspace: dict[str, Any],
+) -> list[dict[str, Any]]:
+    labels = ["上游", "中游", "下游"]
+    base_scores = [68, 82, 74]
+    pressure = (
+        workspace["score_summary"]["risk_count"] * 4
+        + workspace["tasks"]["summary"]["in_progress"] * 6
+        + workspace["alerts"]["summary"]["new"] * 5
+    )
+    cards: list[dict[str, Any]] = []
+    for index, label in enumerate(labels):
+        step_index = min(index + 1, len(propagation_steps) - 1)
+        step = propagation_steps[step_index]
+        impact_score = min(
+            97,
+            base_scores[index]
+            + pressure
+            + (8 if severity["level"] == "CRITICAL" else 3 if severity["level"] == "HIGH" else 0),
+        )
+        cards.append(
+            {
+                "stage": label,
+                "headline": step["title"],
+                "detail": step["detail"],
+                "impact_score": impact_score,
+                "impact_label": "高冲击" if impact_score >= 85 else "中高冲击" if impact_score >= 72 else "可控冲击",
+                "tone": "risk" if impact_score >= 85 else "warning" if impact_score >= 72 else "success",
+            }
+        )
+    return cards
+
+
+def _build_stress_simulation_log(
+    *,
+    company_name: str,
+    scenario: str,
+    propagation_steps: list[dict[str, Any]],
+    workspace: dict[str, Any],
+) -> list[dict[str, Any]]:
+    top_risks = "、".join(workspace["top_risks"][:3]) or "暂无高风险标签"
+    actions = workspace["action_cards"][0]["title"] if workspace["action_cards"] else "等待动作收口"
+    checkpoints = [
+        ("初始化", f"{company_name} / {workspace['report_period']}"),
+        ("冲击注入", scenario),
+        ("风险映射", top_risks),
+        (
+            "传导分析",
+            propagation_steps[2]["detail"] if len(propagation_steps) > 2 else propagation_steps[-1]["detail"],
+        ),
+        ("动作收口", actions),
+    ]
+    return [
+        {
+            "step": index + 1,
+            "title": title,
+            "detail": detail,
+        }
+        for index, (title, detail) in enumerate(checkpoints)
+    ]
+
+
 def _build_research_compare_sort_options() -> dict[str, str]:
     return {
         "priority": "优先看分歧",
@@ -5107,6 +5194,75 @@ def _build_graph_query_inference_path(
         }
     )
     return steps
+
+
+def _build_graph_query_phase_track(
+    *,
+    company_name: str,
+    intent: str,
+    workspace: dict[str, Any],
+    inference_path: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    evidence_groups = workspace.get("evidence_groups") or []
+    return [
+        {
+            "phase": "查询压缩",
+            "status": "done",
+            "headline": intent[:22] + ("..." if len(intent) > 22 else ""),
+            "metric": f"{len(intent)} chars",
+        },
+        {
+            "phase": "节点聚焦",
+            "status": "done",
+            "headline": company_name,
+            "metric": f"{max(len(inference_path) - 2, 1)} nodes",
+        },
+        {
+            "phase": "路径传导",
+            "status": "done",
+            "headline": "影响链已展开",
+            "metric": f"{len(inference_path)} steps",
+        },
+        {
+            "phase": "证据挂接",
+            "status": "active",
+            "headline": "证据与动作入口",
+            "metric": f"{len(evidence_groups)} sources",
+        },
+    ]
+
+
+def _build_graph_query_signal_stream(
+    *,
+    focal_nodes: list[dict[str, Any]],
+    workspace: dict[str, Any],
+    graph_node_count: int,
+) -> list[dict[str, Any]]:
+    items = [
+        {
+            "label": node.get("label", "节点"),
+            "value": node.get("type", "focus"),
+            "tone": "risk"
+            if node.get("type") in {"risk_label", "alert", "task"}
+            else "accent",
+        }
+        for node in focal_nodes[:4]
+    ]
+    items.extend(
+        [
+            {
+                "label": "图谱节点",
+                "value": str(graph_node_count),
+                "tone": "success",
+            },
+            {
+                "label": "风险标签",
+                "value": str(workspace["score_summary"]["risk_count"]),
+                "tone": "risk",
+            },
+        ]
+    )
+    return items[:6]
 
 
 def _build_graph_query_evidence_navigation(workspace: dict[str, Any]) -> dict[str, Any]:

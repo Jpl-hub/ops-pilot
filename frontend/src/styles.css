@@ -1753,6 +1753,46 @@ select,
   padding: 18px 18px 20px;
 }
 
+.graph-phase-track {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+
+.graph-phase-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.graph-phase-card span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.graph-phase-card strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.graph-phase-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.graph-phase-card.active {
+  border-color: rgba(52, 211, 153, 0.26);
+  background: rgba(52, 211, 153, 0.06);
+  transform: translateY(-2px);
+}
+
 .graph-canvas {
   position: relative;
   min-height: 500px;
@@ -1851,6 +1891,41 @@ select,
 .graph-support-strip-dynamic {
   grid-template-columns: 1.2fr 0.8fr;
   align-items: start;
+}
+
+.graph-signal-stream {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.graph-signal-chip {
+  display: inline-grid;
+  gap: 4px;
+  min-width: 130px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.graph-signal-chip span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.graph-signal-chip strong {
+  font-size: 13px;
+}
+
+.graph-signal-chip.tone-risk {
+  border-color: rgba(245, 158, 11, 0.18);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.graph-signal-chip.tone-success {
+  border-color: rgba(52, 211, 153, 0.2);
+  background: rgba(52, 211, 153, 0.06);
 }
 
 .graph-path-ribbon,
@@ -2030,6 +2105,59 @@ select,
   transform: translateY(-2px);
 }
 
+.stress-transmission-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stress-transmission-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.stress-transmission-card span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.stress-transmission-card strong {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.stress-transmission-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stress-transmission-score {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.stress-transmission-card.tone-risk {
+  border-color: rgba(239, 68, 68, 0.22);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.stress-transmission-card.tone-warning {
+  border-color: rgba(245, 158, 11, 0.2);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.stress-transmission-card.tone-success {
+  border-color: rgba(52, 211, 153, 0.2);
+  background: rgba(52, 211, 153, 0.06);
+}
+
 @keyframes graphSweep {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
@@ -2103,6 +2231,10 @@ h5,
     grid-template-columns: 1fr;
   }
   .stress-stage-cards {
+    grid-template-columns: 1fr;
+  }
+  .stress-transmission-grid,
+  .graph-phase-track {
     grid-template-columns: 1fr;
   }
   .workspace-rail {

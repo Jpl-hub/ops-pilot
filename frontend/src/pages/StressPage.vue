@@ -30,6 +30,8 @@ const presetScenarios = [
 ]
 
 const propagationSteps = computed(() => stressState.data.value?.propagation_steps || [])
+const transmissionMatrix = computed(() => stressState.data.value?.transmission_matrix || [])
+const simulationLog = computed(() => stressState.data.value?.simulation_log || [])
 const stageCards = computed(() => {
   const steps = propagationSteps.value
   return [
@@ -192,6 +194,20 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
+              <div class="stress-transmission-grid">
+                <article
+                  v-for="item in transmissionMatrix"
+                  :key="item.stage"
+                  class="stress-transmission-card"
+                  :class="`tone-${item.tone || 'warning'}`"
+                >
+                  <span>{{ item.stage }}</span>
+                  <strong>{{ item.headline }}</strong>
+                  <div class="stress-transmission-score">{{ item.impact_score }}</div>
+                  <small>{{ item.impact_label }}</small>
+                </article>
+              </div>
+
               <ChartPanel
                 v-if="stressState.data.value?.chart"
                 :title="'冲击传导强度'"
@@ -237,6 +253,20 @@ onBeforeUnmount(() => {
                 <div v-for="item in runsState.data.value?.runs || []" :key="item.run_id" class="timeline-item">
                   <strong>{{ item.severity?.level }} · {{ item.company_name }}</strong>
                   <span>{{ item.scenario }}</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="graph-support-card">
+              <div class="signal-code">模拟日志</div>
+              <div class="timeline-list compact-timeline">
+                <div
+                  v-for="item in simulationLog"
+                  :key="`log-${item.step}`"
+                  class="timeline-item"
+                >
+                  <strong>{{ item.step }}. {{ item.title }}</strong>
+                  <span>{{ item.detail }}</span>
                 </div>
               </div>
             </section>

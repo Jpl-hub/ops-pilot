@@ -38,6 +38,8 @@ const companies = computed(() => overviewState.data.value?.companies || [])
 const focalNodes = computed<GraphFocalNode[]>(() => graphState.data.value?.focal_nodes || [])
 const inferencePath = computed<GraphInferenceStep[]>(() => graphState.data.value?.inference_path || [])
 const activePathId = computed(() => inferencePath.value[activePathStep.value]?.step ?? null)
+const phaseTrack = computed(() => graphState.data.value?.phase_track || [])
+const signalStream = computed(() => graphState.data.value?.signal_stream || [])
 
 const graphCanvasNodes = computed(() => {
   const pathNodes = inferencePath.value.map((item: GraphInferenceStep, index: number) => ({
@@ -176,6 +178,18 @@ async function submitIntent() {
           <div class="graph-stage graph-stage-dynamic">
             <section class="graph-canvas-panel">
               <div class="signal-code">图谱推演</div>
+              <div class="graph-phase-track">
+                <div
+                  v-for="(phase, index) in phaseTrack"
+                  :key="phase.phase"
+                  class="graph-phase-card"
+                  :class="{ active: index === activePathStep % Math.max(phaseTrack.length, 1) }"
+                >
+                  <span>{{ phase.phase }}</span>
+                  <strong>{{ phase.headline }}</strong>
+                  <small>{{ phase.metric }}</small>
+                </div>
+              </div>
               <div class="graph-canvas">
                 <svg class="graph-canvas-links" viewBox="0 0 100 100" preserveAspectRatio="none">
                   <line
@@ -216,6 +230,21 @@ async function submitIntent() {
                     <strong>{{ item.title }}</strong>
                     <span>{{ item.detail }}</span>
                     <i v-if="item.step !== inferencePath[inferencePath.length - 1]?.step">→</i>
+                  </div>
+                </div>
+              </section>
+
+              <section class="graph-support-card">
+                <div class="signal-code">实时信号</div>
+                <div class="graph-signal-stream">
+                  <div
+                    v-for="item in signalStream"
+                    :key="item.label + item.value"
+                    class="graph-signal-chip"
+                    :class="`tone-${item.tone || 'accent'}`"
+                  >
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
                   </div>
                 </div>
               </section>
