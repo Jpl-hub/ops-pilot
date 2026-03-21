@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from functools import lru_cache
+import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.websockets import WebSocketDisconnect
 
 from opspilot.api.schemas import (
     AlertDispatchRequest,
@@ -127,6 +129,27 @@ def admin_overview(_: dict = Depends(require_current_user)) -> dict:
 @router.get("/admin/innovation-radar")
 def admin_innovation_radar(_: dict = Depends(require_current_user)) -> dict:
     return get_service().innovation_radar()
+
+
+@router.get("/industry/brain")
+def industry_brain(_: dict = Depends(require_current_user)) -> dict:
+    return get_service().industry_brain()
+
+
+@router.websocket("/ws/industry-brain")
+async def industry_brain_stream(websocket: WebSocket) -> None:
+    token = websocket.query_params.get("token")
+    if not token or get_auth_store().get_user_by_token(token) is None:
+        await websocket.close(code=4401)
+        return
+
+    await websocket.accept()
+    try:
+        while True:
+            await websocket.send_json(get_service().industry_brain_tick())
+            await asyncio.sleep(1.5)
+    except WebSocketDisconnect:
+        return
 
 
 @router.get("/admin/document-pipeline/jobs")

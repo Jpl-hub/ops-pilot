@@ -8,6 +8,7 @@ const router = createRouter({
     { path: '/', component: () => import('@/pages/HomePage.vue') },
     { path: '/login', component: () => import('@/pages/LoginPage.vue') },
     { path: '/register', component: () => import('@/pages/RegisterPage.vue') },
+    { path: '/brain', component: () => import('@/pages/IndustryBrainPage.vue'), meta: { requiresAuth: true } },
     { path: '/workspace', component: () => import('@/pages/WorkspacePage.vue'), meta: { requiresAuth: true } },
     { path: '/score', component: () => import('@/pages/ScorePage.vue'), meta: { requiresAuth: true } },
     { path: '/risk', component: () => import('@/pages/RiskPage.vue'), meta: { requiresAuth: true } },

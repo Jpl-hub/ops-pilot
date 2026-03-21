@@ -19,9 +19,39 @@ from opspilot.application.services import (
     _infer_report_period_from_text,
     _select_research_report,
 )
+from opspilot.infra.sample_repository import SampleRepository
 
 
 class ServicesTestCase(unittest.TestCase):
+    def test_industry_brain_returns_realtime_payload(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            settings = type(
+                "StubSettings",
+                (),
+                {
+                    "app_name": "OpsPilot",
+                    "env": "test",
+                    "default_period": "2025Q3",
+                    "audit_min_evidence": 0,
+                    "sample_data_path": Path(__file__).resolve().parents[1] / "data" / "bootstrap",
+                    "official_data_path": root / "raw" / "official",
+                    "bronze_data_path": root / "bronze" / "official",
+                    "silver_data_path": root / "silver" / "official",
+                },
+            )()
+            repository = SampleRepository(settings.sample_data_path)
+            service = OpsPilotService(repository, settings)
+
+            payload = service.industry_brain()
+
+            self.assertIn("metrics", payload)
+            self.assertIn("charts", payload)
+            self.assertIn("radar_events", payload)
+            self.assertTrue(payload["stream"]["ws_connected"])
+            self.assertGreaterEqual(len(payload["metrics"]), 4)
+            self.assertEqual(payload["charts"][0]["title"], "主周期预警 / 任务 / 监测板实时跳动")
+
     def test_service_falls_back_to_latest_company_period(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

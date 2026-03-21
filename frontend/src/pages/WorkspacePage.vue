@@ -94,126 +94,29 @@ watch(
 
 <template>
   <AppShell
-    title="工作台"
-    subtitle="任务控制台"
+    title="多智能体协同"
+    subtitle="协同分析台"
     compact
   >
-    <section class="workspace-overview-strip">
-      <article class="signal-card">
-        <div class="signal-code">当前视角</div>
-        <h4>{{ roleCopy.label }}</h4>
-        <p class="signal-subtitle">{{ roleCopy.title }}</p>
-      </article>
-      <article class="signal-card">
-        <div class="signal-code">主周期预警</div>
-        <h4>{{ overviewSummary?.total_alerts || 0 }}</h4>
-        <p class="signal-subtitle">已进入统一预警工作流</p>
-      </article>
-      <article class="signal-card">
-        <div class="signal-code">覆盖公司</div>
-        <h4>{{ overviewSummary?.active_companies || 0 }}</h4>
-        <p class="signal-subtitle">当前可进入分析和监测的公司数</p>
-      </article>
-      <article class="signal-card">
-        <div class="signal-code">处理中任务</div>
-        <h4>{{ taskSummary?.in_progress || 0 }}</h4>
-        <p class="signal-subtitle">来自预警派发和工作台运行</p>
-      </article>
+    <section class="mission-bar">
+      <div class="mission-copy">
+        <div class="eyebrow">协同任务主台</div>
+        <h2>先收问题，再串起判断、原因、证据和执行动作</h2>
+        <p>这里不是聊天记录堆叠页，而是围绕一家公司和一个问题去调度真实财报、研报、预警、图谱与文档结果的主工作面。</p>
+      </div>
+      <div class="mission-stats">
+        <div class="mission-stat"><span>视角</span><strong>{{ roleCopy.label }}</strong></div>
+        <div class="mission-stat"><span>预警</span><strong>{{ overviewSummary?.total_alerts || 0 }}</strong></div>
+        <div class="mission-stat"><span>覆盖</span><strong>{{ overviewSummary?.active_companies || 0 }}</strong></div>
+        <div class="mission-stat"><span>在办任务</span><strong>{{ taskSummary?.in_progress || 0 }}</strong></div>
+      </div>
     </section>
 
-    <section class="chat-workspace">
-      <aside class="panel chat-sidebar">
-        <div class="panel-header"><div><div class="eyebrow">任务面板</div><h3>待办与追问</h3></div></div>
-        <div class="detail-list">
-          <div class="detail-row">
-            <span>当前公司</span>
-            <strong>{{ selectedCompany }}</strong>
-          </div>
-          <div class="detail-row">
-            <span>会话角色</span>
-            <strong>{{ roleCopy.label }}</strong>
-          </div>
-          <div class="detail-row">
-            <span>消息数</span>
-            <strong>{{ messages.length }}</strong>
-          </div>
-          <div v-if="overviewSummary" class="detail-row">
-            <span>主周期预警</span>
-            <strong>{{ overviewSummary.total_alerts }}</strong>
-          </div>
-          <div v-if="taskSummary" class="detail-row">
-            <span>处理中任务</span>
-            <strong>{{ taskSummary.in_progress }}</strong>
-          </div>
-          <div v-if="alertWorkflowSummary" class="detail-row">
-            <span>待分发预警</span>
-            <strong>{{ alertWorkflowSummary.new }}</strong>
-          </div>
-        </div>
-        <div v-if="taskQueue.length" class="subsection-label" style="margin-top: 18px;">待处理任务</div>
-        <div class="timeline-list">
-          <RouterLink
-            v-for="item in taskQueue.slice(0, 4)"
-            :key="`${item.company_name}-${item.report_period}`"
-            class="timeline-item interactive-card"
-            :to="{ path: item.route.path, query: item.route.query || {} }"
-          >
-            <strong>{{ item.priority }} {{ item.title }}</strong>
-            <span>{{ item.summary }}</span>
-          </RouterLink>
-        </div>
-        <div class="subsection-label" style="margin-top: 18px;">快捷任务</div>
-        <div class="timeline-list">
-          <button
-            v-for="item in starterQueries"
-            :key="item"
-            type="button"
-            class="timeline-item interactive-card"
-            @click="runQuery(`${selectedCompany}${item}`)"
-          >
-            <strong>{{ item }}</strong>
-            <span>{{ selectedCompany }}</span>
-          </button>
-        </div>
-
-        <div v-if="followUps.length" class="subsection-label" style="margin-top: 18px;">追问建议</div>
-        <div class="timeline-list">
-          <button
-            v-for="item in followUps"
-            :key="`follow-${item}`"
-            type="button"
-            class="timeline-item interactive-card"
-            @click="runQuery(item)"
-          >
-            <strong>{{ item }}</strong>
-            <span>继续深入</span>
-          </button>
-        </div>
-
-        <div v-if="executionBus.length" class="subsection-label" style="margin-top: 18px;">执行总线</div>
-        <div class="timeline-list">
-          <div
-            v-for="item in executionBus.slice(0, 5)"
-            :key="`${item.bus_type}-${item.id}`"
-            class="timeline-item"
-          >
-            <strong>{{ item.title }}</strong>
-            <span>{{ item.company_name || '系统记录' }} · {{ item.status }}</span>
-            <RouterLink
-              v-if="canNavigate(item.meta?.route?.path)"
-              class="inline-link"
-              :to="{ path: item.meta.route.path, query: item.meta.route.query || {} }"
-            >
-              查看入口
-            </RouterLink>
-          </div>
-        </div>
-      </aside>
-
-      <section class="panel chat-thread-shell">
+    <section class="workspace-stage">
+      <section class="panel chat-thread-shell chat-thread-shell-wide">
         <div class="chat-topbar">
           <label class="field">
-            <span>公司</span>
+            <span>目标公司</span>
             <select v-model="selectedCompany">
               <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
             </select>
@@ -226,7 +129,7 @@ watch(
 
         <div v-if="controlPlane || workflowLanes.length" class="chat-runbar">
           <div v-if="controlPlane" class="chat-runbar-summary">
-            <div class="signal-code">执行状态</div>
+            <div class="signal-code">分析链</div>
             <strong>{{ controlPlane.session_label }}</strong>
             <span>{{ controlPlane.steps_completed }}/{{ controlPlane.step_total }} 个阶段完成</span>
           </div>
@@ -245,6 +148,13 @@ watch(
         </div>
 
         <div class="chat-thread" ref="threadRef">
+          <div v-if="messages.length <= 1 && !loadingTurn" class="chat-empty-state">
+            <div class="chat-empty-mark">◌</div>
+            <div class="chat-empty-copy">
+              <strong>围绕一个问题发起协同分析</strong>
+              <span>系统会串起真实财报、研报、预警、图谱和证据链，输出可追溯的判断与下一步动作。</span>
+            </div>
+          </div>
           <LoadingState v-if="loadingTurn" />
           <ErrorState v-else-if="turnError" :message="turnError" />
           <ErrorState v-else-if="overviewError" :message="overviewError" />
@@ -324,89 +234,123 @@ watch(
             <textarea
               v-model="query"
               class="text-area chat-input"
-              placeholder="输入一个任务，例如：先给结论，再拆原因，再回放证据。"
+              placeholder="输入任务，例如：评估 TCL中环 当前经营风险，并给出证据链与建议动作。"
               @keydown.enter.exact.prevent="runQuery()"
             />
-            <button class="button-primary chat-send" :disabled="loadingTurn || loadingOverview" @click="runQuery()">发送问题</button>
+            <button class="button-primary chat-send" :disabled="loadingTurn || loadingOverview" @click="runQuery()">开始分析</button>
           </div>
         </div>
       </section>
 
-      <aside class="panel chat-sidebar">
-        <div class="panel-header">
-          <div>
-            <div class="eyebrow">执行过程</div>
-            <h3>分析进程</h3>
+      <aside class="workspace-rail">
+        <section class="panel rail-section">
+          <div class="panel-header">
+            <div>
+              <div class="eyebrow">当前会话</div>
+              <h3>分析上下文</h3>
+            </div>
           </div>
-        </div>
-        <div v-if="controlPlane" class="control-plane-card">
-          <div class="signal-code">执行状态</div>
-          <h4>{{ controlPlane.session_label }}</h4>
-          <p class="command-copy">{{ controlPlane.steps_completed }}/{{ controlPlane.step_total }} 个阶段完成</p>
-          <div class="tag-row">
-            <TagPill v-for="source in controlPlane.data_sources" :key="source" :label="source" />
+          <div class="detail-list compact-list">
+            <div class="detail-row"><span>公司</span><strong>{{ selectedCompany }}</strong></div>
+            <div class="detail-row"><span>视角</span><strong>{{ roleCopy.label }}</strong></div>
+            <div class="detail-row"><span>消息</span><strong>{{ messages.length }}</strong></div>
+            <div v-if="taskSummary" class="detail-row"><span>在办任务</span><strong>{{ taskSummary.in_progress }}</strong></div>
           </div>
-        </div>
-        <div class="timeline-list execution-list">
-          <div v-for="agent in agentFlow" :key="`${agent.step}-${agent.agent}`" class="timeline-item execution-item">
-            <div class="execution-head">
-              <strong>STEP {{ agent.step }} · {{ agent.agent }}</strong>
-              <span>{{ agent.status === 'completed' ? '已完成' : '处理中' }}</span>
-            </div>
-            <div class="execution-title">{{ agent.title }}</div>
-            <span>{{ agent.summary }}</span>
-            <div class="execution-meta">
-              <div><span>来源</span><strong>{{ agent.source }}</strong></div>
-              <div><span>工具</span><strong>{{ agent.tool }}</strong></div>
-              <div><span>下一跳</span><strong>{{ agent.handoff }}</strong></div>
-            </div>
-            <div class="execution-metrics">
-              <div v-for="metric in agent.metrics" :key="`${agent.agent}-${metric.label}`" class="execution-metric">
-                <span>{{ metric.label }}</span>
-                <strong>{{ metric.value }}</strong>
-              </div>
-            </div>
-            <RouterLink
-              v-if="agent.route"
-              class="inline-link execution-link"
-              :to="{ path: agent.route.path, query: agent.route.query || {} }"
+          <div class="subsection-label rail-gap">快捷任务</div>
+          <div class="timeline-list compact-timeline">
+            <button
+              v-for="item in starterQueries.slice(0, 4)"
+              :key="item"
+              type="button"
+              class="timeline-item interactive-card"
+              @click="runQuery(`${selectedCompany}${item}`)"
             >
-              {{ agent.route.label }}
-            </RouterLink>
+              <strong>{{ item }}</strong>
+            </button>
           </div>
-        </div>
+          <div v-if="followUps.length" class="subsection-label rail-gap">追问建议</div>
+          <div class="timeline-list compact-timeline">
+            <button
+              v-for="item in followUps.slice(0, 3)"
+              :key="`follow-${item}`"
+              type="button"
+              class="timeline-item interactive-card"
+              @click="runQuery(item)"
+            >
+              <strong>{{ item }}</strong>
+            </button>
+          </div>
+        </section>
 
-        <div v-if="alertQueue.length" class="subsection-label" style="margin-top: 18px;">预警队列</div>
-        <div class="timeline-list">
-          <div
-            v-for="item in alertQueue.slice(0, 3)"
-            :key="item.alert_id || item.title"
-            class="timeline-item interactive-card"
-          >
-            <strong>{{ item.title }}</strong>
-            <span>{{ item.summary }}</span>
-            <div class="tag-row" style="margin-top: 6px;">
-              <TagPill :label="item.status" />
-              <button
-                v-if="item.alert_id && item.status === 'new'"
-                type="button"
-                class="button-secondary"
-                @click="dispatchAlert(item.alert_id)"
-              >
-                派发任务
-              </button>
+        <section class="panel rail-section">
+          <div class="panel-header">
+            <div>
+              <div class="eyebrow">执行过程</div>
+              <h3>运行轨迹</h3>
+            </div>
+          </div>
+          <div class="timeline-list execution-list compact-timeline">
+            <div v-for="agent in agentFlow.slice(0, 4)" :key="`${agent.step}-${agent.agent}`" class="timeline-item execution-item">
+              <div class="execution-head">
+                <strong>{{ agent.agent }}</strong>
+                <span>{{ agent.status === 'completed' ? '已完成' : '处理中' }}</span>
+              </div>
+              <div class="execution-title">{{ agent.title }}</div>
+              <span>{{ agent.summary }}</span>
               <RouterLink
-                class="inline-link"
-                :to="{ path: item.route.path, query: item.route.query || {} }"
+                v-if="agent.route"
+                class="inline-link execution-link"
+                :to="{ path: agent.route.path, query: agent.route.query || {} }"
               >
-                {{ item.route.label }}
+                {{ agent.route.label }}
               </RouterLink>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div v-if="evidenceGroups.length" class="subsection-label" style="margin-top: 18px;">证据短链</div>
-        <div class="timeline-list">
+        <section v-if="alertQueue.length" class="panel rail-section">
+          <div class="panel-header">
+            <div>
+              <div class="eyebrow">待派发预警</div>
+              <h3>优先处理</h3>
+            </div>
+          </div>
+          <div class="timeline-list compact-timeline">
+            <div
+              v-for="item in alertQueue.slice(0, 3)"
+              :key="item.alert_id || item.title"
+              class="timeline-item interactive-card"
+            >
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.summary }}</span>
+              <div class="tag-row" style="margin-top: 6px;">
+                <button
+                  v-if="item.alert_id && item.status === 'new'"
+                  type="button"
+                  class="button-secondary"
+                  @click="dispatchAlert(item.alert_id)"
+                >
+                  派发任务
+                </button>
+                <RouterLink
+                  class="inline-link"
+                  :to="{ path: item.route.path, query: item.route.query || {} }"
+                >
+                  查看
+                </RouterLink>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="evidenceGroups.length" class="panel rail-section">
+          <div class="panel-header">
+            <div>
+              <div class="eyebrow">证据短链</div>
+              <h3>快速回看</h3>
+            </div>
+          </div>
+          <div class="timeline-list compact-timeline">
           <div v-for="group in evidenceGroups.slice(0, 3)" :key="group.code" class="timeline-item">
             <strong>{{ group.title }}</strong>
             <span>{{ group.subtitle }}</span>
@@ -419,10 +363,17 @@ watch(
               {{ item.source_title }} · p.{{ item.page }}
             </RouterLink>
           </div>
-        </div>
+          </div>
+        </section>
 
-        <div v-if="formulas.length" class="subsection-label" style="margin-top: 18px;">关键公式</div>
-        <div class="stack-grid">
+        <section v-if="formulas.length" class="panel rail-section">
+          <div class="panel-header">
+            <div>
+              <div class="eyebrow">关键公式</div>
+              <h3>核心口径</h3>
+            </div>
+          </div>
+          <div class="stack-grid">
           <article v-for="formula in formulas.slice(0, 2)" :key="formula.metric_code" class="formula-card">
             <div class="signal-top">
               <div>
@@ -433,7 +384,8 @@ watch(
             </div>
             <code class="formula-inline">{{ formula.formula }}</code>
           </article>
-        </div>
+          </div>
+        </section>
       </aside>
     </section>
 

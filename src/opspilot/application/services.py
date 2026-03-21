@@ -6,6 +6,7 @@ from html import unescape
 from datetime import UTC, datetime
 import json
 import re
+import time
 
 from opspilot.config import Settings
 from opspilot.domain.audit import build_audit
@@ -83,6 +84,12 @@ class OpsPilotService:
     def __init__(self, repository: SampleRepository, settings: Settings) -> None:
         self.repository = repository
         self.settings = settings
+        self._industry_brain_cache: dict[str, Any] = {
+            "generated_at": 0.0,
+            "sequence": 0,
+            "payload": None,
+            "history": [],
+        }
 
     def health(self) -> dict[str, Any]:
         preferred_period = self._preferred_period()
@@ -174,6 +181,130 @@ class OpsPilotService:
                 "planned": sum(1 for item in items if item.get("adoption_status") == "planned"),
             },
         }
+
+    def industry_brain(self) -> dict[str, Any]:
+        return self._build_industry_brain_payload(force_refresh=True)
+
+    def industry_brain_tick(self) -> dict[str, Any]:
+        return self._build_industry_brain_payload(force_refresh=False)
+
+    def _build_industry_brain_payload(self, *, force_refresh: bool) -> dict[str, Any]:
+        now = time.monotonic()
+        cache = self._industry_brain_cache
+        if (
+            not force_refresh
+            and cache.get("payload") is not None
+            and now - float(cache.get("generated_at") or 0.0) < 8.0
+        ):
+            payload = dict(cache["payload"])
+            payload["stream"] = {
+                **payload["stream"],
+                "ws_connected": True,
+                "refreshed_at": _utcnow_iso(),
+            }
+            return payload
+
+        preferred_period = self._preferred_period()
+        health = self.health()
+        alert_workflow = self.alert_workflow(report_period=preferred_period)
+        task_board = self.task_board(user_role="management", report_period=preferred_period, limit=200)
+        watchboard = self.watchboard(user_role="management", report_period=preferred_period)
+        risk_payload = self.risk_scan(preferred_period)
+        innovation_radar = self.innovation_radar()
+        data_status = self.official_data_status()
+        workspace_history = self.workspace_history(
+            user_role="management",
+            report_period=preferred_period,
+            limit=30,
+        )
+
+        live_point = {
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "alerts": alert_workflow["summary"]["new"] + alert_workflow["summary"]["in_progress"],
+            "tasks": task_board["summary"]["in_progress"],
+            "watching": watchboard["summary"]["tracked_companies"],
+            "history": workspace_history["total"],
+        }
+        history_points = list(cache.get("history") or [])
+        history_points.append(live_point)
+        history_points = history_points[-8:]
+        cache["history"] = history_points
+        cache["sequence"] = int(cache.get("sequence") or 0) + 1
+
+        top_risk_companies = risk_payload["risk_board"][:8]
+        subindustry_counts: dict[str, int] = {}
+        for item in risk_payload["risk_board"]:
+            subindustry_counts[item["subindustry"]] = subindustry_counts.get(item["subindustry"], 0) + 1
+
+        payload = {
+            "report_period": preferred_period,
+            "stream": {
+                "sequence": cache["sequence"],
+                "ws_connected": True,
+                "refreshed_at": _utcnow_iso(),
+            },
+            "sector_tags": [
+                {"label": name, "count": count}
+                for name, count in sorted(subindustry_counts.items(), key=lambda pair: pair[1], reverse=True)[:4]
+            ],
+            "metrics": [
+                {
+                    "label": "正式公司覆盖",
+                    "value": str(health["preferred_period_companies"]),
+                    "hint": f"{preferred_period} 主周期已接入正式公司数",
+                    "tone": "accent",
+                },
+                {
+                    "label": "主周期预警",
+                    "value": str(alert_workflow["summary"]["new"] + alert_workflow["summary"]["in_progress"]),
+                    "hint": "实时来自统一预警工作流",
+                    "tone": "danger" if alert_workflow["summary"]["new"] else "default",
+                },
+                {
+                    "label": "监测板跟踪",
+                    "value": str(watchboard["summary"]["tracked_companies"]),
+                    "hint": "已进入持续监测的重点公司",
+                    "tone": "success",
+                },
+                {
+                    "label": "运行历史",
+                    "value": str(workspace_history["total"]),
+                    "hint": "统一执行总线累计记录",
+                },
+            ],
+            "charts": [
+                {
+                    "title": "主周期预警 / 任务 / 监测板实时跳动",
+                    "options": _build_industry_live_chart(history_points),
+                },
+                {
+                    "title": "当前高风险公司分布",
+                    "options": _build_industry_risk_chart(top_risk_companies),
+                },
+            ],
+            "radar_events": innovation_radar["items"][:6],
+            "document_pipeline": {
+                "periodic_reports": data_status.get("periodic_reports", {}).get("record_count", 0),
+                "silver_metrics": data_status.get("silver_financial_metrics", {}).get("record_count", 0),
+                "bronze_reports": data_status.get("bronze_periodic_reports", {}).get("record_count", 0),
+            },
+            "top_risk_companies": [
+                {
+                    "company_name": item["company_name"],
+                    "subindustry": item["subindustry"],
+                    "risk_count": item["risk_count"],
+                    "risk_labels": item["risk_labels"][:3],
+                    "route": {
+                        "path": "/score",
+                        "query": {"company": item["company_name"], "period": preferred_period},
+                    },
+                }
+                for item in top_risk_companies
+            ],
+        }
+        cache["generated_at"] = now
+        cache["payload"] = payload
+        return payload
 
     def workspace_overview(self, user_role: str = "investor") -> dict[str, Any]:
         preferred_period = self._preferred_period()
@@ -2862,6 +2993,58 @@ def _build_research_compare_chart(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 },
             ],
         },
+    }
+
+
+def _build_industry_live_chart(points: list[dict[str, Any]]) -> dict[str, Any]:
+    labels = [item["timestamp"] for item in points]
+    return {
+        "tooltip": {"trigger": "axis"},
+        "legend": {"data": ["预警数", "处理中任务", "监测公司"]},
+        "xAxis": {"type": "category", "data": labels},
+        "yAxis": {"type": "value"},
+        "series": [
+            {
+                "name": "预警数",
+                "type": "line",
+                "smooth": True,
+                "data": [item["alerts"] for item in points],
+                "areaStyle": {},
+            },
+            {
+                "name": "处理中任务",
+                "type": "line",
+                "smooth": True,
+                "data": [item["tasks"] for item in points],
+                "areaStyle": {},
+            },
+            {
+                "name": "监测公司",
+                "type": "line",
+                "smooth": True,
+                "data": [item["watching"] for item in points],
+            },
+        ],
+    }
+
+
+def _build_industry_risk_chart(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "tooltip": {"trigger": "axis"},
+        "xAxis": {
+            "type": "category",
+            "data": [item["company_name"] for item in rows],
+            "axisLabel": {"interval": 0, "rotate": 20},
+        },
+        "yAxis": {"type": "value"},
+        "series": [
+            {
+                "name": "风险标签数",
+                "type": "bar",
+                "data": [item["risk_count"] for item in rows],
+                "barMaxWidth": 36,
+            }
+        ],
     }
 
 
