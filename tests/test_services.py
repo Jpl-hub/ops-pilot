@@ -51,6 +51,10 @@ class ServicesTestCase(unittest.TestCase):
             self.assertTrue(payload["stream"]["ws_connected"])
             self.assertGreaterEqual(len(payload["metrics"]), 4)
             self.assertEqual(payload["charts"][0]["title"], "主周期预警 / 任务 / 监测板实时跳动")
+            history = service.industry_brain_history(limit=4)
+            self.assertGreaterEqual(history["total"], 1)
+            self.assertEqual(history["records"][0]["report_period"], payload["report_period"])
+            self.assertIn("market_tape", history["records"][0])
 
     def test_service_falls_back_to_latest_company_period(self) -> None:
         class StubRepository:

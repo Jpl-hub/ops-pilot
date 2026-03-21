@@ -11,11 +11,13 @@ import { useAsyncState } from '@/composables/useAsyncState'
 import { get, loadAccessToken } from '@/lib/api'
 
 const state = useAsyncState<any>()
+const historyState = useAsyncState<any>()
 const livePayload = ref<any | null>(null)
 const wsStatus = ref<'connecting' | 'connected' | 'disconnected'>('connecting')
 let socket: WebSocket | null = null
 
 const payload = computed(() => livePayload.value || state.data.value)
+const historyRecords = computed(() => historyState.data.value?.records || [])
 const marketTape = computed(() => payload.value?.market_tape || [])
 const executionFlash = computed(() => payload.value?.execution_flash || [])
 const liveEvents = computed(() => payload.value?.live_events || [])
@@ -37,7 +39,25 @@ function connectStream() {
   }
 
   socket.onmessage = (event) => {
-    livePayload.value = JSON.parse(event.data)
+    const nextPayload = JSON.parse(event.data)
+    livePayload.value = nextPayload
+    const history = historyState.data.value?.records || []
+    historyState.data.value = {
+      generated_at: nextPayload.stream?.refreshed_at,
+      total: Math.min(history.length + 1, 12),
+      records: [
+        {
+          refreshed_at: nextPayload.stream?.refreshed_at,
+          report_period: nextPayload.report_period,
+          sequence: nextPayload.stream?.sequence,
+          market_tape: nextPayload.market_tape || [],
+          live_events: nextPayload.live_events || [],
+          attention_matrix: nextPayload.attention_matrix || [],
+          execution_flash: nextPayload.execution_flash || [],
+        },
+        ...history,
+      ].slice(0, 12),
+    }
   }
 
   socket.onclose = () => {
@@ -51,6 +71,7 @@ function connectStream() {
 
 onMounted(async () => {
   await state.execute(() => get('/industry/brain'))
+  await historyState.execute(() => get('/industry/brain/history?limit=12'))
   connectStream()
 })
 
@@ -91,6 +112,18 @@ onBeforeUnmount(() => {
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
           <em>{{ item.delta }}</em>
+        </div>
+      </section>
+
+      <section v-if="historyRecords.length" class="brain-signal-river">
+        <div
+          v-for="item in historyRecords.slice(0, 6)"
+          :key="`${item.refreshed_at}-${item.sequence}`"
+          class="brain-signal-chip"
+        >
+          <span>{{ item.refreshed_at?.slice(11, 19) || '--:--:--' }}</span>
+          <strong>{{ item.market_tape?.[0]?.value || '0' }} 预警</strong>
+          <em>{{ item.execution_flash?.[0]?.title || '持续监测' }}</em>
         </div>
       </section>
 

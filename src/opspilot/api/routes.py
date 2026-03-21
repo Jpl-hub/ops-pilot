@@ -139,6 +139,11 @@ def industry_brain(_: dict = Depends(require_current_user)) -> dict:
     return get_service().industry_brain()
 
 
+@router.get("/industry/brain/history")
+def industry_brain_history(limit: int = 24, _: dict = Depends(require_current_user)) -> dict:
+    return get_service().industry_brain_history(limit=limit)
+
+
 @router.websocket("/ws/industry-brain")
 async def industry_brain_stream(websocket: WebSocket) -> None:
     token = websocket.query_params.get("token")

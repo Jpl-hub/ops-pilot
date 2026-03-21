@@ -1192,6 +1192,12 @@ select,
   gap: 12px;
   margin-bottom: 18px;
 }
+.brain-signal-river {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
 .brain-market-cell {
   border: 1px solid var(--border);
   border-radius: 20px;
@@ -1219,6 +1225,27 @@ select,
 }
 .brain-market-cell[data-tone='accent'] strong {
   color: #60a5fa;
+}
+.brain-signal-chip {
+  border: 1px solid rgba(52, 211, 153, 0.16);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(9, 13, 20, 0.95));
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+  min-height: 84px;
+  align-content: space-between;
+}
+.brain-signal-chip span,
+.brain-signal-chip em {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: normal;
+}
+.brain-signal-chip strong {
+  font-size: 15px;
+  color: var(--text);
 }
 .brain-terminal-stage {
   display: grid;
@@ -2392,6 +2419,7 @@ h5,
   .execution-meta div,
   .execution-metrics,
   .brain-market-tape,
+  .brain-signal-river,
   .brain-live-ribbon,
   .brain-inline-metrics,
   .brain-signal-tape,
@@ -2411,6 +2439,7 @@ h5,
   .execution-meta div,
   .execution-metrics,
   .brain-market-tape,
+  .brain-signal-river,
   .brain-live-ribbon,
   .brain-inline-metrics,
   .brain-signal-tape,

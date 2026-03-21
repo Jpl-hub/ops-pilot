@@ -188,6 +188,16 @@ class OpsPilotService:
     def industry_brain_tick(self) -> dict[str, Any]:
         return self._build_industry_brain_payload(force_refresh=False)
 
+    def industry_brain_history(self, limit: int = 24) -> dict[str, Any]:
+        manifest = _load_industry_brain_manifest(self.settings)
+        records = list(manifest["records"])
+        records.sort(key=lambda item: item.get("refreshed_at") or "", reverse=True)
+        return {
+            "generated_at": manifest.get("generated_at"),
+            "total": len(records),
+            "records": records[:limit],
+        }
+
     def _build_industry_brain_payload(self, *, force_refresh: bool) -> dict[str, Any]:
         now = time.monotonic()
         cache = self._industry_brain_cache
@@ -375,6 +385,7 @@ class OpsPilotService:
                 for item in top_risk_companies
             ],
         }
+        _append_industry_brain_snapshot(self.settings, payload)
         cache["generated_at"] = now
         cache["payload"] = payload
         return payload
@@ -6158,6 +6169,46 @@ def _write_task_board_manifest(settings: Settings, payload: dict[str, Any]) -> N
     payload["record_count"] = len(payload.get("records", {}))
     manifest_path = settings.bronze_data_path / "manifests" / "workspace_task_board.json"
     _write_json(manifest_path, payload)
+
+
+def _load_industry_brain_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_industry_brain.json"
+    if not manifest_path.exists():
+        payload = {"generated_at": _utcnow_iso(), "record_count": 0, "records": []}
+        _write_json(manifest_path, payload)
+        return payload
+    with manifest_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return {
+        "generated_at": payload.get("generated_at"),
+        "record_count": payload.get("record_count", len(payload.get("records", []))),
+        "records": payload.get("records", []),
+    }
+
+
+def _write_industry_brain_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", []))
+    manifest_path = settings.bronze_data_path / "manifests" / "workspace_industry_brain.json"
+    _write_json(manifest_path, payload)
+
+
+def _append_industry_brain_snapshot(settings: Settings, payload: dict[str, Any]) -> None:
+    manifest = _load_industry_brain_manifest(settings)
+    records = list(manifest.get("records", []))
+    records.append(
+        {
+            "refreshed_at": payload.get("stream", {}).get("refreshed_at"),
+            "report_period": payload.get("report_period"),
+            "sequence": payload.get("stream", {}).get("sequence"),
+            "market_tape": payload.get("market_tape", []),
+            "live_events": payload.get("live_events", []),
+            "attention_matrix": payload.get("attention_matrix", []),
+            "execution_flash": payload.get("execution_flash", []),
+        }
+    )
+    manifest["records"] = records[-36:]
+    _write_industry_brain_manifest(settings, manifest)
 
 
 def _load_watchboard_manifest(settings: Settings) -> dict[str, Any]:
