@@ -98,7 +98,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <AppShell title="压力测试" subtitle="压力测试" compact>
+  <AppShell title="压力测试" compact>
     <LoadingState v-if="overviewState.loading.value && !stressState.data.value" />
     <ErrorState
       v-else-if="overviewState.error.value || stressState.error.value"

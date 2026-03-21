@@ -42,7 +42,7 @@ watch(selectedPeriod, async () => {
 </script>
 
 <template>
-  <AppShell title="多模态解析" subtitle="多模态解析" compact>
+  <AppShell title="多模态解析" compact>
     <LoadingState v-if="overviewState.loading.value && !visionState.data.value" />
     <ErrorState
       v-else-if="overviewState.error.value || visionState.error.value"

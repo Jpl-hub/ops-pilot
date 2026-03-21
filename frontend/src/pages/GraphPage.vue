@@ -24,6 +24,7 @@ type GraphFocalNode = {
 const overviewState = useAsyncState<any>()
 const graphState = useAsyncState<any>()
 const streamState = useAsyncState<any>()
+const runsState = useAsyncState<any>()
 const route = useRoute()
 
 const selectedCompany = ref('')
@@ -86,6 +87,9 @@ async function loadGraph() {
       }),
     ),
     streamState.execute(() => get(`/company/execution-stream?${params.toString()}&user_role=management&limit=8`)),
+    runsState.execute(() =>
+      get(`/graph-query/runs?${params.toString()}&user_role=management&limit=6`),
+    ),
   ])
   activePathStep.value = 0
 }
@@ -124,7 +128,7 @@ async function submitIntent() {
 </script>
 
 <template>
-  <AppShell title="图谱检索" subtitle="图谱检索" compact>
+  <AppShell title="图谱检索" compact>
     <LoadingState v-if="overviewState.loading.value && !graphState.data.value" />
     <ErrorState
       v-else-if="overviewState.error.value || graphState.error.value || streamState.error.value"
@@ -227,6 +231,20 @@ async function submitIntent() {
                   >
                     <strong>{{ item.label }}</strong>
                   </RouterLink>
+                </div>
+              </section>
+
+              <section class="graph-support-card">
+                <div class="signal-code">最近检索</div>
+                <div class="timeline-list compact-timeline">
+                  <div
+                    v-for="item in runsState.data.value?.runs || []"
+                    :key="item.run_id"
+                    class="timeline-item"
+                  >
+                    <strong>{{ item.company_name }}</strong>
+                    <span>{{ item.intent }}</span>
+                  </div>
                 </div>
                 <div class="timeline-list compact-timeline">
                   <div v-for="item in streamState.data.value?.records || []" :key="item.id" class="timeline-item">
