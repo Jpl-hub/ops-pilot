@@ -403,6 +403,52 @@ class ServicesTestCase(unittest.TestCase):
             self.assertIn("动作收口", payload["inference_path"][-1]["title"])
             self.assertIn("links", payload["evidence_navigation"])
 
+    def test_document_pipeline_results_tolerates_broken_manifest_json(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return []
+
+            def list_company_names(self) -> list[str]:
+                return []
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bronze_manifests = root / "bronze" / "manifests"
+            bronze_manifests.mkdir(parents=True, exist_ok=True)
+            (bronze_manifests / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps({"records": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (bronze_manifests / "document_pipeline_jobs.json").write_text(
+                '{"records":[{"stage":"cross_page_merge","report_id":"bad"',
+                encoding="utf-8",
+            )
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                doc_layout_engine = "PP-DocLayout-V3"
+                ocr_provider = "PaddleOCR-VL"
+                ocr_model = "PaddleOCR-VL-1.5"
+                ocr_runtime_enabled = False
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+
+            payload = service.document_pipeline_results()
+
+            self.assertEqual(payload["total"], 0)
+            self.assertEqual(payload["results"], [])
+
     def test_chat_turn_returns_role_driven_workspace_payload(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

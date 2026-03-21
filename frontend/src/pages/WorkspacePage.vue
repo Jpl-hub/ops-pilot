@@ -146,7 +146,6 @@ watch(
             <div class="chat-empty-mark">◌</div>
             <div class="chat-empty-copy">
               <strong>围绕一个问题发起协同分析</strong>
-              <span>系统会串起真实财报、研报、预警、图谱和证据链，输出可追溯的判断与下一步动作。</span>
             </div>
           </div>
           <LoadingState v-if="loadingTurn" />
@@ -241,7 +240,6 @@ watch(
         <section class="panel rail-section rail-section-primary">
           <div class="panel-header">
             <div>
-              <div class="eyebrow">当前会话</div>
               <h3>分析上下文</h3>
             </div>
           </div>
@@ -252,7 +250,6 @@ watch(
             <div v-if="taskSummary" class="detail-row"><span>在办任务</span><strong>{{ taskSummary.in_progress }}</strong></div>
             <div v-if="overviewSummary" class="detail-row"><span>覆盖</span><strong>{{ overviewSummary.active_companies }}</strong></div>
           </div>
-          <div class="subsection-label rail-gap">快捷任务</div>
           <div class="timeline-list compact-timeline">
             <button
               v-for="item in starterQueries.slice(0, 4)"
@@ -264,7 +261,6 @@ watch(
               <strong>{{ item }}</strong>
             </button>
           </div>
-          <div v-if="followUps.length" class="subsection-label rail-gap">追问建议</div>
           <div v-if="followUps.length" class="timeline-list compact-timeline">
             <button
               v-for="item in followUps.slice(0, 3)"
@@ -281,7 +277,6 @@ watch(
         <section class="panel rail-section rail-section-primary">
           <div class="panel-header">
             <div>
-              <div class="eyebrow">执行过程</div>
               <h3>运行轨迹</h3>
             </div>
           </div>
@@ -302,28 +297,16 @@ watch(
               </RouterLink>
             </div>
           </div>
-          <div v-if="workspaceHistory.length" class="subsection-label rail-gap">最近运行</div>
-          <div v-if="workspaceHistory.length" class="timeline-list compact-timeline">
-            <div
-              v-for="item in workspaceHistory.slice(0, 3)"
-              :key="`${item.type}-${item.id}`"
-              class="timeline-item"
-            >
-              <strong>{{ item.title }}</strong>
-              <span>{{ item.type_label }} · {{ item.status_label }}</span>
-              <RouterLink
-                v-if="canNavigate(item.route?.path)"
-                class="inline-link"
-                :to="{ path: item.route.path, query: item.route.query || {} }"
-              >
-                查看
-              </RouterLink>
+        </section>
+        <section v-if="workspaceHistory.length || alertQueue.length || evidenceGroups.length" class="panel rail-section rail-section-primary">
+          <div class="panel-header">
+            <div>
+              <h3>关注事项</h3>
             </div>
           </div>
-          <div v-if="alertQueue.length" class="subsection-label rail-gap">优先处理</div>
           <div v-if="alertQueue.length" class="timeline-list compact-timeline">
             <div
-              v-for="item in alertQueue.slice(0, 3)"
+              v-for="item in alertQueue.slice(0, 2)"
               :key="item.alert_id || item.title"
               class="timeline-item interactive-card"
             >
@@ -347,7 +330,23 @@ watch(
               </div>
             </div>
           </div>
-          <div v-if="evidenceGroups.length" class="subsection-label rail-gap">证据短链</div>
+          <div v-if="workspaceHistory.length" class="timeline-list compact-timeline">
+            <div
+              v-for="item in workspaceHistory.slice(0, 2)"
+              :key="`${item.type}-${item.id}`"
+              class="timeline-item"
+            >
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.type_label }} · {{ item.status_label }}</span>
+              <RouterLink
+                v-if="canNavigate(item.route?.path)"
+                class="inline-link"
+                :to="{ path: item.route.path, query: item.route.query || {} }"
+              >
+                查看
+              </RouterLink>
+            </div>
+          </div>
           <div v-if="evidenceGroups.length" class="timeline-list compact-timeline">
             <div v-for="group in evidenceGroups.slice(0, 2)" :key="group.code" class="timeline-item">
               <strong>{{ group.title }}</strong>

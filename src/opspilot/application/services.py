@@ -5483,8 +5483,11 @@ def _load_document_pipeline_job_manifest(settings: Settings) -> dict[str, Any]:
 
     existing_records: dict[tuple[str, str], dict[str, Any]] = {}
     if manifest_path.exists():
-        with manifest_path.open("r", encoding="utf-8") as file:
-            payload = json.load(file)
+        try:
+            with manifest_path.open("r", encoding="utf-8") as file:
+                payload = json.load(file)
+        except json.JSONDecodeError:
+            payload = {"records": []}
         for record in payload.get("records", []):
             existing_records[(record.get("report_id"), record.get("stage"))] = record
 

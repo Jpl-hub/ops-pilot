@@ -72,9 +72,8 @@ async function logout() {
 
       <div class="sidebar-footer">
         <div v-if="session.isAuthenticated.value" class="sidebar-group">
-          <div class="sidebar-label">分析视角</div>
           <div class="sidebar-control">
-            <label class="role-switch">
+            <label class="role-switch role-switch-card">
               <select
                 :value="session.activeRole.value"
                 @change="session.setActiveRole(($event.target as HTMLSelectElement).value as UserRole)"
@@ -88,14 +87,10 @@ async function logout() {
         <div class="sidebar-group">
           <div v-if="session.isAuthenticated.value" class="sidebar-utility-stack">
             <RouterLink to="/profile" class="sidebar-utility-card sidebar-utility-card-action">
-              <span class="sidebar-utility-label">当前账户</span>
               <strong>{{ session.currentUser.value?.display_name }}</strong>
-              <small>{{ session.currentUser.value?.username }}</small>
             </RouterLink>
             <button class="button-secondary sidebar-utility-card sidebar-utility-card-action" @click="logout">
-              <span class="sidebar-utility-label">账户操作</span>
               <strong>退出登录</strong>
-              <small>结束当前会话并返回登录页</small>
             </button>
           </div>
           <div v-else class="sidebar-utility-stack">

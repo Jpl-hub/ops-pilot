@@ -65,8 +65,8 @@ a { color: inherit; }
   flex: 1;
   min-width: 0;
   padding: 20px 24px 24px;
-  height: 100vh;
-  overflow-y: auto;
+  min-height: 100vh;
+  overflow: visible;
   background: linear-gradient(180deg, #181818 0%, #141414 100%);
 }
 
@@ -94,6 +94,11 @@ a { color: inherit; }
 .sidebar-utility-stack {
   display: grid;
   gap: 10px;
+}
+
+.sidebar-control {
+  position: relative;
+  z-index: 4;
 }
 
 .sidebar-label,
@@ -281,12 +286,16 @@ a { color: inherit; }
   font-size: 14px;
   line-height: 1.3;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-nav-item span {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .button-primary {
@@ -322,22 +331,25 @@ a { color: inherit; }
 
 .sidebar-utility-card {
   width: 100%;
-  min-height: 80px;
-  padding: 14px 16px;
+  min-height: 60px;
+  padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
   color: var(--text);
   text-decoration: none;
-  display: grid;
-  gap: 4px;
-  align-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
   text-align: left;
 }
 
 .sidebar-utility-card strong {
-  font-size: 15px;
-  line-height: 1.25;
+  font-size: 14px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-utility-card-action:hover {
@@ -347,12 +359,7 @@ a { color: inherit; }
 
 .sidebar-utility-card small,
 .sidebar-utility-label {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.4;
-  font-family: 'JetBrains Mono', monospace;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  display: none;
 }
 
 .role-switch,
@@ -365,6 +372,11 @@ a { color: inherit; }
 .role-switch {
   display: grid;
   gap: 8px;
+}
+
+.role-switch-card select {
+  min-height: 52px;
+  border-radius: 16px;
 }
 
 .panel,
@@ -815,13 +827,13 @@ select,
 .rail-gap { margin-top: 8px; }
 
 .chat-thread-shell {
-  min-height: calc(100vh - 206px);
+  min-height: auto;
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   gap: 12px;
 }
 .chat-thread-shell-wide {
-  min-height: calc(100vh - 214px);
+  min-height: auto;
 }
 
 .chat-topbar {
@@ -901,7 +913,7 @@ select,
 }
 
 .chat-thread-frame {
-  min-height: 0;
+  min-height: 420px;
   overflow: visible;
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.07);
@@ -910,8 +922,8 @@ select,
   display: grid;
 }
 .chat-thread {
-  overflow: auto;
-  min-height: 520px;
+  overflow: visible;
+  min-height: 360px;
   max-height: none;
   padding: 6px 10px 10px 2px;
   display: grid;
@@ -919,7 +931,7 @@ select,
 }
 
 .chat-empty-state {
-  min-height: 300px;
+  min-height: 220px;
   border-radius: 18px;
   border: 1px dashed rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.015);
@@ -944,7 +956,7 @@ select,
 }
 
 .chat-empty-copy strong {
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .chat-row {
@@ -1059,7 +1071,7 @@ select,
 }
 
 .chat-input {
-  min-height: 108px;
+  min-height: 92px;
   margin: 0;
   padding: 14px 15px;
   border-radius: 16px;
@@ -1076,8 +1088,8 @@ select,
 }
 
 .chat-sidebar {
-  height: calc(100vh - 128px);
-  overflow: auto;
+  height: auto;
+  overflow: visible;
   align-self: stretch;
 }
 .workspace-rail .panel {
@@ -1192,7 +1204,7 @@ select,
 }
 
 .mode-main-panel {
-  min-height: calc(100vh - 154px);
+  min-height: auto;
   display: grid;
   gap: 16px;
 }
