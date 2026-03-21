@@ -79,18 +79,31 @@ watch(selectedUpgradeKey, async () => {
 
       <section class="mode-stage vision-mode-stage">
         <article class="panel mode-main-panel vision-main-panel">
+          <div class="mode-query-panel">
+            <div class="vision-drop-icon">⇪</div>
+            <div class="mode-query-copy">
+              <strong>当前解析对象</strong>
+              <span>{{ selectedUpgrade?.artifact_summary || selectedUpgrade?.report_id || '等待选择报告' }}</span>
+            </div>
+            <div class="mode-query-metrics">
+              <TagPill v-if="selectedUpgrade" :label="selectedUpgrade.stage" />
+            </div>
+          </div>
+
+          <div class="graph-context-bar">
+            <label class="field">
+              <span>公司</span>
+              <select v-model="selectedCompany">
+                <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+              </select>
+            </label>
+          </div>
+
           <div class="vision-layout">
-            <div class="vision-input-zone">
-              <label class="field">
-                <span>公司</span>
-                <select v-model="selectedCompany">
-                  <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-                </select>
-              </label>
+            <section class="vision-input-zone">
               <div class="vision-dropzone">
-                <div class="vision-drop-icon">⇪</div>
+                <div class="vision-drop-icon">◫</div>
                 <strong>选择已解析报告</strong>
-                <span>当前先消费真实文档升级结果，后续再接 OCR 运行时。</span>
               </div>
               <div class="timeline-list compact-timeline">
                 <button
@@ -105,15 +118,14 @@ watch(selectedUpgradeKey, async () => {
                   <span>{{ item.report_period || '-' }} · {{ item.artifact_summary || item.report_id }}</span>
                 </button>
               </div>
-            </div>
+            </section>
 
-            <div class="vision-result-zone">
+            <section class="vision-result-zone">
               <div class="panel-header">
                 <div>
-                  <div class="eyebrow">Analysis Result</div>
+                  <div class="signal-code">analysis result</div>
                   <h3>{{ selectedUpgrade?.company_name || '等待选择报告' }}</h3>
                 </div>
-                <TagPill v-if="selectedUpgrade" :label="selectedUpgrade.stage" />
               </div>
               <div v-if="detailState.data.value" class="vision-sections">
                 <article
@@ -134,30 +146,25 @@ watch(selectedUpgradeKey, async () => {
               <div v-else class="vision-empty">
                 <span>Waiting for analysis result</span>
               </div>
-            </div>
+            </section>
+          </div>
+
+          <div class="graph-support-strip">
+            <section class="graph-support-card">
+              <div class="signal-code">证据入口</div>
+              <div class="timeline-list compact-timeline">
+                <RouterLink
+                  v-for="item in detailState.data.value?.evidence_navigation?.links || []"
+                  :key="item.label + item.path"
+                  class="timeline-item interactive-card"
+                  :to="{ path: item.path, query: item.query || {} }"
+                >
+                  <strong>{{ item.label }}</strong>
+                </RouterLink>
+              </div>
+            </section>
           </div>
         </article>
-
-        <aside class="mode-side-panel">
-          <section class="panel side-panel-block">
-            <div class="panel-header">
-              <div>
-                <div class="eyebrow">解析跳转</div>
-                <h3>证据与详情</h3>
-              </div>
-            </div>
-            <div class="timeline-list compact-timeline">
-              <RouterLink
-                v-for="item in detailState.data.value?.evidence_navigation?.links || []"
-                :key="item.label + item.path"
-                class="timeline-item interactive-card"
-                :to="{ path: item.path, query: item.query || {} }"
-              >
-                <strong>{{ item.label }}</strong>
-              </RouterLink>
-            </div>
-          </section>
-        </aside>
       </section>
     </template>
   </AppShell>
