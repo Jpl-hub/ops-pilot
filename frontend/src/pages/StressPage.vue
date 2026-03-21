@@ -80,6 +80,12 @@ async function runStress() {
   activeStressStep.value = 0
 }
 
+async function openStressRun(runId: string) {
+  await stressState.execute(() => get(`/stress-test/runs/${encodeURIComponent(runId)}`))
+  scenario.value = stressState.data.value?.scenario || scenario.value
+  activeStressStep.value = 0
+}
+
 onMounted(async () => {
   await overviewState.execute(() => get('/workspace/overview?user_role=management'))
   selectedCompany.value =
@@ -260,7 +266,12 @@ onBeforeUnmount(() => {
                 </RouterLink>
               </div>
               <div v-if="runsState.data.value?.runs?.length" class="timeline-list compact-timeline">
-                <div v-for="item in runsState.data.value?.runs || []" :key="item.run_id" class="timeline-item">
+                <div
+                  v-for="item in runsState.data.value?.runs || []"
+                  :key="item.run_id"
+                  class="timeline-item interactive-card"
+                  @click="openStressRun(item.run_id)"
+                >
                   <strong>{{ item.severity?.level }} · {{ item.company_name }}</strong>
                   <span>{{ item.scenario }}</span>
                 </div>

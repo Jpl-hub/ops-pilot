@@ -135,6 +135,13 @@ async function submitIntent() {
 function focusStep(index: number) {
   activePathStep.value = index
 }
+
+async function openGraphRun(runId: string) {
+  await graphState.execute(() => get(`/graph-query/runs/${encodeURIComponent(runId)}`))
+  graphIntent.value = graphState.data.value?.intent || graphIntent.value
+  graphIntentDraft.value = graphIntent.value
+  activePathStep.value = 0
+}
 </script>
 
 <template>
@@ -292,7 +299,8 @@ function focusStep(index: number) {
                   <div
                     v-for="item in runsState.data.value?.runs || []"
                     :key="item.run_id"
-                    class="timeline-item"
+                    class="timeline-item interactive-card"
+                    @click="openGraphRun(item.run_id)"
                   >
                     <strong>{{ item.company_name }}</strong>
                     <span>{{ item.intent }}</span>

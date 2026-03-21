@@ -39,6 +39,10 @@ async function loadVision() {
   ])
 }
 
+async function openVisionRun(runId: string) {
+  await visionState.execute(() => get(`/vision-analyze/runs/${encodeURIComponent(runId)}`))
+}
+
 onMounted(async () => {
   await overviewState.execute(() => get('/workspace/overview?user_role=management'))
   selectedCompany.value = companies.value[0] || ''
@@ -132,7 +136,8 @@ watch(selectedPeriod, async () => {
                 <div
                   v-for="item in runsState.data.value?.runs || []"
                   :key="item.run_id"
-                  class="timeline-item"
+                  class="timeline-item interactive-card"
+                  @click="openVisionRun(item.run_id)"
                 >
                   <strong>{{ item.company_name }}</strong>
                   <span>{{ item.headline || item.status_label }}</span>
