@@ -26,6 +26,7 @@ const {
   alertWorkflowSummary,
   overviewSummary,
   executionBus,
+  workspaceHistory,
   followUps,
   agentFlow,
   controlPlane,
@@ -98,16 +99,14 @@ watch(
     subtitle="协同分析台"
     compact
   >
-    <section class="mission-bar">
+    <section class="mission-bar compact-mission-bar">
       <div class="mission-copy">
         <div class="eyebrow">协同任务主台</div>
-        <h2>先收问题，再串起判断、原因、证据和执行动作</h2>
-        <p>这里不是聊天记录堆叠页，而是围绕一家公司和一个问题去调度真实财报、研报、预警、图谱与文档结果的主工作面。</p>
+        <h2>围绕一个问题发起协同分析</h2>
+        <p>让系统自动串起判断、原因、证据和执行动作，不再在多个页面里来回找线索。</p>
       </div>
       <div class="mission-stats">
-        <div class="mission-stat"><span>视角</span><strong>{{ roleCopy.label }}</strong></div>
         <div class="mission-stat"><span>预警</span><strong>{{ overviewSummary?.total_alerts || 0 }}</strong></div>
-        <div class="mission-stat"><span>覆盖</span><strong>{{ overviewSummary?.active_companies || 0 }}</strong></div>
         <div class="mission-stat"><span>在办任务</span><strong>{{ taskSummary?.in_progress || 0 }}</strong></div>
       </div>
     </section>
@@ -147,6 +146,7 @@ watch(
           </div>
         </div>
 
+        <div class="chat-thread-frame">
         <div class="chat-thread" ref="threadRef">
           <div v-if="messages.length <= 1 && !loadingTurn" class="chat-empty-state">
             <div class="chat-empty-mark">◌</div>
@@ -217,8 +217,9 @@ watch(
             </div>
           </template>
         </div>
+        </div>
 
-        <div class="chat-composer">
+        <div class="chat-composer chat-composer-docked">
           <div class="chat-prompt-row">
             <button
               v-for="item in starterQueries.slice(0, 3)"
@@ -243,7 +244,7 @@ watch(
       </section>
 
       <aside class="workspace-rail">
-        <section class="panel rail-section">
+        <section class="panel rail-section rail-section-primary">
           <div class="panel-header">
             <div>
               <div class="eyebrow">当前会话</div>
@@ -255,6 +256,7 @@ watch(
             <div class="detail-row"><span>视角</span><strong>{{ roleCopy.label }}</strong></div>
             <div class="detail-row"><span>消息</span><strong>{{ messages.length }}</strong></div>
             <div v-if="taskSummary" class="detail-row"><span>在办任务</span><strong>{{ taskSummary.in_progress }}</strong></div>
+            <div v-if="overviewSummary" class="detail-row"><span>覆盖</span><strong>{{ overviewSummary.active_companies }}</strong></div>
           </div>
           <div class="subsection-label rail-gap">快捷任务</div>
           <div class="timeline-list compact-timeline">
@@ -282,7 +284,7 @@ watch(
           </div>
         </section>
 
-        <section class="panel rail-section">
+        <section class="panel rail-section rail-section-primary">
           <div class="panel-header">
             <div>
               <div class="eyebrow">执行过程</div>
@@ -306,15 +308,25 @@ watch(
               </RouterLink>
             </div>
           </div>
-        </section>
-
-        <section v-if="alertQueue.length" class="panel rail-section">
-          <div class="panel-header">
-            <div>
-              <div class="eyebrow">待派发预警</div>
-              <h3>优先处理</h3>
+          <div v-if="workspaceHistory.length" class="subsection-label rail-gap">最近运行</div>
+          <div v-if="workspaceHistory.length" class="timeline-list compact-timeline">
+            <div
+              v-for="item in workspaceHistory.slice(0, 3)"
+              :key="`${item.type}-${item.id}`"
+              class="timeline-item"
+            >
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.type_label }} · {{ item.status_label }}</span>
+              <RouterLink
+                v-if="canNavigate(item.route?.path)"
+                class="inline-link"
+                :to="{ path: item.route.path, query: item.route.query || {} }"
+              >
+                查看
+              </RouterLink>
             </div>
           </div>
+          <div v-if="alertQueue.length" class="subsection-label rail-gap">优先处理</div>
           <div class="timeline-list compact-timeline">
             <div
               v-for="item in alertQueue.slice(0, 3)"
@@ -341,49 +353,20 @@ watch(
               </div>
             </div>
           </div>
-        </section>
-
-        <section v-if="evidenceGroups.length" class="panel rail-section">
-          <div class="panel-header">
-            <div>
-              <div class="eyebrow">证据短链</div>
-              <h3>快速回看</h3>
+          <div v-if="evidenceGroups.length" class="subsection-label rail-gap">证据短链</div>
+          <div v-if="evidenceGroups.length" class="timeline-list compact-timeline">
+            <div v-for="group in evidenceGroups.slice(0, 2)" :key="group.code" class="timeline-item">
+              <strong>{{ group.title }}</strong>
+              <span>{{ group.subtitle }}</span>
+              <RouterLink
+                v-for="item in group.items.slice(0, 2)"
+                :key="item.chunk_id"
+                class="inline-link"
+                :to="buildEvidenceLink(item.chunk_id, group.title, group.anchor_terms)"
+              >
+                {{ item.source_title }} · p.{{ item.page }}
+              </RouterLink>
             </div>
-          </div>
-          <div class="timeline-list compact-timeline">
-          <div v-for="group in evidenceGroups.slice(0, 3)" :key="group.code" class="timeline-item">
-            <strong>{{ group.title }}</strong>
-            <span>{{ group.subtitle }}</span>
-            <RouterLink
-              v-for="item in group.items.slice(0, 2)"
-              :key="item.chunk_id"
-              class="inline-link"
-              :to="buildEvidenceLink(item.chunk_id, group.title, group.anchor_terms)"
-            >
-              {{ item.source_title }} · p.{{ item.page }}
-            </RouterLink>
-          </div>
-          </div>
-        </section>
-
-        <section v-if="formulas.length" class="panel rail-section">
-          <div class="panel-header">
-            <div>
-              <div class="eyebrow">关键公式</div>
-              <h3>核心口径</h3>
-            </div>
-          </div>
-          <div class="stack-grid">
-          <article v-for="formula in formulas.slice(0, 2)" :key="formula.metric_code" class="formula-card">
-            <div class="signal-top">
-              <div>
-                <div class="signal-code">{{ formula.metric_code }}</div>
-                <h4>{{ formula.title }}</h4>
-              </div>
-              <div class="signal-value">{{ formula.value }}</div>
-            </div>
-            <code class="formula-inline">{{ formula.formula }}</code>
-          </article>
           </div>
         </section>
       </aside>
