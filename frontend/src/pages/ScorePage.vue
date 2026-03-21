@@ -17,6 +17,7 @@ const selectedCompany = ref('TCL中环')
 const selectedPeriod = ref<string>('')
 const scoreState = useAsyncState<any>()
 const timelineState = useAsyncState<any>()
+const companyState = useAsyncState<any>()
 const route = useRoute()
 const syncingFromRoute = ref(false)
 
@@ -50,6 +51,16 @@ async function loadTimeline() {
   )
 }
 
+async function loadCompanyWorkspace() {
+  const query = new URLSearchParams({ company_name: selectedCompany.value })
+  if (selectedPeriod.value) {
+    query.set('report_period', selectedPeriod.value)
+  }
+  await companyState.execute(() =>
+    get<any>(`/company/workspace?${query.toString()}`),
+  )
+}
+
 function applyQuerySelection() {
   const queryCompany = typeof route.query.company === 'string' ? route.query.company : ''
   const queryPeriod = typeof route.query.period === 'string' ? route.query.period : ''
@@ -74,6 +85,7 @@ onMounted(async () => {
   if (!selectedPeriod.value) {
     selectedPeriod.value = scoreState.data.value?.report_period || ''
   }
+  await loadCompanyWorkspace()
 })
 
 watch(selectedCompany, async (_, oldValue) => {
@@ -85,6 +97,7 @@ watch(selectedCompany, async (_, oldValue) => {
     await loadScore()
     await loadTimeline()
     selectedPeriod.value = scoreState.data.value?.report_period || ''
+    await loadCompanyWorkspace()
   }
 })
 
@@ -94,6 +107,7 @@ watch(selectedPeriod, async (_, oldValue) => {
   }
   if (oldValue && selectedPeriod.value !== oldValue) {
     await loadScore()
+    await loadCompanyWorkspace()
   }
 })
 
@@ -112,6 +126,7 @@ watch(
       if (!period) {
         selectedPeriod.value = scoreState.data.value?.report_period || ''
       }
+      await loadCompanyWorkspace()
       return
     }
     if (period && period !== selectedPeriod.value) {
@@ -119,6 +134,7 @@ watch(
       selectedPeriod.value = period
       syncingFromRoute.value = false
       await loadScore()
+      await loadCompanyWorkspace()
     }
   },
 )
@@ -226,6 +242,31 @@ watch(
                   </div>
                 </div>
                 <p class="command-copy">{{ action.reason }}</p>
+              </article>
+            </div>
+          </article>
+
+          <article
+            v-if="companyState.data.value?.runtime_capsule?.modules?.length"
+            class="graph-support-card"
+          >
+            <div class="panel-header"><h3>运行胶囊</h3></div>
+            <div class="support-stack">
+              <article
+                v-for="item in companyState.data.value.runtime_capsule.modules"
+                :key="item.module_key"
+                class="support-inline-card"
+              >
+                <div class="signal-top">
+                  <div>
+                    <div class="signal-code">{{ item.label }}</div>
+                    <h4>{{ item.summary }}</h4>
+                  </div>
+                  <div class="signal-subtitle">{{ item.status === 'ready' ? '已运行' : '待运行' }}</div>
+                </div>
+                <div v-if="item.details?.length" class="metric-list">
+                  <div class="metric-row"><span>最近状态</span><strong>{{ item.details.join(' · ') }}</strong></div>
+                </div>
               </article>
             </div>
           </article>

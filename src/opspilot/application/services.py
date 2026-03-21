@@ -1001,6 +1001,11 @@ class OpsPilotService:
         alert_workflow = self.alert_workflow(report_period=period)
         task_board = self.task_board(user_role=user_role, report_period=period, limit=20)
         document_upgrades = self.company_document_upgrades(company_name, period)
+        runtime_capsule = self.company_runtime_capsule(
+            company_name,
+            period,
+            user_role=user_role,
+        )
 
         alert_items = [
             item for item in alert_workflow["alerts"] if item["company_name"] == company_name
@@ -1100,6 +1105,7 @@ class OpsPilotService:
                 "stage_summary": document_upgrades["stage_summary"],
                 "items": document_upgrades["items"],
             },
+            "runtime_capsule": runtime_capsule,
             "execution_stream": self.company_execution_stream(
                 company_name,
                 period,
@@ -1111,6 +1117,113 @@ class OpsPilotService:
                 company_name,
                 period,
             ),
+        }
+
+    def company_runtime_capsule(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        latest_graph = self.graph_query_runs(
+            company_name=company_name,
+            report_period=period,
+            user_role=user_role,
+            limit=1,
+        )["runs"]
+        latest_stress = self.stress_test_runs(
+            company_name=company_name,
+            report_period=period,
+            user_role=user_role,
+            limit=1,
+        )["runs"]
+        latest_vision = self.vision_runs(
+            company_name=company_name,
+            report_period=period,
+            user_role=user_role,
+            limit=1,
+        )["runs"]
+        latest_analysis = _filter_workspace_runs_for_company(
+            self.workspace_runs(limit=200)["runs"],
+            company_name,
+            period,
+            limit=1,
+        )["items"]
+
+        modules = [
+            _build_runtime_capsule_module(
+                module_key="analysis",
+                label="协同分析",
+                route_path="/workspace",
+                company_name=company_name,
+                report_period=period,
+                record=latest_analysis[0] if latest_analysis else None,
+                summary_key="query",
+                detail_keys=("query_type",),
+            ),
+            _build_runtime_capsule_module(
+                module_key="graph",
+                label="图谱检索",
+                route_path="/graph",
+                company_name=company_name,
+                report_period=period,
+                record=latest_graph[0] if latest_graph else None,
+                summary_key="intent",
+                detail_keys=("created_at",),
+            ),
+            _build_runtime_capsule_module(
+                module_key="stress",
+                label="压力测试",
+                route_path="/stress",
+                company_name=company_name,
+                report_period=period,
+                record=latest_stress[0] if latest_stress else None,
+                summary_key="scenario",
+                detail_keys=("created_at",),
+            ),
+            _build_runtime_capsule_module(
+                module_key="vision",
+                label="多模态解析",
+                route_path="/vision",
+                company_name=company_name,
+                report_period=period,
+                record=latest_vision[0] if latest_vision else None,
+                summary_key="headline",
+                detail_keys=("status_label", "created_at"),
+            ),
+        ]
+        active_count = sum(1 for item in modules if item["status"] != "idle")
+        latest_records = [
+            item
+            for item in (
+                latest_analysis[0] if latest_analysis else None,
+                latest_graph[0] if latest_graph else None,
+                latest_stress[0] if latest_stress else None,
+                latest_vision[0] if latest_vision else None,
+            )
+            if item is not None
+        ]
+        latest_records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        latest_label = None
+        if latest_records:
+            latest_record = latest_records[0]
+            latest_label = (
+                latest_record.get("query")
+                or latest_record.get("intent")
+                or latest_record.get("scenario")
+                or latest_record.get("headline")
+            )
+        return {
+            "company_name": company_name,
+            "report_period": period,
+            "user_role": user_role,
+            "summary": {
+                "active_modules": active_count,
+                "latest_label": latest_label,
+            },
+            "modules": modules,
         }
 
     def company_execution_stream(
@@ -6358,6 +6471,53 @@ def _filter_workspace_runs_for_company(
     return {
         "count": len(filtered),
         "items": filtered[:limit],
+    }
+
+
+def _build_runtime_capsule_module(
+    *,
+    module_key: str,
+    label: str,
+    route_path: str,
+    company_name: str,
+    report_period: str,
+    record: dict[str, Any] | None,
+    summary_key: str,
+    detail_keys: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    if record is None:
+        return {
+            "module_key": module_key,
+            "label": label,
+            "status": "idle",
+            "summary": "暂无运行记录",
+            "details": [],
+            "route": {
+                "path": route_path,
+                "query": {"company": company_name, "period": report_period},
+            },
+        }
+    details = []
+    for key in detail_keys:
+        value = record.get(key)
+        if value:
+            details.append(str(value))
+    if module_key == "analysis" and record.get("report_period"):
+        details.append(str(record["report_period"]))
+    return {
+        "module_key": module_key,
+        "label": label,
+        "status": "ready",
+        "summary": record.get(summary_key) or "已生成最新结果",
+        "details": details[:2],
+        "route": {
+            "path": route_path,
+            "query": {"company": company_name, "period": report_period},
+        },
+        "meta": {
+            "run_id": record.get("run_id"),
+            "created_at": record.get("created_at"),
+        },
     }
 
 

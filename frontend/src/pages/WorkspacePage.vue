@@ -27,6 +27,7 @@ const {
   overviewSummary,
   executionBus,
   workspaceHistory,
+  companyRuntimeCapsule,
   followUps,
   agentFlow,
   controlPlane,
@@ -91,6 +92,11 @@ watch(
     await workspace.loadOverview(session.activeRole.value || 'investor')
   },
 )
+
+watch(selectedCompany, async (company, previous) => {
+  if (!company || company === previous) return
+  await workspace.loadCompanyWorkspace(session.activeRole.value || 'investor')
+})
 </script>
 
 <template>
@@ -261,16 +267,39 @@ watch(
               <strong>{{ item }}</strong>
             </button>
           </div>
-          <div v-if="followUps.length" class="timeline-list compact-timeline">
-            <button
-              v-for="item in followUps.slice(0, 3)"
+            <div v-if="followUps.length" class="timeline-list compact-timeline">
+              <button
+                v-for="item in followUps.slice(0, 3)"
               :key="`follow-${item}`"
               type="button"
               class="timeline-item interactive-card"
               @click="runQuery(item)"
             >
               <strong>{{ item }}</strong>
-            </button>
+              </button>
+            </div>
+          </section>
+
+        <section v-if="companyRuntimeCapsule?.modules?.length" class="panel rail-section rail-section-primary">
+          <div class="panel-header">
+            <div>
+              <h3>运行胶囊</h3>
+            </div>
+          </div>
+          <div class="timeline-list compact-timeline">
+            <RouterLink
+              v-for="item in companyRuntimeCapsule.modules"
+              :key="item.module_key"
+              class="timeline-item interactive-card"
+              :to="{ path: item.route.path, query: item.route.query || {} }"
+            >
+              <div class="execution-head">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.status === 'ready' ? '已运行' : '待运行' }}</span>
+              </div>
+              <div class="execution-title">{{ item.summary }}</div>
+              <span v-if="item.details?.length">{{ item.details.join(' · ') }}</span>
+            </RouterLink>
           </div>
         </section>
 

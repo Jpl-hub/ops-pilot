@@ -28,6 +28,18 @@ type WorkspaceOverview = {
   } | null
 }
 
+type CompanyWorkspace = {
+  company_name: string
+  report_period: string
+  runtime_capsule?: {
+    summary?: {
+      active_modules: number
+      latest_label?: string | null
+    }
+    modules: any[]
+  } | null
+}
+
 export const useWorkspaceStore = defineStore('workspace', {
   state: () => ({
     selectedCompany: 'TCL中环',
@@ -36,9 +48,12 @@ export const useWorkspaceStore = defineStore('workspace', {
     messages: [] as WorkspaceMessage[],
     latestPayload: null as any,
     overview: null as WorkspaceOverview | null,
+    companyWorkspace: null as CompanyWorkspace | null,
     loadingOverview: false,
+    loadingCompanyWorkspace: false,
     loadingTurn: false,
     overviewError: '' as string | null,
+    companyWorkspaceError: '' as string | null,
     turnError: '' as string | null,
   }),
   getters: {
@@ -49,6 +64,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     overviewSummary: (state) => state.overview?.alert_summary || null,
     executionBus: (state) => state.overview?.execution_bus_records?.records || [],
     workspaceHistory: (state) => state.overview?.workspace_history?.records || [],
+    companyRuntimeCapsule: (state) => state.companyWorkspace?.runtime_capsule || null,
     followUps: (state) => state.latestPayload?.follow_up_questions || [],
     agentFlow: (state) => state.latestPayload?.agent_flow || [],
     controlPlane: (state) => state.latestPayload?.control_plane || null,
@@ -69,6 +85,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         },
       ]
       this.latestPayload = null
+      this.companyWorkspace = null
       this.turnError = null
     },
     async loadOverview(role: UserRole) {
@@ -83,10 +100,31 @@ export const useWorkspaceStore = defineStore('workspace', {
         if (!this.companies.includes(this.selectedCompany)) {
           this.selectedCompany = this.companies[0] || ''
         }
+        if (this.selectedCompany) {
+          await this.loadCompanyWorkspace(role)
+        }
       } catch (error) {
         this.overviewError = error instanceof Error ? error.message : '工作台加载失败'
       } finally {
         this.loadingOverview = false
+      }
+    },
+    async loadCompanyWorkspace(role: UserRole) {
+      if (!this.selectedCompany) {
+        this.companyWorkspace = null
+        return
+      }
+      this.loadingCompanyWorkspace = true
+      this.companyWorkspaceError = null
+      try {
+        this.companyWorkspace = await get<CompanyWorkspace>(
+          `/company/workspace?company_name=${encodeURIComponent(this.selectedCompany)}&user_role=${encodeURIComponent(role)}`,
+        )
+      } catch (error) {
+        this.companyWorkspaceError =
+          error instanceof Error ? error.message : '公司运行态加载失败'
+      } finally {
+        this.loadingCompanyWorkspace = false
       }
     },
     async sendQuery(role: UserRole, inputQuery?: string) {
@@ -117,6 +155,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           kind: 'result',
           payload,
         })
+        await this.loadCompanyWorkspace(role)
       } catch (error) {
         this.turnError = error instanceof Error ? error.message : '分析执行失败'
       } finally {
@@ -137,6 +176,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         note,
       })
       await this.loadOverview(role)
+      await this.loadCompanyWorkspace(role)
     },
     async updateAlertStatus(
       alertId: string,
@@ -150,6 +190,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         note,
       })
       await this.loadOverview('management')
+      await this.loadCompanyWorkspace('management')
     },
     async dispatchAlertToTask(alertId: string, role: UserRole, note?: string) {
       await post('/alerts/dispatch', {
@@ -159,6 +200,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         note,
       })
       await this.loadOverview(role)
+      await this.loadCompanyWorkspace(role)
     },
   },
 })
