@@ -72,19 +72,37 @@ onMounted(async () => {
 
       <section class="mode-stage stress-mode-stage">
         <article class="panel mode-main-panel stress-main-panel">
+          <div class="mode-query-panel">
+            <div class="graph-search-icon">ϟ</div>
+            <div class="mode-query-copy">
+              <strong>当前冲击</strong>
+              <span>{{ stressState.data.value?.scenario || scenario }}</span>
+            </div>
+            <div class="mode-query-metrics">
+              <TagPill
+                v-if="stressState.data.value?.severity"
+                :label="`${stressState.data.value.severity.level} ${stressState.data.value.severity.label}`"
+                :tone="stressState.data.value.severity.color === 'risk' ? 'risk' : 'success'"
+              />
+            </div>
+          </div>
+
+          <div class="graph-context-bar">
+            <label class="field">
+              <span>公司</span>
+              <select v-model="selectedCompany">
+                <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>报期</span>
+              <input v-model="selectedPeriod" class="text-input" placeholder="默认主周期" />
+            </label>
+          </div>
+
           <div class="stress-layout">
-            <div class="stress-inputs">
-              <label class="field">
-                <span>公司</span>
-                <select v-model="selectedCompany">
-                  <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>报期</span>
-                <input v-model="selectedPeriod" class="text-input" placeholder="默认主周期" />
-              </label>
-              <div class="subsection-label">预设冲击事件</div>
+            <section class="stress-inputs">
+              <div class="signal-code">预设冲击事件</div>
               <div class="timeline-list compact-timeline">
                 <button
                   v-for="item in presetScenarios"
@@ -101,19 +119,14 @@ onMounted(async () => {
                 <textarea v-model="scenario" class="text-area stress-input" />
               </label>
               <button class="button-primary stress-submit" @click="runStress">启动推演</button>
-            </div>
+            </section>
 
-            <div class="stress-output">
+            <section class="stress-output">
               <div class="stress-hero">
                 <div>
-                  <div class="signal-code">Scenario</div>
+                  <div class="signal-code">Propagation</div>
                   <h3>{{ stressState.data.value?.scenario }}</h3>
                 </div>
-                <TagPill
-                  v-if="stressState.data.value?.severity"
-                  :label="`${stressState.data.value.severity.level} ${stressState.data.value.severity.label}`"
-                  :tone="stressState.data.value.severity.color === 'risk' ? 'risk' : 'success'"
-                />
               </div>
 
               <div class="chip-grid">
@@ -140,71 +153,51 @@ onMounted(async () => {
                 :title="'冲击传导强度'"
                 :options="stressState.data.value.chart.options"
               />
-            </div>
+            </section>
+          </div>
+
+          <div class="graph-support-strip stress-support-strip">
+            <section class="graph-support-card">
+              <div class="signal-code">优先动作</div>
+              <div class="timeline-list compact-timeline">
+                <div v-for="item in stressState.data.value?.actions || []" :key="item.title" class="timeline-item">
+                  <strong>{{ item.priority }} {{ item.title }}</strong>
+                  <span>{{ item.reason }}</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="graph-support-card">
+              <div class="signal-code">继续下钻</div>
+              <div class="timeline-list compact-timeline">
+                <RouterLink
+                  v-for="item in stressState.data.value?.related_routes || []"
+                  :key="item.label"
+                  class="timeline-item interactive-card"
+                  :to="{ path: item.path, query: item.query || {} }"
+                >
+                  <strong>{{ item.label }}</strong>
+                </RouterLink>
+              </div>
+              <div class="timeline-list compact-timeline">
+                <RouterLink
+                  v-for="item in stressState.data.value?.evidence_navigation?.links || []"
+                  :key="item.label + item.path"
+                  class="timeline-item interactive-card"
+                  :to="{ path: item.path, query: item.query || {} }"
+                >
+                  <strong>{{ item.label }}</strong>
+                </RouterLink>
+              </div>
+              <div v-if="runsState.data.value?.runs?.length" class="timeline-list compact-timeline">
+                <div v-for="item in runsState.data.value?.runs || []" :key="item.run_id" class="timeline-item">
+                  <strong>{{ item.severity?.level }} · {{ item.company_name }}</strong>
+                  <span>{{ item.scenario }}</span>
+                </div>
+              </div>
+            </section>
           </div>
         </article>
-
-        <aside class="mode-side-panel">
-          <section class="panel side-panel-block">
-            <div class="panel-header">
-              <div>
-                <div class="eyebrow">优先动作</div>
-                <h3>先做什么</h3>
-              </div>
-            </div>
-            <div class="timeline-list compact-timeline">
-              <div v-for="item in stressState.data.value?.actions || []" :key="item.title" class="timeline-item">
-                <strong>{{ item.priority }} {{ item.title }}</strong>
-                <span>{{ item.reason }}</span>
-              </div>
-            </div>
-          </section>
-
-          <section class="panel side-panel-block">
-            <div class="panel-header">
-              <div>
-                <div class="eyebrow">跳转</div>
-                <h3>继续下钻</h3>
-              </div>
-            </div>
-            <div class="timeline-list compact-timeline">
-              <RouterLink
-                v-for="item in stressState.data.value?.related_routes || []"
-                :key="item.label"
-                class="timeline-item interactive-card"
-                :to="{ path: item.path, query: item.query || {} }"
-              >
-                <strong>{{ item.label }}</strong>
-              </RouterLink>
-            </div>
-            <div v-if="stressState.data.value?.evidence_navigation?.links?.length" class="subsection-label rail-gap">证据入口</div>
-            <div class="timeline-list compact-timeline">
-              <RouterLink
-                v-for="item in stressState.data.value?.evidence_navigation?.links || []"
-                :key="item.label + item.path"
-                class="timeline-item interactive-card"
-                :to="{ path: item.path, query: item.query || {} }"
-              >
-                <strong>{{ item.label }}</strong>
-              </RouterLink>
-            </div>
-          </section>
-
-          <section v-if="runsState.data.value?.runs?.length" class="panel side-panel-block">
-            <div class="panel-header">
-              <div>
-                <div class="eyebrow">最近推演</div>
-                <h3>运行历史</h3>
-              </div>
-            </div>
-            <div class="timeline-list compact-timeline">
-              <div v-for="item in runsState.data.value?.runs || []" :key="item.run_id" class="timeline-item">
-                <strong>{{ item.severity?.level }} · {{ item.company_name }}</strong>
-                <span>{{ item.scenario }}</span>
-              </div>
-            </div>
-          </section>
-        </aside>
       </section>
     </template>
   </AppShell>

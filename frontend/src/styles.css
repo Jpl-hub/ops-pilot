@@ -1424,6 +1424,14 @@ select,
   gap: 14px;
 }
 
+.stress-main-panel {
+  gap: 18px;
+}
+
+.stress-support-strip {
+  margin-top: 2px;
+}
+
 .stress-input {
   min-height: 180px;
 }
