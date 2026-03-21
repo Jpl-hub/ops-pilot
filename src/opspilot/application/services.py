@@ -1169,6 +1169,27 @@ class OpsPilotService:
                 limit=100,
             )["runs"]
         ]
+        vision_items = [
+            {
+                "stream_type": "vision_analyze",
+                "id": item["run_id"],
+                "title": "多模态解析",
+                "status": item.get("status_label", "completed"),
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "headline": item.get("headline"),
+                    "route": {
+                        "path": f"/api/v1/vision-analyze/runs/{item['run_id']}",
+                    },
+                },
+            }
+            for item in self.vision_runs(
+                company_name=company_name,
+                report_period=period,
+                user_role=user_role,
+                limit=100,
+            )["runs"]
+        ]
         analysis_runs = [
             {
                 "stream_type": "analysis_run",
@@ -1188,7 +1209,7 @@ class OpsPilotService:
             and item.get("report_period") == period
             and item.get("user_role") == user_role
         ]
-        records = alert_items + task_items + watch_records + document_items + stress_items + graph_items + analysis_runs
+        records = alert_items + task_items + watch_records + document_items + stress_items + graph_items + vision_items + analysis_runs
         records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         return {
             "company_name": company_name,
@@ -1201,6 +1222,7 @@ class OpsPilotService:
                 "watch_records": len(watch_records),
                 "document_upgrades": len(document_items),
                 "graph_queries": len(graph_items),
+                "vision_runs": len(vision_items),
                 "analysis_runs": len(analysis_runs),
             },
             "records": records[:limit],
@@ -1674,6 +1696,94 @@ class OpsPilotService:
                 ),
             },
         }
+
+    def run_company_vision_analyze(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        payload = self.company_vision_analyze(
+            company_name,
+            report_period,
+            user_role=user_role,
+        )
+        run_id = _build_vision_run_id(company_name)
+        detail_path = _vision_run_detail_path(self.settings, run_id)
+        _write_json(detail_path, payload)
+        manifest = _load_vision_run_manifest(self.settings)
+        records = [item for item in manifest["records"] if item.get("run_id") != run_id]
+        records.insert(
+            0,
+            {
+                "run_id": run_id,
+                "company_name": company_name,
+                "report_period": payload.get("report_period"),
+                "user_role": user_role,
+                "headline": payload.get("result", {}).get("headline"),
+                "status_label": payload.get("result", {}).get("status_label"),
+                "created_at": _utcnow_iso(),
+                "detail_path": str(detail_path),
+            },
+        )
+        manifest["records"] = records[:200]
+        _write_vision_run_manifest(self.settings, manifest)
+        payload["run_id"] = run_id
+        return payload
+
+    def vision_runs(
+        self,
+        *,
+        company_name: str | None = None,
+        report_period: str | None = None,
+        user_role: str = "management",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        records = [
+            item
+            for item in _load_vision_run_manifest(self.settings)["records"]
+            if item.get("user_role") == user_role
+            and (report_period is None or item.get("report_period") == report_period)
+            and (company_name is None or item.get("company_name") == company_name)
+        ]
+        return {
+            "company_name": company_name,
+            "report_period": report_period,
+            "user_role": user_role,
+            "total": len(records),
+            "runs": records[:limit],
+        }
+
+    def vision_run_detail(self, run_id: str) -> dict[str, Any]:
+        record = next(
+            (
+                item
+                for item in _load_vision_run_manifest(self.settings)["records"]
+                if item.get("run_id") == run_id
+            ),
+            None,
+        )
+        if record is None:
+            raise ValueError(f"未找到多模态运行：{run_id}")
+        detail_path = Path(record["detail_path"])
+        if not detail_path.exists():
+            raise ValueError(f"未找到多模态详情：{run_id}")
+        try:
+            with detail_path.open("r", encoding="utf-8") as file:
+                payload = json.load(file)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"多模态运行记录损坏：{run_id}") from exc
+        payload["run_meta"] = {
+            "run_id": run_id,
+            "created_at": record.get("created_at"),
+            "company_name": record.get("company_name"),
+            "report_period": record.get("report_period"),
+            "user_role": record.get("user_role"),
+            "headline": record.get("headline"),
+            "status_label": record.get("status_label"),
+        }
+        return payload
 
     def company_stress_test(
         self,
@@ -2584,8 +2694,31 @@ class OpsPilotService:
                 limit=200,
             )["runs"]
         ]
+        vision_runs = [
+            {
+                "history_type": "vision_analyze",
+                "id": item["run_id"],
+                "title": f"多模态解析 · {item['company_name']}",
+                "company_name": item.get("company_name"),
+                "report_period": item.get("report_period"),
+                "user_role": item.get("user_role"),
+                "status": item.get("status_label", "completed"),
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "headline": item.get("headline"),
+                    "route": {
+                        "path": f"/api/v1/vision-analyze/runs/{item['run_id']}",
+                    },
+                },
+            }
+            for item in self.vision_runs(
+                report_period=period,
+                user_role=user_role,
+                limit=200,
+            )["runs"]
+        ]
         records = analysis_runs + watch_runs + document_jobs + stress_runs
-        records += graph_runs
+        records += graph_runs + vision_runs
         records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         return {
             "user_role": user_role,
@@ -5830,6 +5963,35 @@ def _build_graph_query_run_id(company_name: str) -> str:
 
 def _graph_query_run_detail_path(settings: Settings, run_id: str) -> Path:
     return settings.bronze_data_path / "graph_runs" / f"{run_id}.json"
+
+
+def _load_vision_run_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "vision_analyze_runs.json"
+    if not manifest_path.exists():
+        return {"generated_at": _utcnow_iso(), "record_count": 0, "records": []}
+    with manifest_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return {
+        "generated_at": payload.get("generated_at", _utcnow_iso()),
+        "record_count": len(payload.get("records", [])),
+        "records": payload.get("records", []),
+    }
+
+
+def _write_vision_run_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", []))
+    manifest_path = settings.bronze_data_path / "manifests" / "vision_analyze_runs.json"
+    _write_json(manifest_path, payload)
+
+
+def _build_vision_run_id(company_name: str) -> str:
+    company_slug = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fff]+", "-", company_name).strip("-").lower()
+    return f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{company_slug}-vision"
+
+
+def _vision_run_detail_path(settings: Settings, run_id: str) -> Path:
+    return settings.bronze_data_path / "vision_runs" / f"{run_id}.json"
 
 
 def _innovation_radar_path() -> Path:

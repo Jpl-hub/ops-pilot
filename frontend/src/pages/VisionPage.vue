@@ -7,10 +7,11 @@ import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { get } from '@/lib/api'
+import { get, post } from '@/lib/api'
 
 const overviewState = useAsyncState<any>()
 const visionState = useAsyncState<any>()
+const runsState = useAsyncState<any>()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
 const selectedCompany = ref('')
@@ -23,7 +24,16 @@ async function loadVision() {
   if (!selectedCompany.value) return
   const params = new URLSearchParams({ company_name: selectedCompany.value, user_role: 'management' })
   if (selectedPeriod.value) params.set('report_period', selectedPeriod.value)
-  await visionState.execute(() => get(`/company/vision-analyze?${params.toString()}`))
+  await Promise.all([
+    visionState.execute(() =>
+      post('/company/vision-analyze', {
+        company_name: selectedCompany.value,
+        report_period: selectedPeriod.value || null,
+        user_role: 'management',
+      }),
+    ),
+    runsState.execute(() => get(`/vision-analyze/runs?${params.toString()}&limit=6`)),
+  ])
 }
 
 onMounted(async () => {
@@ -89,6 +99,16 @@ watch(selectedPeriod, async () => {
                 >
                   <strong>{{ item.title }}</strong>
                   <span>{{ item.summary }}</span>
+                </div>
+              </div>
+              <div class="timeline-list compact-timeline">
+                <div
+                  v-for="item in runsState.data.value?.runs || []"
+                  :key="item.run_id"
+                  class="timeline-item"
+                >
+                  <strong>{{ item.company_name }}</strong>
+                  <span>{{ item.headline || item.status_label }}</span>
                 </div>
               </div>
             </section>

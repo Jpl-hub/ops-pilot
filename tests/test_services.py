@@ -1426,11 +1426,32 @@ class ServicesTestCase(unittest.TestCase):
                     self.silver_data_path = root / "silver"
 
             service = OpsPilotService(StubRepository(), StubSettings())
-            payload = service.company_vision_analyze("测试公司", "2025Q3", user_role="management")
+            payload = service.run_company_vision_analyze("测试公司", "2025Q3", user_role="management")
+            self.assertIn("run_id", payload)
             self.assertEqual(payload["result"]["company_name"], "测试公司")
             self.assertEqual(payload["result"]["status_label"], "已生成")
             self.assertTrue(payload["result"]["items"])
             self.assertTrue(payload["result"]["sections"])
+            self.assertTrue((bronze / "manifests" / "vision_analyze_runs.json").exists())
+
+            runs = service.vision_runs(
+                company_name="测试公司",
+                report_period="2025Q3",
+                user_role="management",
+            )
+            self.assertEqual(runs["total"], 1)
+            detail = service.vision_run_detail(payload["run_id"])
+            self.assertEqual(detail["run_meta"]["company_name"], "测试公司")
+
+            history = service.workspace_history(user_role="management", report_period="2025Q3")
+            self.assertTrue(any(item["history_type"] == "vision_analyze" for item in history["records"]))
+
+            execution_stream = service.company_execution_stream(
+                "测试公司",
+                "2025Q3",
+                user_role="management",
+            )
+            self.assertIn("vision_analyze", {item["stream_type"] for item in execution_stream["records"]})
 
     def test_company_workspace_and_graph_aggregate_core_system_state(self) -> None:
         class StubRepository:
