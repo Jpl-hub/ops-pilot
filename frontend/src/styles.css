@@ -1515,6 +1515,51 @@ select,
   gap: 12px;
 }
 
+.evaluation-stage {
+  display: grid;
+  gap: 18px;
+}
+
+.evaluation-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(300px, 0.82fr);
+  gap: 18px;
+}
+
+.evaluation-hero,
+.evaluation-brief {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 20px;
+}
+
+.evaluation-brief {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.evaluation-support-strip {
+  align-items: start;
+}
+
+.evaluation-chart-grid {
+  margin-top: 18px;
+}
+
+.support-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.support-inline-card {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 16px;
+}
+
 .profile-main-panel {
   min-height: calc(100vh - 236px);
 }
@@ -1613,6 +1658,7 @@ h5,
   .brain-hero,
   .mode-stage,
   .profile-grid,
+  .evaluation-header,
   .stress-layout,
   .vision-layout,
   .graph-stage,
@@ -1639,6 +1685,7 @@ h5,
   .brain-board,
   .brain-hero,
   .mode-stage,
+  .evaluation-header,
   .stress-layout,
   .vision-layout,
   .chart-grid,

@@ -127,11 +127,21 @@ watch(
 <template>
   <AppShell
     title="企业运营体检"
-    subtitle="查看经营结论、关键指标、建议动作和证据来源。"
+    subtitle="围绕真实财报查看经营结论、阶段变化和证据来源。"
   >
-    <section class="toolbar panel">
+    <section class="mode-query-panel">
+      <div class="mode-query-icon">体</div>
+      <div class="mode-query-copy">
+        <div class="eyebrow">经营诊断</div>
+        <h3>{{ selectedCompany }}</h3>
+        <p>先给结论，再看阶段变化、证据和重点动作。</p>
+      </div>
+      <button class="button-primary" @click="loadScore">刷新诊断</button>
+    </section>
+
+    <section class="graph-context-bar">
       <label class="field">
-        <span>选择公司</span>
+        <span>公司</span>
         <select v-model="selectedCompany">
           <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
         </select>
@@ -148,149 +158,189 @@ watch(
           </option>
         </select>
       </label>
-      <button class="button-primary" @click="loadScore">刷新评分</button>
     </section>
 
     <LoadingState v-if="scoreState.loading.value" />
     <ErrorState v-else-if="scoreState.error.value" :message="scoreState.error.value" />
     <template v-else-if="scoreState.data.value">
-      <section class="metrics-grid">
-        <StatCard label="总分" :value="`${scoreState.data.value.scorecard.total_score} 分`" :hint="`等级 ${scoreState.data.value.scorecard.grade}`" tone="accent" />
-        <StatCard label="报告期" :value="scoreState.data.value.report_period" :hint="scoreState.data.value.company_name" />
-        <StatCard label="风险标签" :value="String(scoreState.data.value.scorecard.risk_labels.length)" hint="命中高风险规则数" tone="danger" />
-        <StatCard label="机会标签" :value="String(scoreState.data.value.scorecard.opportunity_labels.length)" hint="命中机会规则数" tone="success" />
-      </section>
-
-      <section class="split-grid">
-        <article class="panel hero-panel">
-          <div>
-            <div class="eyebrow">经营结论</div>
+      <article class="panel evaluation-stage">
+        <section class="evaluation-header">
+          <div class="evaluation-hero">
+            <div class="eyebrow">当前结论</div>
             <h2 class="hero-title compact">{{ scoreState.data.value.company_name }}</h2>
-            <p class="hero-text">{{ scoreState.data.value.report_period }} · {{ scoreState.data.value.subindustry }} · 等级 {{ scoreState.data.value.scorecard.grade }}</p>
+            <p class="hero-text">
+              {{ scoreState.data.value.report_period }} · {{ scoreState.data.value.subindustry }} ·
+              等级 {{ scoreState.data.value.scorecard.grade }}
+            </p>
             <div class="chip-grid">
               <div class="metric-chip"><span>总分</span><strong>{{ scoreState.data.value.scorecard.total_score }}</strong></div>
               <div class="metric-chip"><span>分位</span><strong>{{ scoreState.data.value.scorecard.subindustry_percentile }}pct</strong></div>
-              <div class="metric-chip"><span>强项</span><strong>{{ scoreState.data.value.scorecard.strengths.length }}</strong></div>
-              <div class="metric-chip"><span>弱项</span><strong>{{ scoreState.data.value.scorecard.weaknesses.length }}</strong></div>
+              <div class="metric-chip"><span>风险</span><strong>{{ scoreState.data.value.scorecard.risk_labels.length }}</strong></div>
+              <div class="metric-chip"><span>机会</span><strong>{{ scoreState.data.value.scorecard.opportunity_labels.length }}</strong></div>
             </div>
           </div>
-        </article>
 
-        <article class="panel">
-          <div class="panel-header"><h3>核心判断</h3></div>
-          <ul class="bullet-list">
-            <li v-for="item in summaryBullets" :key="item">{{ item }}</li>
-          </ul>
-          <div class="subsection-label">风险标签</div>
-          <div class="tag-row">
-            <TagPill v-for="label in scoreState.data.value.scorecard.risk_labels" :key="label.code" :label="label.name" tone="risk" />
+          <div class="evaluation-brief">
+            <ul class="bullet-list">
+              <li v-for="item in summaryBullets" :key="item">{{ item }}</li>
+            </ul>
           </div>
-          <div class="subsection-label">机会标签</div>
-          <div class="tag-row">
-            <TagPill v-if="scoreState.data.value.scorecard.opportunity_labels.length === 0" label="暂无显著机会标签" />
-            <TagPill v-for="label in scoreState.data.value.scorecard.opportunity_labels" v-else :key="label.code" :label="label.name" tone="success" />
-          </div>
-        </article>
-      </section>
+        </section>
 
-      <section>
-        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>标签拆解</h3></div>
-        <div class="stack-grid">
-          <article v-for="card in scoreState.data.value.label_cards" :key="card.code" class="signal-card">
-            <div class="signal-top">
-              <div><div class="signal-code">{{ card.code }}</div><h4>{{ card.name }}</h4></div>
-              <div class="signal-value">{{ card.signal_values.join(' / ') }}</div>
-            </div>
-            <div class="metric-list">
-              <div v-for="metric in card.metrics" :key="metric.metric_code" class="metric-row">
-                <span>{{ metric.metric_code }} {{ metric.metric_name }}</span>
-                <strong>{{ metric.value }}</strong>
-              </div>
-            </div>
-            <div class="evidence-links">
-              <RouterLink v-for="item in card.evidence_refs" :key="item" class="inline-link" :to="buildEvidenceLink(item, `${card.code} ${card.name}`, card.anchor_terms)">
-                证据
-              </RouterLink>
+        <section class="graph-support-strip evaluation-support-strip">
+          <article class="graph-support-card">
+            <div class="panel-header"><h3>经营标签</h3></div>
+            <div class="tag-row">
+              <TagPill
+                v-for="label in scoreState.data.value.scorecard.risk_labels"
+                :key="label.code"
+                :label="label.name"
+                tone="risk"
+              />
+              <TagPill
+                v-for="label in scoreState.data.value.scorecard.opportunity_labels"
+                :key="`op-${label.code}`"
+                :label="label.name"
+                tone="success"
+              />
+              <TagPill
+                v-if="
+                  scoreState.data.value.scorecard.risk_labels.length === 0 &&
+                  scoreState.data.value.scorecard.opportunity_labels.length === 0
+                "
+                label="暂无显著标签"
+              />
             </div>
           </article>
-        </div>
-      </section>
 
-      <section>
-        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>建议动作</h3></div>
-        <div class="stack-grid">
-          <article v-for="action in scoreState.data.value.action_cards" :key="action.title" class="company-card">
-            <div class="signal-top">
-              <div>
-                <div class="signal-code">{{ action.priority }}</div>
-                <h4>{{ action.title }}</h4>
-              </div>
+          <article class="graph-support-card">
+            <div class="panel-header"><h3>优先动作</h3></div>
+            <div class="support-stack">
+              <article
+                v-for="action in scoreState.data.value.action_cards.slice(0, 2)"
+                :key="action.title"
+                class="support-inline-card"
+              >
+                <div class="signal-top">
+                  <div>
+                    <div class="signal-code">{{ action.priority }}</div>
+                    <h4>{{ action.title }}</h4>
+                  </div>
+                </div>
+                <p class="command-copy">{{ action.reason }}</p>
+              </article>
             </div>
-            <p class="command-copy">{{ action.reason }}</p>
-            <div class="analysis-copy">{{ action.action }}</div>
           </article>
-        </div>
-      </section>
+        </section>
+      </article>
 
-      <section class="chart-grid">
+      <section class="chart-grid evaluation-chart-grid">
         <ChartPanel v-for="chart in scoreState.data.value.charts" :key="chart.title" :title="chart.title" :options="chart.options" />
       </section>
 
-      <section v-if="timelineState.data.value">
-        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>阶段轨迹</h3></div>
-        <div class="stack-grid">
-          <article
-            v-for="item in timelineState.data.value.snapshots"
-            :key="item.report_period"
-            class="company-card"
-          >
-            <div class="signal-top">
-              <div>
-                <div class="signal-code">{{ item.report_period }}</div>
-                <h4>{{ item.grade }}</h4>
+      <section v-if="timelineState.data.value" class="graph-support-strip evaluation-support-strip">
+        <article class="graph-support-card">
+          <div class="panel-header"><h3>阶段轨迹</h3></div>
+          <div class="support-stack">
+            <article
+              v-for="item in timelineState.data.value.snapshots.slice(0, 4)"
+              :key="item.report_period"
+              class="support-inline-card"
+            >
+              <div class="signal-top">
+                <div>
+                  <div class="signal-code">{{ item.report_period }}</div>
+                  <h4>{{ item.grade }}</h4>
+                </div>
+                <div class="signal-subtitle">{{ item.total_score }} 分</div>
               </div>
-              <div class="signal-subtitle">{{ item.total_score }} 分</div>
-            </div>
-            <div class="metric-list">
-              <div class="metric-row"><span>风险数</span><strong>{{ item.risk_count }}</strong></div>
-              <div class="metric-row"><span>营收增速</span><strong>{{ item.revenue_growth ?? '--' }}</strong></div>
-              <div class="metric-row"><span>利润增速</span><strong>{{ item.profit_growth ?? '--' }}</strong></div>
-            </div>
-            <div class="tag-row">
-              <TagPill v-if="item.score_delta !== null" :label="`总分变化 ${item.score_delta}`" />
-              <TagPill v-if="item.risk_delta !== null" :label="`风险变化 ${item.risk_delta}`" tone="risk" />
-            </div>
-          </article>
-        </div>
-        <section class="chart-grid" style="margin-top: 18px;">
-          <ChartPanel
-            v-for="chart in timelineState.data.value.charts"
-            :key="chart.title"
-            :title="chart.title"
-            :options="chart.options"
-          />
-        </section>
+              <div class="metric-list">
+                <div class="metric-row"><span>风险数</span><strong>{{ item.risk_count }}</strong></div>
+                <div class="metric-row"><span>营收增速</span><strong>{{ item.revenue_growth ?? '--' }}</strong></div>
+              </div>
+            </article>
+          </div>
+        </article>
+
+        <article class="graph-support-card">
+          <div class="panel-header"><h3>重点指标</h3></div>
+          <div class="support-stack">
+            <article
+              v-for="card in scoreState.data.value.label_cards.slice(0, 3)"
+              :key="card.code"
+              class="support-inline-card"
+            >
+              <div class="signal-top">
+                <div>
+                  <div class="signal-code">{{ card.code }}</div>
+                  <h4>{{ card.name }}</h4>
+                </div>
+                <div class="signal-value">{{ card.signal_values.join(' / ') }}</div>
+              </div>
+              <div class="metric-list">
+                <div
+                  v-for="metric in card.metrics.slice(0, 2)"
+                  :key="metric.metric_code"
+                  class="metric-row"
+                >
+                  <span>{{ metric.metric_name }}</span>
+                  <strong>{{ metric.value }}</strong>
+                </div>
+              </div>
+              <div class="evidence-links">
+                <RouterLink
+                  v-for="item in card.evidence_refs"
+                  :key="item"
+                  class="inline-link"
+                  :to="buildEvidenceLink(item, `${card.code} ${card.name}`, card.anchor_terms)"
+                >
+                  证据
+                </RouterLink>
+              </div>
+            </article>
+          </div>
+        </article>
       </section>
 
-      <section>
-        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;"><h3>公式回放</h3></div>
-        <div class="stack-grid">
-          <article v-for="formula in scoreState.data.value.formula_cards" :key="formula.metric_code" class="formula-card">
-            <div class="signal-top">
-              <div><div class="signal-code">{{ formula.metric_code }}</div><h4>{{ formula.title }}</h4></div>
-              <div class="signal-value">{{ formula.value }}</div>
-            </div>
-            <code class="formula-inline">{{ formula.formula }}</code>
-            <ul class="bullet-list compact">
-              <li v-for="line in formula.lines" :key="line">{{ line }}</li>
-            </ul>
-            <div class="evidence-links">
-              <RouterLink v-for="item in formula.evidence_refs" :key="item" class="inline-link" :to="buildEvidenceLink(item, `${formula.metric_code} ${formula.title}`, formula.anchor_terms)">
-                证据
-              </RouterLink>
-            </div>
-          </article>
-        </div>
+      <section v-if="timelineState.data.value" class="chart-grid evaluation-chart-grid">
+        <ChartPanel
+          v-for="chart in timelineState.data.value.charts"
+          :key="chart.title"
+          :title="chart.title"
+          :options="chart.options"
+        />
+      </section>
+
+      <section class="graph-support-strip evaluation-support-strip">
+        <article class="graph-support-card">
+          <div class="panel-header"><h3>公式回放</h3></div>
+          <div class="support-stack">
+            <article
+              v-for="formula in scoreState.data.value.formula_cards.slice(0, 3)"
+              :key="formula.metric_code"
+              class="support-inline-card"
+            >
+              <div class="signal-top">
+                <div>
+                  <div class="signal-code">{{ formula.metric_code }}</div>
+                  <h4>{{ formula.title }}</h4>
+                </div>
+                <div class="signal-value">{{ formula.value }}</div>
+              </div>
+              <code class="formula-inline">{{ formula.formula }}</code>
+              <div class="evidence-links">
+                <RouterLink
+                  v-for="item in formula.evidence_refs"
+                  :key="item"
+                  class="inline-link"
+                  :to="buildEvidenceLink(item, `${formula.metric_code} ${formula.title}`, formula.anchor_terms)"
+                >
+                  证据
+                </RouterLink>
+              </div>
+            </article>
+          </div>
+        </article>
       </section>
     </template>
   </AppShell>
