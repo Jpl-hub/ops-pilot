@@ -397,11 +397,32 @@ class ServicesTestCase(unittest.TestCase):
             )
 
             self.assertEqual(payload["company_name"], "测试公司")
+            self.assertIn("run_id", payload)
             self.assertTrue(payload["focal_nodes"])
             self.assertGreaterEqual(len(payload["inference_path"]), 3)
             self.assertEqual(payload["inference_path"][0]["title"], "测试公司")
             self.assertIn("动作收口", payload["inference_path"][-1]["title"])
             self.assertIn("links", payload["evidence_navigation"])
+            self.assertTrue((root / "bronze" / "manifests" / "graph_query_runs.json").exists())
+
+            runs = service.graph_query_runs(
+                company_name="测试公司",
+                report_period="2025Q3",
+                user_role="management",
+            )
+            self.assertEqual(runs["total"], 1)
+            detail = service.graph_query_run_detail(payload["run_id"])
+            self.assertEqual(detail["run_meta"]["company_name"], "测试公司")
+
+            history = service.workspace_history(user_role="management", report_period="2025Q3")
+            self.assertTrue(any(item["history_type"] == "graph_query" for item in history["records"]))
+
+            execution_stream = service.company_execution_stream(
+                "测试公司",
+                "2025Q3",
+                user_role="management",
+            )
+            self.assertIn("graph_query", {item["stream_type"] for item in execution_stream["records"]})
 
     def test_document_pipeline_results_tolerates_broken_manifest_json(self) -> None:
         class StubRepository:

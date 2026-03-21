@@ -491,6 +491,30 @@ def company_graph_query(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/graph-query/runs")
+def graph_query_runs(
+    company_name: str | None = None,
+    report_period: str | None = None,
+    user_role: str = "management",
+    limit: int = 20,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().graph_query_runs(
+        company_name=company_name,
+        report_period=report_period,
+        user_role=user_role,
+        limit=limit,
+    )
+
+
+@router.get("/graph-query/runs/{run_id}")
+def graph_query_run_detail(run_id: str, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().graph_query_run_detail(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/company/vision-analyze")
 def company_vision_analyze(
     company_name: str,

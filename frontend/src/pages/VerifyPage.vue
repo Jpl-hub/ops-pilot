@@ -119,14 +119,12 @@ watch(
 <template>
   <AppShell
     title="研报观点核验"
-    subtitle="围绕一篇研报查看差异、评级和证据。"
   >
     <section class="mode-query-panel">
       <div class="mode-query-icon">核</div>
       <div class="mode-query-copy">
         <div class="eyebrow">研报核验</div>
         <h3>{{ selectedCompany }}</h3>
-        <p>锁定一篇研报，对照真实财报、评级动作和预测差异。</p>
       </div>
       <button class="button-primary" @click="loadVerify">刷新核验</button>
     </section>

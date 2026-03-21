@@ -127,14 +127,12 @@ watch(
 <template>
   <AppShell
     title="企业运营体检"
-    subtitle="围绕真实财报查看经营结论、阶段变化和证据来源。"
   >
     <section class="mode-query-panel">
       <div class="mode-query-icon">体</div>
       <div class="mode-query-copy">
         <div class="eyebrow">经营诊断</div>
         <h3>{{ selectedCompany }}</h3>
-        <p>先给结论，再看阶段变化、证据和重点动作。</p>
       </div>
       <button class="button-primary" @click="loadScore">刷新诊断</button>
     </section>

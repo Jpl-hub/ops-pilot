@@ -1148,6 +1148,27 @@ class OpsPilotService:
                 limit=100,
             )["runs"]
         ]
+        graph_items = [
+            {
+                "stream_type": "graph_query",
+                "id": item["run_id"],
+                "title": "图谱检索",
+                "status": "completed",
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "intent": item.get("intent"),
+                    "route": {
+                        "path": f"/api/v1/graph-query/runs/{item['run_id']}",
+                    },
+                },
+            }
+            for item in self.graph_query_runs(
+                company_name=company_name,
+                report_period=period,
+                user_role=user_role,
+                limit=100,
+            )["runs"]
+        ]
         analysis_runs = [
             {
                 "stream_type": "analysis_run",
@@ -1167,7 +1188,7 @@ class OpsPilotService:
             and item.get("report_period") == period
             and item.get("user_role") == user_role
         ]
-        records = alert_items + task_items + watch_records + document_items + stress_items + analysis_runs
+        records = alert_items + task_items + watch_records + document_items + stress_items + graph_items + analysis_runs
         records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         return {
             "company_name": company_name,
@@ -1179,6 +1200,7 @@ class OpsPilotService:
                 "tasks": len(task_items),
                 "watch_records": len(watch_records),
                 "document_upgrades": len(document_items),
+                "graph_queries": len(graph_items),
                 "analysis_runs": len(analysis_runs),
             },
             "records": records[:limit],
@@ -1448,7 +1470,7 @@ class OpsPilotService:
             workspace=workspace,
         )
         evidence_navigation = _build_graph_query_evidence_navigation(workspace)
-        return {
+        payload = {
             "company_name": company_name,
             "report_period": workspace["report_period"],
             "user_role": user_role,
@@ -1486,6 +1508,79 @@ class OpsPilotService:
                 "edge_count": len(graph["edges"]),
             },
         }
+        run_id = _build_graph_query_run_id(company_name)
+        detail_path = _graph_query_run_detail_path(self.settings, run_id)
+        _write_json(detail_path, payload)
+        manifest = _load_graph_query_run_manifest(self.settings)
+        records = [item for item in manifest["records"] if item.get("run_id") != run_id]
+        records.insert(
+            0,
+            {
+                "run_id": run_id,
+                "company_name": company_name,
+                "report_period": workspace["report_period"],
+                "user_role": user_role,
+                "intent": intent,
+                "created_at": _utcnow_iso(),
+                "detail_path": str(detail_path),
+            },
+        )
+        manifest["records"] = records[:200]
+        _write_graph_query_run_manifest(self.settings, manifest)
+        payload["run_id"] = run_id
+        return payload
+
+    def graph_query_runs(
+        self,
+        *,
+        company_name: str | None = None,
+        report_period: str | None = None,
+        user_role: str = "management",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        records = [
+            item
+            for item in _load_graph_query_run_manifest(self.settings)["records"]
+            if item.get("user_role") == user_role
+            and (report_period is None or item.get("report_period") == report_period)
+            and (company_name is None or item.get("company_name") == company_name)
+        ]
+        return {
+            "company_name": company_name,
+            "report_period": report_period,
+            "user_role": user_role,
+            "total": len(records),
+            "runs": records[:limit],
+        }
+
+    def graph_query_run_detail(self, run_id: str) -> dict[str, Any]:
+        record = next(
+            (
+                item
+                for item in _load_graph_query_run_manifest(self.settings)["records"]
+                if item.get("run_id") == run_id
+            ),
+            None,
+        )
+        if record is None:
+            raise ValueError(f"未找到图谱查询运行：{run_id}")
+        detail_path = Path(record["detail_path"])
+        if not detail_path.exists():
+            raise ValueError(f"未找到图谱查询详情：{run_id}")
+        try:
+            with detail_path.open("r", encoding="utf-8") as file:
+                payload = json.load(file)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"图谱查询记录损坏：{run_id}") from exc
+        payload["run_meta"] = {
+            "run_id": run_id,
+            "created_at": record.get("created_at"),
+            "company_name": record.get("company_name"),
+            "report_period": record.get("report_period"),
+            "user_role": record.get("user_role"),
+            "intent": record.get("intent"),
+        }
+        return payload
 
     def company_vision_analyze(
         self,
@@ -2466,7 +2561,31 @@ class OpsPilotService:
                 limit=200,
             )["runs"]
         ]
+        graph_runs = [
+            {
+                "history_type": "graph_query",
+                "id": item["run_id"],
+                "title": f"图谱检索 · {item['company_name']}",
+                "company_name": item.get("company_name"),
+                "report_period": item.get("report_period"),
+                "user_role": item.get("user_role"),
+                "status": "completed",
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "intent": item.get("intent"),
+                    "route": {
+                        "path": f"/api/v1/graph-query/runs/{item['run_id']}",
+                    },
+                },
+            }
+            for item in self.graph_query_runs(
+                report_period=period,
+                user_role=user_role,
+                limit=200,
+            )["runs"]
+        ]
         records = analysis_runs + watch_runs + document_jobs + stress_runs
+        records += graph_runs
         records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         return {
             "user_role": user_role,
@@ -5682,6 +5801,35 @@ def _build_stress_test_run_id(company_name: str) -> str:
 
 def _stress_test_run_detail_path(settings: Settings, run_id: str) -> Path:
     return settings.bronze_data_path / "stress_runs" / f"{run_id}.json"
+
+
+def _load_graph_query_run_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "graph_query_runs.json"
+    if not manifest_path.exists():
+        return {"generated_at": _utcnow_iso(), "record_count": 0, "records": []}
+    with manifest_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return {
+        "generated_at": payload.get("generated_at", _utcnow_iso()),
+        "record_count": len(payload.get("records", [])),
+        "records": payload.get("records", []),
+    }
+
+
+def _write_graph_query_run_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", []))
+    manifest_path = settings.bronze_data_path / "manifests" / "graph_query_runs.json"
+    _write_json(manifest_path, payload)
+
+
+def _build_graph_query_run_id(company_name: str) -> str:
+    company_slug = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fff]+", "-", company_name).strip("-").lower()
+    return f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{company_slug}-graph"
+
+
+def _graph_query_run_detail_path(settings: Settings, run_id: str) -> Path:
+    return settings.bronze_data_path / "graph_runs" / f"{run_id}.json"
 
 
 def _innovation_radar_path() -> Path:
