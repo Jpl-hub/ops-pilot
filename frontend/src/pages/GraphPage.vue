@@ -40,12 +40,17 @@ const inferencePath = computed<GraphInferenceStep[]>(() => graphState.data.value
 const activePathId = computed(() => inferencePath.value[activePathStep.value]?.step ?? null)
 const phaseTrack = computed(() => graphState.data.value?.phase_track || [])
 const signalStream = computed(() => graphState.data.value?.signal_stream || [])
+const graphLiveFrames = computed(() => graphState.data.value?.graph_live_frames || [])
 const activePhaseIndex = computed(() =>
   phaseTrack.value.length ? activePathStep.value % phaseTrack.value.length : 0,
+)
+const activeGraphFrame = computed(
+  () => graphLiveFrames.value[activePathStep.value] || graphLiveFrames.value[0] || null,
 )
 const activeRun = computed(() => runsState.data.value?.runs?.[0] || null)
 
 const graphCanvasNodes = computed(() => {
+  const activeNodes = new Set(activeGraphFrame.value?.active_nodes || [])
   const pathNodes = inferencePath.value.map((item: GraphInferenceStep, index: number) => ({
     id: `path-${item.step}`,
     label: item.title,
@@ -54,6 +59,7 @@ const graphCanvasNodes = computed(() => {
     x: [10, 30, 50, 72][index] ?? 72,
     y: [54, 33, 55, 78][index] ?? 78,
     step: item.step,
+    active: activeNodes.has(`path-${item.step}`),
   }))
   const supportNodes = focalNodes.value.slice(0, 4).map((node: GraphFocalNode, index: number) => ({
     id: node.id,
@@ -63,6 +69,7 @@ const graphCanvasNodes = computed(() => {
     x: [16, 34, 56, 82][index] ?? 82,
     y: 86,
     step: null,
+    active: activeNodes.has(node.id),
   }))
   return [...pathNodes, ...supportNodes]
 })
@@ -70,7 +77,7 @@ const graphCanvasNodes = computed(() => {
 const graphCanvasLinks = computed(() =>
   inferencePath.value.slice(0, -1).map((item: GraphInferenceStep, index: number) => ({
     id: `link-${item.step}`,
-    active: activePathId.value === item.step || activePathId.value === inferencePath.value[index + 1]?.step,
+    active: (activeGraphFrame.value?.active_links || []).includes(`link-${item.step}`),
     x1: [10, 30, 50, 72][index] ?? 72,
     y1: [54, 33, 55, 78][index] ?? 78,
     x2: [10, 30, 50, 72][index + 1] ?? 72,
@@ -231,7 +238,7 @@ async function openGraphRun(runId: string) {
                   v-for="node in graphCanvasNodes"
                   :key="node.id"
                   class="graph-floating-node"
-                  :class="[`kind-${node.kind}`, { active: node.step === activePathId }]"
+                  :class="[`kind-${node.kind}`, { active: node.active }]"
                   :style="{ left: `${node.x}%`, top: `${node.y}%` }"
                   @mouseenter="node.step ? focusStep(node.step - 1) : undefined"
                 >
@@ -242,6 +249,29 @@ async function openGraphRun(runId: string) {
             </section>
 
             <div class="graph-support-strip graph-support-strip-dynamic">
+              <section class="graph-support-card graph-frame-console">
+                <div class="signal-code">当前推演帧</div>
+                <div class="graph-frame-console-body">
+                  <div class="graph-frame-copy">
+                    <strong>{{ activeGraphFrame?.headline || '等待推演' }}</strong>
+                    <span>{{ activeGraphFrame?.detail || '图谱推理正在准备阶段帧。' }}</span>
+                  </div>
+                  <div class="graph-frame-meter">
+                    <div class="graph-frame-meter-label">
+                      <span>Intensity</span>
+                      <strong>{{ activeGraphFrame?.intensity || 0 }}</strong>
+                    </div>
+                    <div class="graph-frame-meter-track">
+                      <i :style="{ width: `${activeGraphFrame?.intensity || 0}%` }" />
+                    </div>
+                  </div>
+                  <div v-if="activeGraphFrame?.signal" class="graph-frame-signal">
+                    <span>{{ activeGraphFrame.signal.label }}</span>
+                    <strong>{{ activeGraphFrame.signal.value }}</strong>
+                  </div>
+                </div>
+              </section>
+
               <section class="graph-support-card">
                 <div class="signal-code">影响路径</div>
                 <div class="graph-path-ribbon">

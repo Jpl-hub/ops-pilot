@@ -32,7 +32,11 @@ const presetScenarios = [
 const propagationSteps = computed(() => stressState.data.value?.propagation_steps || [])
 const transmissionMatrix = computed(() => stressState.data.value?.transmission_matrix || [])
 const simulationLog = computed(() => stressState.data.value?.simulation_log || [])
+const stressWavefront = computed(() => stressState.data.value?.stress_wavefront || [])
 const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.value] || null)
+const activeWavefront = computed(
+  () => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null,
+)
 const stageCards = computed(() => {
   const steps = propagationSteps.value
   return [
@@ -41,21 +45,21 @@ const stageCards = computed(() => {
       label: '上游',
       impact: steps[0]?.title || '原料与矿产',
       detail: steps[0]?.detail || '等待推演',
-      active: activeStressStep.value === 0,
+      active: activeWavefront.value?.active_stage === 'upstream',
     },
     {
       id: 'midstream',
       label: '中游',
       impact: steps[1]?.title || '电池与四大主材',
       detail: steps[1]?.detail || '等待推演',
-      active: activeStressStep.value === 1,
+      active: activeWavefront.value?.active_stage === 'midstream',
     },
     {
       id: 'downstream',
       label: '下游',
       impact: steps[2]?.title || '整车与储能',
       detail: steps[2]?.detail || '等待推演',
-      active: activeStressStep.value >= 2,
+      active: activeWavefront.value?.active_stage === 'downstream' || activeWavefront.value?.active_stage === 'actions',
     },
   ]
 })
@@ -177,10 +181,10 @@ onBeforeUnmount(() => {
                 <div class="stress-stage-banner">
                   <div class="stress-stage-banner-copy">
                     <span>当前传导</span>
-                    <strong>{{ activeSimulationLog?.title || '等待推演' }}</strong>
+                    <strong>{{ activeWavefront?.headline || activeSimulationLog?.title || '等待推演' }}</strong>
                   </div>
                   <div class="stress-stage-banner-metric">
-                    {{ activeSimulationLog?.step ? `STEP 0${activeSimulationLog.step}` : 'SIM' }}
+                    {{ activeWavefront?.frame ? `STEP 0${activeWavefront.frame}` : 'SIM' }}
                   </div>
                 </div>
                 <div class="stress-stage-cards">
@@ -193,6 +197,21 @@ onBeforeUnmount(() => {
                     <span>{{ card.label }}</span>
                     <strong>{{ card.impact }}</strong>
                     <small>{{ card.detail }}</small>
+                  </div>
+                </div>
+                <div class="stress-wavefront-panel">
+                  <div class="stress-wavefront-copy">
+                    <strong>{{ activeWavefront?.impact_label || '等待波前计算' }}</strong>
+                    <span>{{ activeWavefront?.log || '系统将根据冲击传播阶段生成实时波前日志。' }}</span>
+                  </div>
+                  <div class="stress-wavefront-meter">
+                    <div class="stress-wavefront-meter-label">
+                      <span>Impact</span>
+                      <strong>{{ activeWavefront?.impact_score || 0 }}</strong>
+                    </div>
+                    <div class="stress-wavefront-meter-track">
+                      <i :style="{ width: `${activeWavefront?.energy || 0}%` }" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -215,7 +234,17 @@ onBeforeUnmount(() => {
                   v-for="(item, index) in transmissionMatrix"
                   :key="item.stage"
                   class="stress-transmission-card"
-                  :class="[`tone-${item.tone || 'warning'}`, { active: index === activeStressStep }]"
+                  :class="[
+                    `tone-${item.tone || 'warning'}`,
+                    {
+                      active:
+                        (index === 0 && activeWavefront?.active_stage === 'upstream') ||
+                        (index === 1 && activeWavefront?.active_stage === 'midstream') ||
+                        (index === 2 &&
+                          (activeWavefront?.active_stage === 'downstream' ||
+                            activeWavefront?.active_stage === 'actions')),
+                    },
+                  ]"
                 >
                   <span>{{ item.stage }}</span>
                   <strong>{{ item.headline }}</strong>

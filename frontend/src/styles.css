@@ -1528,6 +1528,92 @@ select,
   align-content: start;
 }
 
+.graph-frame-console {
+  min-height: 100%;
+}
+
+.graph-frame-console-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  background:
+    radial-gradient(circle at top left, rgba(52, 211, 153, 0.1), transparent 46%),
+    rgba(255, 255, 255, 0.025);
+}
+
+.graph-frame-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.graph-frame-copy strong {
+  font-size: 16px;
+  color: #f5f7fb;
+}
+
+.graph-frame-copy span {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.graph-frame-meter,
+.stress-wavefront-meter {
+  display: grid;
+  gap: 8px;
+}
+
+.graph-frame-meter-label,
+.stress-wavefront-meter-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.graph-frame-meter-label strong,
+.stress-wavefront-meter-label strong {
+  font-size: 16px;
+  color: #f5f7fb;
+}
+
+.graph-frame-meter-track,
+.stress-wavefront-meter-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.graph-frame-meter-track i,
+.stress-wavefront-meter-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(52, 211, 153, 0.95), rgba(96, 165, 250, 0.9));
+  box-shadow: 0 0 20px rgba(52, 211, 153, 0.25);
+  transition: width 320ms ease;
+}
+
+.graph-frame-signal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+}
+
+.graph-frame-signal strong {
+  color: #7dd3fc;
+}
+
 .graph-path-strip {
   display: grid;
   gap: 10px;
@@ -2121,6 +2207,33 @@ select,
   gap: 16px;
 }
 
+.stress-wavefront-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(168, 85, 247, 0.16);
+  background:
+    radial-gradient(circle at right, rgba(168, 85, 247, 0.1), transparent 40%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.stress-wavefront-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.stress-wavefront-copy strong {
+  font-size: 15px;
+  color: #f5f7fb;
+}
+
+.stress-wavefront-copy span {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .stress-command-core {
   display: grid;
   grid-template-columns: 88px minmax(0, 1fr);
@@ -2366,6 +2479,9 @@ h5,
     grid-template-columns: 1fr;
   }
   .stress-dynamic-layout {
+    grid-template-columns: 1fr;
+  }
+  .stress-wavefront-panel {
     grid-template-columns: 1fr;
   }
   .stress-stage-cards {

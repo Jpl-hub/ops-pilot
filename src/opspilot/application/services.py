@@ -1688,6 +1688,17 @@ class OpsPilotService:
             focal_nodes=focal_nodes,
             workspace=workspace,
         )
+        phase_track = _build_graph_query_phase_track(
+            company_name=company_name,
+            intent=intent,
+            workspace=workspace,
+            inference_path=inference_path,
+        )
+        signal_stream = _build_graph_query_signal_stream(
+            focal_nodes=focal_nodes,
+            workspace=workspace,
+            graph_node_count=len(graph["nodes"]),
+        )
         evidence_navigation = _build_graph_query_evidence_navigation(workspace)
         payload = {
             "company_name": company_name,
@@ -1702,16 +1713,13 @@ class OpsPilotService:
             },
             "focal_nodes": focal_nodes,
             "inference_path": inference_path,
-            "phase_track": _build_graph_query_phase_track(
-                company_name=company_name,
-                intent=intent,
-                workspace=workspace,
-                inference_path=inference_path,
-            ),
-            "signal_stream": _build_graph_query_signal_stream(
+            "phase_track": phase_track,
+            "signal_stream": signal_stream,
+            "graph_live_frames": _build_graph_query_live_frames(
                 focal_nodes=focal_nodes,
-                workspace=workspace,
-                graph_node_count=len(graph["nodes"]),
+                inference_path=inference_path,
+                phase_track=phase_track,
+                signal_stream=signal_stream,
             ),
             "execution_stream": workspace["execution_stream"]["records"][:6],
             "related_routes": [
@@ -2047,6 +2055,17 @@ class OpsPilotService:
             open_alerts=workspace["alerts"]["summary"]["new"]
             + workspace["alerts"]["summary"]["in_progress"],
         )
+        transmission_matrix = _build_stress_transmission_matrix(
+            propagation_steps=propagation_steps,
+            severity=severity,
+            workspace=workspace,
+        )
+        simulation_log = _build_stress_simulation_log(
+            company_name=company_name,
+            scenario=scenario,
+            propagation_steps=propagation_steps,
+            workspace=workspace,
+        )
         payload = {
             "company_name": company_name,
             "report_period": workspace["report_period"],
@@ -2056,16 +2075,13 @@ class OpsPilotService:
             "score_summary": workspace["score_summary"],
             "affected_dimensions": _build_stress_affected_dimensions(workspace),
             "propagation_steps": propagation_steps,
-            "transmission_matrix": _build_stress_transmission_matrix(
+            "transmission_matrix": transmission_matrix,
+            "simulation_log": simulation_log,
+            "stress_wavefront": _build_stress_wavefront(
                 propagation_steps=propagation_steps,
+                transmission_matrix=transmission_matrix,
+                simulation_log=simulation_log,
                 severity=severity,
-                workspace=workspace,
-            ),
-            "simulation_log": _build_stress_simulation_log(
-                company_name=company_name,
-                scenario=scenario,
-                propagation_steps=propagation_steps,
-                workspace=workspace,
             ),
             "actions": [
                 {
@@ -4087,6 +4103,49 @@ def _build_stress_simulation_log(
     ]
 
 
+def _build_stress_wavefront(
+    *,
+    propagation_steps: list[dict[str, Any]],
+    transmission_matrix: list[dict[str, Any]],
+    simulation_log: list[dict[str, Any]],
+    severity: dict[str, Any],
+) -> list[dict[str, Any]]:
+    stage_order = ["upstream", "midstream", "downstream", "actions"]
+    frames: list[dict[str, Any]] = []
+    for index, step in enumerate(propagation_steps):
+        matrix_entry = transmission_matrix[min(index, len(transmission_matrix) - 1)] if transmission_matrix else {}
+        log_entry = simulation_log[min(index, len(simulation_log) - 1)] if simulation_log else {}
+        impact_score = int(matrix_entry.get("impact_score", 0))
+        frames.append(
+            {
+                "frame": index + 1,
+                "headline": step["title"],
+                "detail": step["detail"],
+                "active_stage": stage_order[min(index, len(stage_order) - 1)],
+                "severity": severity["level"],
+                "impact_score": impact_score,
+                "impact_label": matrix_entry.get("impact_label", severity["label"]),
+                "log": log_entry.get("detail", step["detail"]),
+                "energy": max(18, min(100, 38 + impact_score // 2 + index * 7)),
+            }
+        )
+    if not frames:
+        frames.append(
+            {
+                "frame": 1,
+                "headline": "等待压力推演",
+                "detail": "当前没有可播放的冲击传导阶段。",
+                "active_stage": "upstream",
+                "severity": severity["level"],
+                "impact_score": 0,
+                "impact_label": severity["label"],
+                "log": "等待系统生成推演日志。",
+                "energy": 0,
+            }
+        )
+    return frames
+
+
 def _build_vision_phase_track(
     *,
     company_name: str,
@@ -5502,6 +5561,52 @@ def _build_graph_query_signal_stream(
         ]
     )
     return items[:6]
+
+
+def _build_graph_query_live_frames(
+    *,
+    focal_nodes: list[dict[str, Any]],
+    inference_path: list[dict[str, Any]],
+    phase_track: list[dict[str, Any]],
+    signal_stream: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    frames: list[dict[str, Any]] = []
+    support_node_ids = [node.get("id") for node in focal_nodes[:3] if node.get("id")]
+    for index, item in enumerate(inference_path):
+        phase = phase_track[min(index, len(phase_track) - 1)] if phase_track else {}
+        active_nodes = [f"path-{item['step']}"]
+        if index > 0:
+            active_nodes.append(f"path-{inference_path[index - 1]['step']}")
+        if support_node_ids:
+            active_nodes.append(support_node_ids[index % len(support_node_ids)])
+        frames.append(
+            {
+                "frame": index + 1,
+                "headline": item["title"],
+                "detail": item["detail"],
+                "active_nodes": active_nodes,
+                "active_links": [f"link-{item['step']}"],
+                "phase": phase.get("phase"),
+                "metric": phase.get("metric"),
+                "signal": signal_stream[index % len(signal_stream)] if signal_stream else None,
+                "intensity": min(100, 52 + index * 13),
+            }
+        )
+    if not frames:
+        frames.append(
+            {
+                "frame": 1,
+                "headline": "等待图谱推理",
+                "detail": "当前没有可播放的路径阶段。",
+                "active_nodes": support_node_ids,
+                "active_links": [],
+                "phase": None,
+                "metric": None,
+                "signal": signal_stream[0] if signal_stream else None,
+                "intensity": 0,
+            }
+        )
+    return frames
 
 
 def _build_graph_query_evidence_navigation(workspace: dict[str, Any]) -> dict[str, Any]:
