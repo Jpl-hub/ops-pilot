@@ -7,7 +7,7 @@ import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { get } from '@/lib/api'
+import { get, post } from '@/lib/api'
 
 const overviewState = useAsyncState<any>()
 const graphState = useAsyncState<any>()
@@ -17,38 +17,11 @@ const route = useRoute()
 const selectedCompany = ref('')
 const selectedPeriod = ref('')
 const graphIntent = ref('碳酸锂价格下跌对下游盈利和风险的影响传导')
+const graphIntentDraft = ref(graphIntent.value)
 
 const companies = computed(() => overviewState.data.value?.companies || [])
-const graphNodes = computed(() => graphState.data.value?.nodes || [])
-const graphEdges = computed(() => graphState.data.value?.edges || [])
-const inferencePath = computed(() =>
-  graphEdges.value.slice(0, 5).map((edge: any) => `${nodeLabel(edge.source)} -> ${nodeLabel(edge.target)}`),
-)
-
-const nodeGroups = computed(() => {
-  const buckets = {
-    core: [] as any[],
-    risk: [] as any[],
-    execution: [] as any[],
-    evidence: [] as any[],
-  }
-  for (const node of graphNodes.value) {
-    if (['company', 'report_period', 'watchboard', 'research_report'].includes(node.type)) {
-      buckets.core.push(node)
-    } else if (['risk_label', 'alert'].includes(node.type)) {
-      buckets.risk.push(node)
-    } else if (['task', 'workspace_run', 'execution_stream'].includes(node.type)) {
-      buckets.execution.push(node)
-    } else {
-      buckets.evidence.push(node)
-    }
-  }
-  return buckets
-})
-
-function nodeLabel(nodeId: string) {
-  return graphNodes.value.find((item: any) => item.id === nodeId)?.label || nodeId
-}
+const focalNodes = computed(() => graphState.data.value?.focal_nodes || [])
+const inferencePath = computed(() => graphState.data.value?.inference_path || [])
 
 async function loadGraph() {
   const company = selectedCompany.value
@@ -56,7 +29,14 @@ async function loadGraph() {
   const params = new URLSearchParams({ company_name: company })
   if (selectedPeriod.value) params.set('report_period', selectedPeriod.value)
   await Promise.all([
-    graphState.execute(() => get(`/company/graph?${params.toString()}`)),
+    graphState.execute(() =>
+      post('/company/graph-query', {
+        company_name: company,
+        report_period: selectedPeriod.value || null,
+        user_role: 'management',
+        intent: graphIntent.value,
+      }),
+    ),
     streamState.execute(() => get(`/company/execution-stream?${params.toString()}&user_role=management&limit=8`)),
   ])
 }
@@ -76,6 +56,11 @@ watch(selectedCompany, async () => {
 watch(selectedPeriod, async () => {
   await loadGraph()
 })
+
+async function submitIntent() {
+  graphIntent.value = graphIntentDraft.value.trim() || graphIntent.value
+  await loadGraph()
+}
 </script>
 
 <template>
@@ -89,7 +74,7 @@ watch(selectedPeriod, async () => {
       <section class="mode-header">
         <div class="mode-header-copy">
           <div class="eyebrow">New energy supply chain knowledge graph</div>
-          <h2 class="hero-title compact">把一个问题压成图谱路径，再看影响如何传导。</h2>
+          <h2 class="hero-title compact">先压缩查询意图，再沿图谱把传导路径和证据入口拉出来。</h2>
         </div>
       </section>
 
@@ -99,45 +84,53 @@ watch(selectedPeriod, async () => {
             <div class="graph-search-icon">⌕</div>
             <div class="mode-query-copy">
               <strong>检索意图</strong>
-              <span>{{ graphIntent }}</span>
+              <span>{{ graphState.data.value?.intent || graphIntent }}</span>
             </div>
             <div class="mode-query-metrics">
-              <TagPill :label="`Nodes ${graphState.data.value?.summary?.node_count || 0}`" />
-              <TagPill :label="`Edges ${graphState.data.value?.summary?.edge_count || 0}`" />
+              <TagPill :label="`Nodes ${graphState.data.value?.graph?.node_count || 0}`" />
+              <TagPill :label="`Edges ${graphState.data.value?.graph?.edge_count || 0}`" />
+            </div>
+          </div>
+
+          <div class="chat-composer graph-query-composer">
+            <div class="chat-input-wrap-wide">
+              <textarea
+                v-model="graphIntentDraft"
+                class="text-area chat-input"
+                placeholder="输入一个图谱检索问题，例如：碳酸锂价格下跌会如何传导到动力电池毛利率和整车盈利。"
+              />
+              <button class="button-primary chat-send" @click="submitIntent">开始检索</button>
             </div>
           </div>
 
           <div class="graph-stage">
-            <div class="graph-lane">
-              <div class="signal-code">核心节点</div>
-              <div class="graph-node-stack">
-                <div v-for="node in nodeGroups.core" :key="node.id" class="graph-node core">{{ node.label }}</div>
+            <div class="graph-stage-main">
+              <div class="signal-code">核心路径</div>
+              <div class="graph-path-flow">
+                <div v-for="item in inferencePath" :key="item.step" class="graph-path-card">
+                  <span class="graph-path-step">0{{ item.step }}</span>
+                  <strong>{{ item.title }}</strong>
+                  <small>{{ item.detail }}</small>
+                </div>
               </div>
             </div>
-            <div class="graph-lane">
-              <div class="signal-code">风险与信号</div>
+            <div class="graph-stage-side">
+              <div class="signal-code">焦点节点</div>
               <div class="graph-node-stack">
-                <div v-for="node in nodeGroups.risk" :key="node.id" class="graph-node risk">{{ node.label }}</div>
+                <div
+                  v-for="node in focalNodes"
+                  :key="node.id"
+                  class="graph-node"
+                  :class="{
+                    core: ['company', 'report_period', 'watchboard', 'research_report'].includes(node.type),
+                    risk: ['risk_label', 'alert'].includes(node.type),
+                    action: ['task', 'execution_stream'].includes(node.type),
+                    evidence: ['document_artifact', 'artifact_evidence'].includes(node.type),
+                  }"
+                >
+                  {{ node.label }}
+                </div>
               </div>
-            </div>
-            <div class="graph-lane">
-              <div class="signal-code">执行链</div>
-              <div class="graph-node-stack">
-                <div v-for="node in nodeGroups.execution" :key="node.id" class="graph-node action">{{ node.label }}</div>
-              </div>
-            </div>
-            <div class="graph-lane">
-              <div class="signal-code">证据与解析</div>
-              <div class="graph-node-stack">
-                <div v-for="node in nodeGroups.evidence" :key="node.id" class="graph-node evidence">{{ node.label }}</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="graph-path-strip">
-            <div class="signal-code">Inference Path</div>
-            <div class="graph-path-tags">
-              <span v-for="item in inferencePath" :key="item" class="path-chip">{{ item }}</span>
             </div>
           </div>
         </article>
@@ -160,6 +153,25 @@ watch(selectedPeriod, async () => {
               <span>报期</span>
               <input v-model="selectedPeriod" class="text-input" placeholder="默认主周期" />
             </label>
+          </section>
+
+          <section class="panel side-panel-block">
+            <div class="panel-header">
+              <div>
+                <div class="eyebrow">证据入口</div>
+                <h3>继续下钻</h3>
+              </div>
+            </div>
+            <div class="timeline-list compact-timeline">
+              <RouterLink
+                v-for="item in graphState.data.value?.evidence_navigation?.links || []"
+                :key="item.label + item.path"
+                class="timeline-item interactive-card"
+                :to="{ path: item.path, query: item.query || {} }"
+              >
+                <strong>{{ item.label }}</strong>
+              </RouterLink>
+            </div>
           </section>
 
           <section class="panel side-panel-block">

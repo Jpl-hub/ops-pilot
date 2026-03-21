@@ -91,6 +91,11 @@ a { color: inherit; }
   gap: 14px;
 }
 
+.sidebar-utility-stack {
+  display: grid;
+  gap: 10px;
+}
+
 .sidebar-label,
 .eyebrow,
 .stat-label,
@@ -317,7 +322,7 @@ a { color: inherit; }
 
 .sidebar-utility-card {
   width: 100%;
-  min-height: 72px;
+  min-height: 80px;
   padding: 14px 16px;
   border-radius: 16px;
   border: 1px solid var(--border);
@@ -333,6 +338,11 @@ a { color: inherit; }
 .sidebar-utility-card strong {
   font-size: 15px;
   line-height: 1.25;
+}
+
+.sidebar-utility-card-action:hover {
+  border-color: rgba(52, 211, 153, 0.22);
+  background: rgba(52, 211, 153, 0.06);
 }
 
 .sidebar-utility-card small,
@@ -784,7 +794,7 @@ select,
 }
 .workspace-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1.72fr) minmax(320px, 0.64fr);
+  grid-template-columns: minmax(0, 1.95fr) minmax(300px, 0.52fr);
   gap: 18px;
   align-items: start;
   margin-bottom: 14px;
@@ -805,13 +815,13 @@ select,
 .rail-gap { margin-top: 8px; }
 
 .chat-thread-shell {
-  min-height: calc(100vh - 228px);
+  min-height: calc(100vh - 206px);
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   gap: 12px;
 }
 .chat-thread-shell-wide {
-  min-height: calc(100vh - 236px);
+  min-height: calc(100vh - 214px);
 }
 
 .chat-topbar {
@@ -819,6 +829,16 @@ select,
   grid-template-columns: 220px minmax(0, 1fr);
   gap: 12px;
   align-items: stretch;
+}
+
+.chat-quick-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.chat-quick-stats .mission-stat {
+  min-height: 86px;
 }
 
 .chat-topbar-card {
@@ -891,7 +911,7 @@ select,
 }
 .chat-thread {
   overflow: auto;
-  min-height: 460px;
+  min-height: 520px;
   max-height: none;
   padding: 6px 10px 10px 2px;
   display: grid;
@@ -899,7 +919,7 @@ select,
 }
 
 .chat-empty-state {
-  min-height: 220px;
+  min-height: 300px;
   border-radius: 18px;
   border: 1px dashed rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.015);
@@ -949,7 +969,7 @@ select,
 }
 
 .chat-bubble {
-  max-width: min(960px, 92%);
+  max-width: min(1020px, 94%);
   padding: 15px 16px;
   border-radius: 18px;
   border: 1px solid var(--border);
@@ -963,7 +983,7 @@ select,
   background: rgba(52, 211, 153, 0.08);
   color: #effef8;
   border: 1px solid rgba(52, 211, 153, 0.18);
-  max-width: min(720px, 84%);
+  max-width: min(780px, 86%);
 }
 
 .chat-bubble.rich {
@@ -1001,7 +1021,7 @@ select,
 .chat-composer {
   display: grid;
   gap: 10px;
-  padding: 12px;
+  padding: 14px;
   border-radius: 16px;
   background: #191919;
   border: 1px solid var(--border);
@@ -1039,7 +1059,7 @@ select,
 }
 
 .chat-input {
-  min-height: 88px;
+  min-height: 108px;
   margin: 0;
   padding: 14px 15px;
   border-radius: 16px;
@@ -1166,20 +1186,20 @@ select,
 
 .mode-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1.72fr) minmax(300px, 0.68fr);
+  grid-template-columns: minmax(0, 1.86fr) minmax(290px, 0.54fr);
   gap: 18px;
   align-items: start;
 }
 
 .mode-main-panel {
-  min-height: calc(100vh - 176px);
+  min-height: calc(100vh - 154px);
   display: grid;
   gap: 16px;
 }
 
 .mode-side-panel {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   align-content: start;
 }
 
@@ -1234,14 +1254,56 @@ select,
 }
 
 .graph-stage {
-  min-height: 440px;
+  min-height: 520px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.38fr) minmax(280px, 0.62fr);
   gap: 16px;
   padding: 18px;
   border-radius: 18px;
   background: rgba(0, 0, 0, 0.18);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.graph-stage-main,
+.graph-stage-side {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.graph-query-composer {
+  margin-bottom: 14px;
+}
+
+.graph-path-flow {
+  display: grid;
+  gap: 12px;
+}
+
+.graph-path-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.graph-path-card strong {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.graph-path-card small,
+.graph-path-step {
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.graph-path-step {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .graph-lane {
@@ -1316,7 +1378,7 @@ select,
 .stress-layout,
 .vision-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 0.82fr) minmax(0, 1.18fr);
+  grid-template-columns: minmax(300px, 0.74fr) minmax(0, 1.26fr);
   gap: 18px;
   align-items: start;
 }
@@ -1565,6 +1627,7 @@ h5,
   .brain-header,
   .brain-hero,
   .chat-topbar,
+  .chat-quick-stats,
   .chat-input-wrap,
   .chat-input-wrap-wide,
   .chat-runbar-track,

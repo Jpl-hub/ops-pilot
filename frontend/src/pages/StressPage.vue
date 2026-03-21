@@ -12,6 +12,7 @@ import { get, post } from '@/lib/api'
 
 const overviewState = useAsyncState<any>()
 const stressState = useAsyncState<any>()
+const runsState = useAsyncState<any>()
 const route = useRoute()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
@@ -34,7 +35,14 @@ async function runStress() {
       report_period: selectedPeriod.value || null,
       user_role: 'management',
       scenario: scenario.value.trim(),
-    }),
+      }),
+  )
+  await runsState.execute(() =>
+    get(
+      `/stress-test/runs?company_name=${encodeURIComponent(selectedCompany.value)}&report_period=${encodeURIComponent(
+        selectedPeriod.value || '',
+      )}&user_role=management&limit=6`,
+    ),
   )
 }
 
@@ -179,6 +187,21 @@ onMounted(async () => {
               >
                 <strong>{{ item.label }}</strong>
               </RouterLink>
+            </div>
+          </section>
+
+          <section v-if="runsState.data.value?.runs?.length" class="panel side-panel-block">
+            <div class="panel-header">
+              <div>
+                <div class="eyebrow">最近推演</div>
+                <h3>运行历史</h3>
+              </div>
+            </div>
+            <div class="timeline-list compact-timeline">
+              <div v-for="item in runsState.data.value?.runs || []" :key="item.run_id" class="timeline-item">
+                <strong>{{ item.severity?.level }} · {{ item.company_name }}</strong>
+                <span>{{ item.scenario }}</span>
+              </div>
             </div>
           </section>
         </aside>

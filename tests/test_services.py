@@ -313,6 +313,95 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(len(payload["propagation_steps"]), 4)
             self.assertTrue(payload["actions"])
             self.assertTrue(payload["chart"])
+            self.assertIn("run_id", payload)
+            self.assertTrue((root / "bronze" / "manifests" / "stress_test_runs.json").exists())
+
+            runs = service.stress_test_runs(
+                company_name="测试公司",
+                report_period="2025Q3",
+                user_role="management",
+            )
+            self.assertEqual(runs["total"], 1)
+            detail = service.stress_test_run_detail(payload["run_id"])
+            self.assertEqual(detail["run_meta"]["company_name"], "测试公司")
+
+    def test_company_graph_query_returns_intent_driven_path(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                return {
+                    "company_name": "测试公司",
+                    "report_period": "2025Q3",
+                    "subindustry": "储能",
+                    "metrics": {"G1": -6.0, "G2": -8.0, "C3": 12.5, "S4": 0.78, "S1": 1.04},
+                    "history": [],
+                    "metric_evidence": {},
+                    "formula_context": {},
+                    "label_evidence": {},
+                }
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    self.get_company("测试公司", "2025Q3"),
+                    {
+                        "company_name": "对标公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 8.0, "G2": 9.0, "C3": 2.1, "S4": 1.2, "S1": 1.4},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                ]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def find_company_from_query(self, query: str, report_period: str | None = None) -> str | None:
+                return "测试公司" if "测试公司" in query else None
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bronze" / "manifests").mkdir(parents=True, exist_ok=True)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            payload = service.company_graph_query(
+                "测试公司",
+                "应收扩张和风险传导",
+                user_role="management",
+            )
+
+            self.assertEqual(payload["company_name"], "测试公司")
+            self.assertTrue(payload["focal_nodes"])
+            self.assertGreaterEqual(len(payload["inference_path"]), 3)
+            self.assertEqual(payload["inference_path"][0]["title"], "测试公司")
+            self.assertIn("动作收口", payload["inference_path"][-1]["title"])
+            self.assertIn("links", payload["evidence_navigation"])
 
     def test_chat_turn_returns_role_driven_workspace_payload(self) -> None:
         class StubRepository:

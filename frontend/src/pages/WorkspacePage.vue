@@ -99,18 +99,6 @@ watch(
     subtitle="协同分析台"
     compact
   >
-    <section class="mission-bar compact-mission-bar">
-      <div class="mission-copy">
-        <div class="eyebrow">协同任务主台</div>
-        <h2>围绕一个问题发起协同分析</h2>
-        <p>让系统自动串起判断、原因、证据和执行动作，不再在多个页面里来回找线索。</p>
-      </div>
-      <div class="mission-stats">
-        <div class="mission-stat"><span>预警</span><strong>{{ overviewSummary?.total_alerts || 0 }}</strong></div>
-        <div class="mission-stat"><span>在办任务</span><strong>{{ taskSummary?.in_progress || 0 }}</strong></div>
-      </div>
-    </section>
-
     <section class="workspace-stage">
       <section class="panel chat-thread-shell chat-thread-shell-wide">
         <div class="chat-topbar">
@@ -124,6 +112,12 @@ watch(
             <span>当前任务</span>
             <strong>{{ selectedCompany }} · {{ roleCopy.label }}</strong>
           </div>
+        </div>
+
+        <div class="chat-quick-stats">
+          <div class="mission-stat"><span>预警</span><strong>{{ overviewSummary?.total_alerts || 0 }}</strong></div>
+          <div class="mission-stat"><span>在办任务</span><strong>{{ taskSummary?.in_progress || 0 }}</strong></div>
+          <div class="mission-stat"><span>执行总线</span><strong>{{ executionBus.length }}</strong></div>
         </div>
 
         <div v-if="controlPlane || workflowLanes.length" class="chat-runbar">
@@ -271,7 +265,7 @@ watch(
             </button>
           </div>
           <div v-if="followUps.length" class="subsection-label rail-gap">追问建议</div>
-          <div class="timeline-list compact-timeline">
+          <div v-if="followUps.length" class="timeline-list compact-timeline">
             <button
               v-for="item in followUps.slice(0, 3)"
               :key="`follow-${item}`"
@@ -327,7 +321,7 @@ watch(
             </div>
           </div>
           <div v-if="alertQueue.length" class="subsection-label rail-gap">优先处理</div>
-          <div class="timeline-list compact-timeline">
+          <div v-if="alertQueue.length" class="timeline-list compact-timeline">
             <div
               v-for="item in alertQueue.slice(0, 3)"
               :key="item.alert_id || item.title"

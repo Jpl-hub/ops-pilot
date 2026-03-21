@@ -1126,6 +1126,28 @@ class OpsPilotService:
             }
             for item in self.company_document_upgrades(company_name, period, limit=100)["items"]
         ]
+        stress_items = [
+            {
+                "stream_type": "stress_test",
+                "id": item["run_id"],
+                "title": f"压力测试 · {item['company_name']}",
+                "status": item.get("severity", {}).get("level", "completed"),
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "scenario": item.get("scenario"),
+                    "severity": item.get("severity", {}).get("label"),
+                    "route": {
+                        "path": f"/api/v1/stress-test/runs/{item['run_id']}",
+                    },
+                },
+            }
+            for item in self.stress_test_runs(
+                company_name=company_name,
+                report_period=period,
+                user_role=user_role,
+                limit=100,
+            )["runs"]
+        ]
         analysis_runs = [
             {
                 "stream_type": "analysis_run",
@@ -1145,7 +1167,7 @@ class OpsPilotService:
             and item.get("report_period") == period
             and item.get("user_role") == user_role
         ]
-        records = alert_items + task_items + watch_records + document_items + analysis_runs
+        records = alert_items + task_items + watch_records + document_items + stress_items + analysis_runs
         records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         return {
             "company_name": company_name,
@@ -1398,6 +1420,73 @@ class OpsPilotService:
             },
         }
 
+    def company_graph_query(
+        self,
+        company_name: str,
+        intent: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        workspace = self.company_workspace(
+            company_name,
+            report_period,
+            user_role=user_role,
+        )
+        graph = self.company_graph(
+            company_name,
+            workspace["report_period"],
+            user_role=user_role,
+        )
+        ranked_nodes = _rank_graph_nodes_for_intent(graph["nodes"], intent)
+        focal_nodes = ranked_nodes[:8]
+        inference_path = _build_graph_query_inference_path(
+            company_name=company_name,
+            report_period=workspace["report_period"],
+            intent=intent,
+            focal_nodes=focal_nodes,
+            workspace=workspace,
+        )
+        evidence_navigation = _build_graph_query_evidence_navigation(workspace)
+        return {
+            "company_name": company_name,
+            "report_period": workspace["report_period"],
+            "user_role": user_role,
+            "intent": intent,
+            "summary": {
+                "score": workspace["score_summary"]["total_score"],
+                "grade": workspace["score_summary"]["grade"],
+                "risk_count": workspace["score_summary"]["risk_count"],
+                "execution_records": len(workspace["execution_stream"]["records"]),
+            },
+            "focal_nodes": focal_nodes,
+            "inference_path": inference_path,
+            "execution_stream": workspace["execution_stream"]["records"][:6],
+            "related_routes": [
+                {
+                    "label": "查看企业体检",
+                    "path": "/score",
+                    "query": {"company": company_name, "period": workspace["report_period"]},
+                },
+                {
+                    "label": "查看协同分析",
+                    "path": "/workspace",
+                    "query": {"company": company_name},
+                },
+                {
+                    "label": "执行压力测试",
+                    "path": "/stress",
+                    "query": {"company": company_name, "period": workspace["report_period"]},
+                },
+            ],
+            "evidence_navigation": evidence_navigation,
+            "graph": {
+                "summary": graph["summary"],
+                "node_count": len(graph["nodes"]),
+                "edge_count": len(graph["edges"]),
+            },
+        }
+
     def company_stress_test(
         self,
         company_name: str,
@@ -1432,7 +1521,7 @@ class OpsPilotService:
             open_alerts=workspace["alerts"]["summary"]["new"]
             + workspace["alerts"]["summary"]["in_progress"],
         )
-        return {
+        payload = {
             "company_name": company_name,
             "report_period": workspace["report_period"],
             "user_role": user_role,
@@ -1472,6 +1561,76 @@ class OpsPilotService:
             },
             "chart": _build_stress_test_chart(propagation_steps),
         }
+        run_id = _build_stress_test_run_id(company_name)
+        detail_path = _stress_test_run_detail_path(self.settings, run_id)
+        _write_json(detail_path, payload)
+        manifest = _load_stress_test_run_manifest(self.settings)
+        records = [item for item in manifest["records"] if item.get("run_id") != run_id]
+        records.insert(
+            0,
+            {
+                "run_id": run_id,
+                "company_name": company_name,
+                "report_period": workspace["report_period"],
+                "user_role": user_role,
+                "scenario": scenario,
+                "severity": severity,
+                "created_at": _utcnow_iso(),
+                "detail_path": str(detail_path),
+            },
+        )
+        manifest["records"] = records[:200]
+        _write_stress_test_run_manifest(self.settings, manifest)
+        payload["run_id"] = run_id
+        return payload
+
+    def stress_test_runs(
+        self,
+        *,
+        company_name: str | None = None,
+        report_period: str | None = None,
+        user_role: str = "management",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        records = [
+            item
+            for item in _load_stress_test_run_manifest(self.settings)["records"]
+            if item.get("user_role") == user_role
+            and (report_period is None or item.get("report_period") == report_period)
+            and (company_name is None or item.get("company_name") == company_name)
+        ]
+        return {
+            "company_name": company_name,
+            "report_period": report_period,
+            "user_role": user_role,
+            "total": len(records),
+            "runs": records[:limit],
+        }
+
+    def stress_test_run_detail(self, run_id: str) -> dict[str, Any]:
+        record = next(
+            (
+                item
+                for item in _load_stress_test_run_manifest(self.settings)["records"]
+                if item.get("run_id") == run_id
+            ),
+            None,
+        )
+        if record is None:
+            raise ValueError(f"未找到压力测试运行：{run_id}")
+        detail_path = Path(record["detail_path"])
+        if not detail_path.exists():
+            raise ValueError(f"未找到压力测试详情：{run_id}")
+        with detail_path.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+        payload["run_meta"] = {
+            "run_id": run_id,
+            "created_at": record.get("created_at"),
+            "company_name": record.get("company_name"),
+            "report_period": record.get("report_period"),
+            "user_role": record.get("user_role"),
+        }
+        return payload
 
     def task_board(
         self, user_role: str = "management", report_period: str | None = None, limit: int = 12
@@ -2184,7 +2343,31 @@ class OpsPilotService:
             for item in self.document_pipeline_results(limit=300)["results"]
             if item.get("report_period") == period
         ]
-        records = analysis_runs + watch_runs + document_jobs
+        stress_runs = [
+            {
+                "history_type": "stress_test",
+                "id": item["run_id"],
+                "title": f"压力测试 · {item['company_name']}",
+                "company_name": item.get("company_name"),
+                "report_period": item.get("report_period"),
+                "user_role": item.get("user_role"),
+                "status": item.get("severity", {}).get("level", "completed"),
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "scenario": item.get("scenario"),
+                    "severity": item.get("severity", {}).get("label"),
+                    "route": {
+                        "path": f"/api/v1/stress-test/runs/{item['run_id']}",
+                    },
+                },
+            }
+            for item in self.stress_test_runs(
+                report_period=period,
+                user_role=user_role,
+                limit=200,
+            )["runs"]
+        ]
+        records = analysis_runs + watch_runs + document_jobs + stress_runs
         records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         return {
             "user_role": user_role,
@@ -4407,6 +4590,125 @@ def _collect_company_evidence_refs(company: dict[str, Any]) -> list[str]:
     return deduped
 
 
+def _rank_graph_nodes_for_intent(nodes: list[dict[str, Any]], intent: str) -> list[dict[str, Any]]:
+    lowered = intent.lower()
+    ranked: list[dict[str, Any]] = []
+    type_priority = {
+        "risk_label": 5,
+        "alert": 5,
+        "research_report": 4,
+        "document_artifact": 4,
+        "artifact_evidence": 4,
+        "task": 3,
+        "execution_stream": 3,
+        "watchboard": 3,
+        "company": 2,
+        "report_period": 1,
+    }
+    tokens = [part for part in re.split(r"[\s,，。；;、\-_/]+", lowered) if len(part) >= 2]
+    for node in nodes:
+        label = str(node.get("label", ""))
+        meta_values = " ".join(str(value) for value in (node.get("meta") or {}).values())
+        haystack = f"{label} {meta_values}".lower()
+        score = type_priority.get(str(node.get("type")), 0)
+        for token in tokens:
+            if token in haystack:
+                score += 3
+        ranked.append({**node, "intent_score": score})
+    ranked.sort(
+        key=lambda item: (item["intent_score"], type_priority.get(str(item.get("type")), 0), str(item.get("label", ""))),
+        reverse=True,
+    )
+    return ranked
+
+
+def _describe_graph_focus_node(node: dict[str, Any], workspace: dict[str, Any]) -> str:
+    node_type = str(node.get("type"))
+    meta = node.get("meta") or {}
+    if node_type == "risk_label":
+        return "当前体检中命中的核心风险标签之一。"
+    if node_type == "alert":
+        return f"主动预警状态：{meta.get('status') or 'unknown'}。"
+    if node_type == "task":
+        return f"整改任务优先级 {meta.get('priority') or '-'}，状态 {meta.get('status') or '-'}。"
+    if node_type == "research_report":
+        return f"研报核验已就绪，预测项 {meta.get('forecast_count') or 0} 条。"
+    if node_type == "document_artifact":
+        return f"文档升级产物：{meta.get('summary') or '已生成可消费结构'}。"
+    if node_type == "artifact_evidence":
+        return "可以继续下钻到证据页查看字段和页码。"
+    if node_type == "execution_stream":
+        return f"执行流状态：{meta.get('status') or 'tracked'}。"
+    if node_type == "watchboard":
+        return f"监测板持续跟踪，新增预警 {meta.get('new_alerts') or 0} 条。"
+    if node_type == "company":
+        return f"总分 {workspace['score_summary']['total_score']}，等级 {workspace['score_summary']['grade']}。"
+    return "该节点参与当前查询意图的传导路径。"
+
+
+def _build_graph_query_inference_path(
+    *,
+    company_name: str,
+    report_period: str,
+    intent: str,
+    focal_nodes: list[dict[str, Any]],
+    workspace: dict[str, Any],
+) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = [
+        {
+            "step": 1,
+            "title": company_name,
+            "detail": f"锁定 {report_period} 作为当前分析报期。",
+            "type": "company",
+        }
+    ]
+    for index, node in enumerate(focal_nodes[:4], start=2):
+        steps.append(
+            {
+                "step": index,
+                "title": node["label"],
+                "detail": _describe_graph_focus_node(node, workspace),
+                "type": node.get("type"),
+            }
+        )
+    steps.append(
+        {
+            "step": len(steps) + 1,
+            "title": "动作收口",
+            "detail": f"围绕“{intent}”把风险、任务、证据和执行流压成可操作结论。",
+            "type": "action",
+        }
+    )
+    return steps
+
+
+def _build_graph_query_evidence_navigation(workspace: dict[str, Any]) -> dict[str, Any]:
+    links: list[dict[str, Any]] = []
+    for item in workspace["document_upgrades"]["items"]:
+        evidence_navigation = item.get("evidence_navigation") or {}
+        links.extend(evidence_navigation.get("links", [])[:2])
+    for run in workspace["recent_runs"]["items"][:2]:
+        links.append(
+            {
+                "label": "查看分析运行",
+                "path": f"/workspace?run={run['run_id']}",
+                "query": {"company": workspace["company_name"]},
+            }
+        )
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for link in links:
+        key = (str(link.get("label")), str(link.get("path")))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(link)
+    return {
+        "links": deduped[:6],
+        "primary_route": deduped[0] if deduped else None,
+    }
+
+
 def _build_execution_bus_summary(
     *,
     task_board: dict[str, Any],
@@ -5246,6 +5548,35 @@ def _build_workspace_run_id(company_name: str, query_type: str) -> str:
 
 def _workspace_run_detail_path(settings: Settings, run_id: str) -> Path:
     return settings.bronze_data_path / "runs" / f"{run_id}.json"
+
+
+def _load_stress_test_run_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "stress_test_runs.json"
+    if not manifest_path.exists():
+        return {"generated_at": _utcnow_iso(), "record_count": 0, "records": []}
+    with manifest_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return {
+        "generated_at": payload.get("generated_at", _utcnow_iso()),
+        "record_count": len(payload.get("records", [])),
+        "records": payload.get("records", []),
+    }
+
+
+def _write_stress_test_run_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", []))
+    manifest_path = settings.bronze_data_path / "manifests" / "stress_test_runs.json"
+    _write_json(manifest_path, payload)
+
+
+def _build_stress_test_run_id(company_name: str) -> str:
+    company_slug = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fff]+", "-", company_name).strip("-").lower()
+    return f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{company_slug}-stress"
+
+
+def _stress_test_run_detail_path(settings: Settings, run_id: str) -> Path:
+    return settings.bronze_data_path / "stress_runs" / f"{run_id}.json"
 
 
 def _innovation_radar_path() -> Path:

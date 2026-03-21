@@ -86,18 +86,29 @@ async function logout() {
         </div>
 
         <div class="sidebar-group">
-          <RouterLink v-if="session.isAuthenticated.value" to="/profile" class="sidebar-utility-card">
-            <span class="sidebar-utility-label">个人中心</span>
-            <strong>{{ session.currentUser.value?.display_name }}</strong>
-            <small>{{ session.currentUser.value?.username }}</small>
-          </RouterLink>
-          <div class="top-nav top-nav-actions top-nav-vertical">
-            <RouterLink v-if="!session.isAuthenticated.value" to="/login">登录</RouterLink>
-            <RouterLink v-if="!session.isAuthenticated.value" to="/register">注册</RouterLink>
-            <button v-if="session.isAuthenticated.value" class="button-secondary logout-button sidebar-utility-card" @click="logout">
+          <div v-if="session.isAuthenticated.value" class="sidebar-utility-stack">
+            <RouterLink to="/profile" class="sidebar-utility-card sidebar-utility-card-action">
+              <span class="sidebar-utility-label">当前账户</span>
+              <strong>{{ session.currentUser.value?.display_name }}</strong>
+              <small>{{ session.currentUser.value?.username }}</small>
+            </RouterLink>
+            <button class="button-secondary sidebar-utility-card sidebar-utility-card-action" @click="logout">
               <span class="sidebar-utility-label">账户操作</span>
-              退出登录
+              <strong>退出登录</strong>
+              <small>结束当前会话并返回登录页</small>
             </button>
+          </div>
+          <div v-else class="sidebar-utility-stack">
+            <RouterLink to="/login" class="sidebar-utility-card sidebar-utility-card-action">
+              <span class="sidebar-utility-label">账户入口</span>
+              <strong>登录</strong>
+              <small>进入系统工作区</small>
+            </RouterLink>
+            <RouterLink to="/register" class="sidebar-utility-card sidebar-utility-card-action">
+              <span class="sidebar-utility-label">新建账户</span>
+              <strong>注册</strong>
+              <small>创建新的工作账号</small>
+            </RouterLink>
           </div>
         </div>
       </div>
