@@ -1933,6 +1933,153 @@ class OpsPilotService:
             },
         }
 
+    def company_vision_runtime(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        workspace = self.company_workspace(
+            company_name,
+            report_period,
+            user_role=user_role,
+        )
+        period = workspace["report_period"]
+        upgrades = self.company_document_upgrades(company_name, period, limit=20)
+        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
+        stages: list[dict[str, Any]] = []
+        latest_jobs: list[dict[str, Any]] = []
+        for stage in ("cross_page_merge", "title_hierarchy", "cell_trace"):
+            stage_jobs = [
+                item
+                for item in jobs_manifest["records"]
+                if item.get("stage") == stage
+                and item.get("company_name") == company_name
+                and item.get("report_period") == period
+            ]
+            stage_jobs.sort(
+                key=lambda item: item.get("completed_at") or item.get("created_at") or "",
+                reverse=True,
+            )
+            job = stage_jobs[0] if stage_jobs else None
+            latest_jobs.extend(stage_jobs[:1])
+            if stage == "cell_trace" and not self.settings.ocr_runtime_enabled:
+                status = "blocked"
+            else:
+                status = job.get("status", "missing") if job else "missing"
+            stages.append(
+                {
+                    "stage": stage,
+                    "label": _document_stage_label(stage),
+                    "status": status,
+                    "summary": (
+                        job.get("artifact_summary")
+                        or job.get("completed_at")
+                        or "等待运行"
+                    )
+                    if job
+                    else "等待运行",
+                    "report_id": job.get("report_id") if job else None,
+                }
+            )
+
+        latest_jobs.sort(
+            key=lambda item: item.get("completed_at") or item.get("created_at") or "",
+            reverse=True,
+        )
+        vision = self.company_vision_analyze(
+            company_name,
+            period,
+            user_role=user_role,
+        )
+        stage_status_counts: dict[str, int] = {}
+        for item in stages:
+            stage_status_counts[item["status"]] = stage_status_counts.get(item["status"], 0) + 1
+        if stage_status_counts.get("pending"):
+            next_action = "继续运行文档升级作业"
+        elif stage_status_counts.get("blocked"):
+            next_action = "等待 OCR 运行时接入"
+        elif stage_status_counts.get("completed"):
+            next_action = "进入结果核验与证据回放"
+        else:
+            next_action = "初始化解析链路"
+        return {
+            "company_name": company_name,
+            "report_period": period,
+            "user_role": user_role,
+            "runtime": {
+                "provider": self.settings.ocr_provider,
+                "model": self.settings.ocr_model,
+                "runtime_enabled": self.settings.ocr_runtime_enabled,
+                "layout_engine": self.settings.doc_layout_engine,
+                "next_action": next_action,
+            },
+            "stages": stages,
+            "document_upgrades": upgrades,
+            "latest_jobs": latest_jobs[:3],
+            "vision": vision["result"],
+        }
+
+    def run_company_vision_pipeline(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        period = report_period or self._preferred_period()
+        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
+        requested_stages = ["cross_page_merge", "title_hierarchy"]
+        if self.settings.ocr_runtime_enabled:
+            requested_stages.append("cell_trace")
+        executed: list[dict[str, Any]] = []
+        for stage in requested_stages:
+            pending_jobs = [
+                item
+                for item in jobs_manifest["records"]
+                if item.get("stage") == stage
+                and item.get("company_name") == company_name
+                and item.get("report_period") == period
+                and item.get("status") == "pending"
+            ]
+            if not pending_jobs:
+                continue
+            for job in pending_jobs[:1]:
+                artifact_payload, artifact_path = _run_document_pipeline_job(stage, job, self.settings)
+                job["status"] = "completed"
+                job["artifact_path"] = str(artifact_path)
+                job["completed_at"] = _utcnow_iso()
+                job["artifact_summary"] = artifact_payload.get("summary")
+                executed.append(
+                    {
+                        "stage": stage,
+                        "report_id": job.get("report_id"),
+                        "summary": artifact_payload.get("summary"),
+                        "artifact_path": str(artifact_path),
+                    }
+                )
+        if executed:
+            _write_document_pipeline_job_manifest(self.settings, jobs_manifest)
+        vision_payload = self.run_company_vision_analyze(
+            company_name,
+            period,
+            user_role=user_role,
+        )
+        runtime_payload = self.company_vision_runtime(
+            company_name,
+            period,
+            user_role=user_role,
+        )
+        return {
+            "company_name": company_name,
+            "report_period": period,
+            "user_role": user_role,
+            "executed": executed,
+            "vision_run_id": vision_payload.get("run_id"),
+            "runtime": runtime_payload,
+        }
+
     def run_company_vision_analyze(
         self,
         company_name: str,
@@ -6252,6 +6399,14 @@ def _build_document_pipeline_overview(
             {"label": "结构化指标", "value": silver_count, "unit": "条"},
         ],
     }
+
+
+def _document_stage_label(stage: str) -> str:
+    return {
+        "cross_page_merge": "跨页拼接",
+        "title_hierarchy": "标题层级",
+        "cell_trace": "单元格溯源",
+    }.get(stage, stage)
 
 
 def _load_task_board_manifest(settings: Settings) -> dict[str, Any]:

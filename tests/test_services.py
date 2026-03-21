@@ -1461,6 +1461,186 @@ class ServicesTestCase(unittest.TestCase):
             )
             self.assertIn("vision_analyze", {item["stream_type"] for item in execution_stream["records"]})
 
+    def test_company_vision_runtime_and_pipeline_return_stage_state(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bronze = root / "bronze" / "official"
+            manifests = bronze / "manifests"
+            upgrades = bronze / "upgrades"
+            manifests.mkdir(parents=True, exist_ok=True)
+            (upgrades / "cross_page_merge").mkdir(parents=True, exist_ok=True)
+            (upgrades / "title_hierarchy").mkdir(parents=True, exist_ok=True)
+            title_artifact_path = upgrades / "title_hierarchy" / "r-runtime.json"
+            page_json_path = upgrades / "page.json"
+            page_json_path.write_text(
+                json.dumps(
+                    {
+                        "pages": [
+                            {
+                                "page": 1,
+                                "blocks": [
+                                    {"text": "第一节 经营情况"},
+                                    {"text": "第二节 财务摘要"},
+                                ],
+                            },
+                            {
+                                "page": 2,
+                                "blocks": [
+                                    {"text": "续表：主营业务收入"},
+                                ],
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            title_artifact_path.write_text(
+                json.dumps(
+                    {
+                        "report_id": "r-runtime",
+                        "summary": "目录恢复完成",
+                        "headings": [{"level": 1, "text": "第一节", "page": 1}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-runtime",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司2025年三季度报告",
+                                "report_period": "2025Q3",
+                                "page_json_path": str(page_json_path),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests / "document_pipeline_jobs.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-runtime",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "report_period": "2025Q3",
+                                "stage": "cross_page_merge",
+                                "status": "pending",
+                                "artifact_path": "",
+                                "artifact_summary": None,
+                            },
+                            {
+                                "report_id": "r-runtime",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "report_period": "2025Q3",
+                                "stage": "title_hierarchy",
+                                "status": "completed",
+                                "artifact_path": str(title_artifact_path),
+                                "artifact_summary": "目录恢复完成",
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            class StubRepository:
+                def preferred_period(self) -> str:
+                    return "2025Q3"
+
+                def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                    if company_name != "测试公司":
+                        return None
+                    return {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {
+                            "G1": 12.0,
+                            "G2": 8.0,
+                            "C1": 1.2,
+                            "C3": 24.0,
+                            "S1": 1.1,
+                            "S4": 0.9,
+                        },
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    }
+
+                def list_companies(self, report_period: str | None = None) -> list[dict]:
+                    return [self.get_company("测试公司", "2025Q3")]
+
+                def list_company_periods(self, company_name: str) -> list[str]:
+                    return ["2025Q3"]
+
+                def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                    return []
+
+                def get_evidence(self, chunk_id: str) -> dict | None:
+                    return None
+
+                def list_company_names(self) -> list[str]:
+                    return ["测试公司"]
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+                ocr_provider = "PaddleOCR-VL"
+                ocr_model = "PaddleOCR-VL-1.5"
+                ocr_runtime_enabled = False
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = bronze
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            runtime_before = service.company_vision_runtime(
+                "测试公司",
+                "2025Q3",
+                user_role="management",
+            )
+            self.assertEqual(runtime_before["runtime"]["provider"], "PaddleOCR-VL")
+            self.assertEqual(runtime_before["runtime"]["model"], "PaddleOCR-VL-1.5")
+            self.assertFalse(runtime_before["runtime"]["runtime_enabled"])
+            self.assertTrue(any(item["status"] == "pending" for item in runtime_before["stages"]))
+            self.assertTrue(any(item["status"] == "blocked" for item in runtime_before["stages"]))
+
+            pipeline_result = service.run_company_vision_pipeline(
+                "测试公司",
+                "2025Q3",
+                user_role="management",
+            )
+            self.assertIn("vision_run_id", pipeline_result)
+            self.assertTrue(pipeline_result["executed"])
+            self.assertTrue(pipeline_result["runtime"]["vision"]["sections"])
+
+            runtime_after = service.company_vision_runtime(
+                "测试公司",
+                "2025Q3",
+                user_role="management",
+            )
+            stage_status = {item["stage"]: item["status"] for item in runtime_after["stages"]}
+            self.assertEqual(stage_status["cross_page_merge"], "completed")
+            self.assertEqual(stage_status["title_hierarchy"], "completed")
+            self.assertEqual(stage_status["cell_trace"], "blocked")
+
     def test_company_workspace_and_graph_aggregate_core_system_state(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

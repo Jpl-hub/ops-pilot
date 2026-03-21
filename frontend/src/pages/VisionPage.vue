@@ -11,32 +11,47 @@ import { get, post } from '@/lib/api'
 
 const overviewState = useAsyncState<any>()
 const visionState = useAsyncState<any>()
+const runtimeState = useAsyncState<any>()
 const runsState = useAsyncState<any>()
+const pipelineRunning = ref(false)
 
 const companies = computed(() => overviewState.data.value?.companies || [])
 const selectedCompany = ref('')
 const selectedPeriod = ref('')
 
-const resultItems = computed(() => visionState.data.value?.result?.items || [])
-const selectedResult = computed(() => visionState.data.value?.result || null)
-const phaseTrack = computed(() => selectedResult.value?.phase_track || [])
+const resultItems = computed(() => visionState.data.value?.result?.items || runtimeState.data.value?.vision?.result?.items || [])
+const selectedResult = computed(() => visionState.data.value?.result || runtimeState.data.value?.vision?.result || null)
+const phaseTrack = computed(() => runtimeState.data.value?.stages || selectedResult.value?.phase_track || [])
 const extractionStream = computed(() => selectedResult.value?.extraction_stream || [])
 const analysisLog = computed(() => selectedResult.value?.analysis_log || [])
+const runtimeSummary = computed(() => runtimeState.data.value?.runtime || null)
+const pipelineJobs = computed(() => runtimeState.data.value?.latest_jobs || [])
+const canRunPipeline = computed(() => !!selectedCompany.value)
 
 async function loadVision() {
   if (!selectedCompany.value) return
+  visionState.data.value = null
   const params = new URLSearchParams({ company_name: selectedCompany.value, user_role: 'management' })
   if (selectedPeriod.value) params.set('report_period', selectedPeriod.value)
   await Promise.all([
-    visionState.execute(() =>
-      post('/company/vision-analyze', {
-        company_name: selectedCompany.value,
-        report_period: selectedPeriod.value || null,
-        user_role: 'management',
-      }),
-    ),
+    runtimeState.execute(() => get(`/company/vision-runtime?${params.toString()}`)),
     runsState.execute(() => get(`/vision-analyze/runs?${params.toString()}&limit=6`)),
   ])
+}
+
+async function runPipeline() {
+  if (!selectedCompany.value || pipelineRunning.value) return
+  pipelineRunning.value = true
+  try {
+    await post('/company/vision-pipeline', {
+      company_name: selectedCompany.value,
+      report_period: selectedPeriod.value || null,
+      user_role: 'management',
+    })
+    await loadVision()
+  } finally {
+    pipelineRunning.value = false
+  }
 }
 
 async function openVisionRun(runId: string) {
@@ -76,6 +91,9 @@ watch(selectedPeriod, async () => {
             </div>
             <div class="mode-query-metrics">
               <TagPill v-if="selectedResult?.status_label" :label="selectedResult.status_label" />
+              <button class="mode-action-button" :disabled="!canRunPipeline || pipelineRunning" @click="runPipeline">
+                {{ pipelineRunning ? '处理中' : '刷新解析链' }}
+              </button>
             </div>
           </div>
 
@@ -97,18 +115,18 @@ watch(selectedPeriod, async () => {
               <div class="vision-dropzone vision-dropzone-terminal">
                 <div class="vision-drop-icon">◫</div>
                 <strong>{{ selectedResult?.headline || '等待解析结果' }}</strong>
-                <span>{{ selectedResult?.status_label || 'pending' }}</span>
+                <span>{{ runtimeSummary?.next_action || selectedResult?.status_label || 'pending' }}</span>
               </div>
               <div class="graph-phase-track vision-phase-track">
                 <div
                   v-for="(phase, index) in phaseTrack"
-                  :key="phase.phase"
+                  :key="phase.phase || phase.stage"
                   class="graph-phase-card"
-                  :class="{ active: index === 2 }"
+                  :class="{ active: index === 0 || phase.status === 'completed' }"
                 >
-                  <span>{{ phase.phase }}</span>
-                  <strong>{{ phase.headline }}</strong>
-                  <small>{{ phase.metric }}</small>
+                  <span>{{ phase.label || phase.phase || phase.stage }}</span>
+                  <strong>{{ phase.headline || phase.summary || '等待运行' }}</strong>
+                  <small>{{ phase.metric || phase.status || '-' }}</small>
                 </div>
               </div>
               <div class="graph-signal-stream vision-signal-stream">
@@ -130,6 +148,16 @@ watch(selectedPeriod, async () => {
                 >
                   <strong>{{ item.title }}</strong>
                   <span>{{ item.summary }}</span>
+                </div>
+              </div>
+              <div class="timeline-list compact-timeline">
+                <div
+                  v-for="job in pipelineJobs"
+                  :key="`${job.stage}-${job.report_id}`"
+                  class="timeline-item"
+                >
+                  <strong>{{ job.company_name }} · {{ job.stage }}</strong>
+                  <span>{{ job.artifact_summary || job.status }}</span>
                 </div>
               </div>
               <div class="timeline-list compact-timeline">
