@@ -19,6 +19,8 @@ let socket: WebSocket | null = null
 const payload = computed(() => livePayload.value || state.data.value)
 const historyRecords = computed(() => historyState.data.value?.records || [])
 const marketTape = computed(() => payload.value?.market_tape || [])
+const brainCommandSurface = computed(() => payload.value?.brain_command_surface || null)
+const brainSignalTape = computed(() => payload.value?.brain_signal_tape || [])
 const executionFlash = computed(() => payload.value?.execution_flash || [])
 const liveEvents = computed(() => payload.value?.live_events || [])
 const attentionMatrix = computed(() => payload.value?.attention_matrix || [])
@@ -112,6 +114,41 @@ onBeforeUnmount(() => {
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
           <em>{{ item.delta }}</em>
+        </div>
+      </section>
+
+      <section v-if="brainCommandSurface" class="graph-canvas-panel evaluation-command-panel">
+        <div class="graph-command-surface">
+          <div class="graph-command-surface-copy">
+            <span>{{ brainCommandSurface.title }}</span>
+            <strong>{{ brainCommandSurface.headline }}</strong>
+          </div>
+          <div class="graph-command-surface-metric">
+            <div class="graph-command-meter">
+              <label>主信号</label>
+              <strong>{{ brainCommandSurface.metric }}</strong>
+              <i :style="{ width: `${brainCommandSurface.intensity || 0}%` }" />
+            </div>
+            <div class="graph-command-signal" :class="`tone-${brainCommandSurface.dominant_signal?.tone || 'accent'}`">
+              <span>{{ brainCommandSurface.dominant_signal?.label }}</span>
+              <strong>{{ brainCommandSurface.dominant_signal?.value }}</strong>
+            </div>
+          </div>
+        </div>
+        <div class="graph-route-bands score-signal-tape">
+          <div
+            v-for="item in brainSignalTape"
+            :key="`${item.step}-${item.label}`"
+            class="graph-route-band"
+            :class="[`tone-${item.tone || 'accent'}`]"
+          >
+            <em>{{ item.label }}</em>
+            <div class="graph-route-band-copy">
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.intensity }}%</span>
+            </div>
+            <i :style="{ width: `${item.intensity || 0}%` }" />
+          </div>
         </div>
       </section>
 

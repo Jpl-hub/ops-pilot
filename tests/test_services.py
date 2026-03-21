@@ -51,6 +51,8 @@ class ServicesTestCase(unittest.TestCase):
             self.assertTrue(payload["stream"]["ws_connected"])
             self.assertGreaterEqual(len(payload["metrics"]), 4)
             self.assertEqual(payload["charts"][0]["title"], "主周期预警 / 任务 / 监测板实时跳动")
+            self.assertIn("brain_command_surface", payload)
+            self.assertTrue(payload["brain_signal_tape"])
             history = service.industry_brain_history(limit=4)
             self.assertGreaterEqual(history["total"], 1)
             self.assertEqual(history["records"][0]["report_period"], payload["report_period"])
@@ -152,6 +154,8 @@ class ServicesTestCase(unittest.TestCase):
         self.assertEqual(payload["available_periods"], ["2025Q3", "2024FY"])
         self.assertTrue(payload["action_cards"])
         self.assertEqual(payload["action_cards"][0]["priority"], "P1")
+        self.assertIn("score_command_surface", payload)
+        self.assertTrue(payload["score_signal_tape"])
 
     def test_company_timeline_returns_period_snapshots(self) -> None:
         class StubRepository:
@@ -2632,6 +2636,8 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(len(payload["forecast_cards"]), 3)
             self.assertTrue(payload["evidence_groups"])
             self.assertEqual(payload["evidence_groups"][0]["title"], "营收同比")
+            self.assertIn("verify_command_surface", payload)
+            self.assertTrue(payload["verify_delta_tape"])
 
     def test_list_research_reports_returns_ranked_catalog(self) -> None:
         class StubRepository:

@@ -368,6 +368,17 @@ class OpsPilotService:
                 "bronze_reports": data_status.get("bronze_periodic_reports", {}).get("record_count", 0),
             },
             "market_tape": market_tape,
+            "brain_command_surface": _build_brain_command_surface(
+                preferred_period=preferred_period,
+                market_tape=market_tape,
+                attention_matrix=attention_matrix,
+                execution_flash=execution_flash,
+            ),
+            "brain_signal_tape": _build_brain_signal_tape(
+                market_tape=market_tape,
+                live_events=live_events,
+                history_points=history_points,
+            ),
             "execution_flash": execution_flash,
             "attention_matrix": attention_matrix,
             "live_events": live_events,
@@ -881,6 +892,20 @@ class OpsPilotService:
             "action_cards": action_cards,
             "available_periods": _list_company_periods(self.repository, company_name),
             "audit": audit,
+            "score_command_surface": _build_score_command_surface(
+                company=company,
+                score_result=score_result,
+                risks=risks,
+                opportunities=opportunities,
+                action_cards=action_cards,
+                timeline_payload=self.company_timeline(company_name),
+            ),
+            "score_signal_tape": _build_score_signal_tape(
+                score_result=score_result,
+                risks=risks,
+                opportunities=opportunities,
+                action_cards=action_cards,
+            ),
             "scorecard": {
                 **score_result,
                 "risk_labels": risks,
@@ -3207,6 +3232,16 @@ class OpsPilotService:
             "forecast_cards": forecast_cards,
             "report_meta": research_meta,
             "available_reports": self.list_research_reports(company_name),
+            "verify_command_surface": _build_verify_command_surface(
+                company=company,
+                research_meta=research_meta,
+                claim_cards=claim_cards,
+                forecast_cards=forecast_cards,
+            ),
+            "verify_delta_tape": _build_verify_delta_tape(
+                claim_cards=claim_cards,
+                forecast_cards=forecast_cards,
+            ),
             "research_compare": self.compare_research_reports(company_name),
             "research_timeline": self.summarize_research_timeline(company_name),
         }
@@ -4459,6 +4494,81 @@ def _build_stress_affected_dimensions(workspace: dict[str, Any]) -> list[dict[st
         {"label": "未闭环预警", "value": alert_summary["new"] + alert_summary["in_progress"], "hint": "待处理"},
         {"label": "解析支撑", "value": document_count, "hint": "解析结果"},
     ]
+
+
+def _build_score_command_surface(
+    *,
+    company: dict[str, Any],
+    score_result: dict[str, Any],
+    risks: list[dict[str, Any]],
+    opportunities: list[dict[str, Any]],
+    action_cards: list[dict[str, Any]],
+    timeline_payload: dict[str, Any],
+) -> dict[str, Any]:
+    latest_snapshot = timeline_payload["snapshots"][0] if timeline_payload.get("snapshots") else {}
+    score_delta = latest_snapshot.get("score_delta")
+    headline = action_cards[0]["title"] if action_cards else "等待动作收口"
+    return {
+        "title": f"{company['company_name']} 经营体检",
+        "headline": headline,
+        "grade": score_result["grade"],
+        "metric": f"{score_result['total_score']} 分",
+        "intensity": min(100, 38 + int(score_result["total_score"])),
+        "delta_label": f"{score_delta:+.2f}" if isinstance(score_delta, (int, float)) else "首个报期",
+        "watch_items": [
+            {"label": "风险标签", "value": str(len(risks))},
+            {"label": "机会标签", "value": str(len(opportunities))},
+            {"label": "优先动作", "value": str(len(action_cards))},
+        ],
+        "dominant_signal": {
+            "label": "当前主判断",
+            "value": risks[0]["name"] if risks else opportunities[0]["name"] if opportunities else "继续观察",
+            "tone": "risk" if risks else "success" if opportunities else "accent",
+        },
+    }
+
+
+def _build_score_signal_tape(
+    *,
+    score_result: dict[str, Any],
+    risks: list[dict[str, Any]],
+    opportunities: list[dict[str, Any]],
+    action_cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    tape = [
+        {
+            "step": 1,
+            "label": "总分",
+            "value": f"{score_result['total_score']} / {score_result['grade']}",
+            "tone": "accent",
+            "intensity": min(100, 30 + int(score_result["total_score"])),
+        },
+        {
+            "step": 2,
+            "label": "风险",
+            "value": risks[0]["name"] if risks else "无显著风险",
+            "tone": "risk" if risks else "success",
+            "intensity": 76 if risks else 28,
+        },
+        {
+            "step": 3,
+            "label": "动作",
+            "value": action_cards[0]["title"] if action_cards else "等待动作收口",
+            "tone": "warning" if action_cards else "accent",
+            "intensity": 68 if action_cards else 20,
+        },
+    ]
+    if opportunities:
+        tape.append(
+            {
+                "step": 4,
+                "label": "机会",
+                "value": opportunities[0]["name"],
+                "tone": "success",
+                "intensity": 54,
+            }
+        )
+    return tape
 
 
 def _build_stress_command_surface(
@@ -6308,6 +6418,147 @@ def _build_graph_query_evidence_navigation(workspace: dict[str, Any]) -> dict[st
         "links": deduped[:6],
         "primary_route": deduped[0] if deduped else None,
     }
+
+
+def _build_verify_command_surface(
+    *,
+    company: dict[str, Any],
+    research_meta: dict[str, Any],
+    claim_cards: list[dict[str, Any]],
+    forecast_cards: list[dict[str, Any]],
+) -> dict[str, Any]:
+    match_count = sum(1 for item in claim_cards if item["status"] == "match")
+    mismatch_count = sum(1 for item in claim_cards if item["status"] == "mismatch")
+    dominant = next((item for item in claim_cards if item["status"] != "match"), None) or (claim_cards[0] if claim_cards else None)
+    return {
+        "title": f"{company['company_name']} 研报核验",
+        "headline": dominant["label"] if dominant else research_meta["title"],
+        "metric": f"{match_count} 匹配 / {mismatch_count} 偏差",
+        "intensity": min(100, 34 + mismatch_count * 22 + match_count * 8),
+        "institution": research_meta.get("source_name") or "未披露",
+        "watch_items": [
+            {"label": "匹配", "value": str(match_count)},
+            {"label": "偏差", "value": str(mismatch_count)},
+            {"label": "预测", "value": str(len(forecast_cards))},
+        ],
+        "dominant_signal": {
+            "label": "当前核验焦点",
+            "value": dominant["status"] if dominant else "等待核验",
+            "tone": "risk" if dominant and dominant["status"] == "mismatch" else "success",
+        },
+    }
+
+
+def _build_verify_delta_tape(
+    *,
+    claim_cards: list[dict[str, Any]],
+    forecast_cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    tape: list[dict[str, Any]] = []
+    for index, card in enumerate(claim_cards[:4]):
+        status = card["status"]
+        tone = "success" if status == "match" else "risk" if status == "mismatch" else "warning"
+        intensity = 30 if status == "match" else 86 if status == "mismatch" else 58
+        tape.append(
+            {
+                "step": index + 1,
+                "label": card["metric_key"],
+                "value": card["label"],
+                "tone": tone,
+                "intensity": intensity,
+            }
+        )
+    if forecast_cards:
+        tape.append(
+            {
+                "step": len(tape) + 1,
+                "label": "预测",
+                "value": f"{len(forecast_cards)} 个年度",
+                "tone": "accent",
+                "intensity": 44,
+            }
+        )
+    if not tape:
+        tape.append(
+            {
+                "step": 1,
+                "label": "等待核验",
+                "value": "暂无观点卡",
+                "tone": "accent",
+                "intensity": 0,
+            }
+        )
+    return tape
+
+
+def _build_brain_command_surface(
+    *,
+    preferred_period: str,
+    market_tape: list[dict[str, Any]],
+    attention_matrix: list[dict[str, Any]],
+    execution_flash: list[dict[str, Any]],
+) -> dict[str, Any]:
+    dominant_market = market_tape[0] if market_tape else {"label": "主周期", "value": "0", "tone": "accent"}
+    focus_company = attention_matrix[0] if attention_matrix else {"company_name": "等待公司", "headline": "等待关注信号"}
+    latest_execution = execution_flash[0] if execution_flash else {"status": "idle"}
+    return {
+        "title": f"{preferred_period} 产业大脑",
+        "headline": focus_company["company_name"],
+        "metric": dominant_market["value"],
+        "intensity": 52 + min(36, len(attention_matrix) * 6),
+        "watch_items": [
+            {"label": dominant_market["label"], "value": dominant_market["value"]},
+            {"label": "关注公司", "value": str(len(attention_matrix))},
+            {"label": "最近运行", "value": latest_execution["status"]},
+        ],
+        "dominant_signal": {
+            "label": focus_company["company_name"],
+            "value": focus_company["headline"],
+            "tone": dominant_market.get("tone") or "accent",
+        },
+    }
+
+
+def _build_brain_signal_tape(
+    *,
+    market_tape: list[dict[str, Any]],
+    live_events: list[dict[str, Any]],
+    history_points: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    tape: list[dict[str, Any]] = []
+    for index, item in enumerate(market_tape[:3]):
+        digits = re.sub(r"\D", "", str(item.get("value") or "0"))
+        tape.append(
+            {
+                "step": index + 1,
+                "label": item["label"],
+                "value": f"{item['value']} · {item['delta']}",
+                "tone": item.get("tone") or "accent",
+                "intensity": min(100, 32 + index * 18 + (int(digits or "0") % 40)),
+            }
+        )
+    if live_events:
+        tape.append(
+            {
+                "step": len(tape) + 1,
+                "label": live_events[0]["company_name"],
+                "value": live_events[0]["headline"],
+                "tone": "warning" if live_events[0]["status"] == "新增预警" else "success",
+                "intensity": 72 if live_events[0]["status"] == "新增预警" else 48,
+            }
+        )
+    if history_points:
+        latest = history_points[-1]
+        tape.append(
+            {
+                "step": len(tape) + 1,
+                "label": latest["timestamp"],
+                "value": f"{latest['alerts']} 预警 / {latest['tasks']} 任务",
+                "tone": "accent",
+                "intensity": 58,
+            }
+        )
+    return tape
 
 
 def _build_execution_bus_summary(

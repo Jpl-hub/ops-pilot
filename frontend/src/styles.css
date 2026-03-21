@@ -2227,6 +2227,11 @@ select,
   gap: 10px;
 }
 
+.evaluation-command-panel {
+  min-height: auto;
+  margin-bottom: 18px;
+}
+
 .graph-route-band {
   position: relative;
   display: grid;
@@ -2279,6 +2284,25 @@ select,
 .graph-route-band.active {
   border-color: rgba(52, 211, 153, 0.26);
   background: rgba(52, 211, 153, 0.06);
+}
+
+.graph-route-band.tone-risk {
+  border-color: rgba(239, 68, 68, 0.14);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.graph-route-band.tone-warning {
+  border-color: rgba(245, 158, 11, 0.16);
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.graph-route-band.tone-success {
+  border-color: rgba(52, 211, 153, 0.16);
+  background: rgba(52, 211, 153, 0.05);
+}
+
+.score-signal-tape {
+  margin-top: 10px;
 }
 
 .graph-run-highlight {

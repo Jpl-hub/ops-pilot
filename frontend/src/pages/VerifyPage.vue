@@ -19,6 +19,8 @@ const selectedReportTitle = ref<string | null>(null)
 const state = useAsyncState<any>()
 const route = useRoute()
 const syncingFromRoute = ref(false)
+const verifyCommandSurface = ref<any | null>(null)
+const verifyDeltaTape = ref<any[]>([])
 
 async function loadCompanies() {
   const risk = await get<any>('/industry/risk-scan')
@@ -44,6 +46,8 @@ async function loadVerify() {
     return
   }
   await state.execute(() => post('/claim/verify', { company_name: selectedCompany.value, report_title: selectedReportTitle.value }))
+  verifyCommandSurface.value = state.data.value?.verify_command_surface || null
+  verifyDeltaTape.value = state.data.value?.verify_delta_tape || []
 }
 
 function applyQuerySelection() {
@@ -142,6 +146,41 @@ watch(
           <option v-for="report in reports" :key="report.title" :value="report.title">{{ report.title }} | {{ report.publish_date }}</option>
         </select>
       </label>
+    </section>
+
+    <section v-if="state.data.value && verifyCommandSurface" class="graph-canvas-panel evaluation-command-panel">
+      <div class="graph-command-surface">
+        <div class="graph-command-surface-copy">
+          <span>{{ verifyCommandSurface.title }}</span>
+          <strong>{{ verifyCommandSurface.headline }}</strong>
+        </div>
+        <div class="graph-command-surface-metric">
+          <div class="graph-command-meter">
+            <label>{{ verifyCommandSurface.institution }}</label>
+            <strong>{{ verifyCommandSurface.metric }}</strong>
+            <i :style="{ width: `${verifyCommandSurface.intensity || 0}%` }" />
+          </div>
+          <div class="graph-command-signal" :class="`tone-${verifyCommandSurface.dominant_signal?.tone || 'accent'}`">
+            <span>{{ verifyCommandSurface.dominant_signal?.label }}</span>
+            <strong>{{ verifyCommandSurface.dominant_signal?.value }}</strong>
+          </div>
+        </div>
+      </div>
+      <div class="graph-route-bands score-signal-tape">
+        <div
+          v-for="item in verifyDeltaTape"
+          :key="`${item.step}-${item.label}`"
+          class="graph-route-band"
+          :class="[`tone-${item.tone || 'accent'}`]"
+        >
+          <em>{{ item.label }}</em>
+          <div class="graph-route-band-copy">
+            <strong>{{ item.value }}</strong>
+            <span>{{ item.intensity }}%</span>
+          </div>
+          <i :style="{ width: `${item.intensity || 0}%` }" />
+        </div>
+      </div>
     </section>
 
     <LoadingState v-if="state.loading.value" />

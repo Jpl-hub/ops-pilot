@@ -30,6 +30,8 @@ const summaryBullets = computed(() => {
     `弱项：${scorecard.weaknesses.map((item: any) => item.name).join('、') || '暂无显著弱项'}`,
   ]
 })
+const scoreCommandSurface = computed(() => scoreState.data.value?.score_command_surface || null)
+const scoreSignalTape = computed(() => scoreState.data.value?.score_signal_tape || [])
 
 async function loadCompanies() {
   const risk = await get<any>('/industry/risk-scan')
@@ -172,6 +174,41 @@ watch(
           </option>
         </select>
       </label>
+    </section>
+
+    <section v-if="scoreState.data.value && scoreCommandSurface" class="graph-canvas-panel evaluation-command-panel">
+      <div class="graph-command-surface">
+        <div class="graph-command-surface-copy">
+          <span>{{ scoreCommandSurface.title }}</span>
+          <strong>{{ scoreCommandSurface.headline }}</strong>
+        </div>
+        <div class="graph-command-surface-metric">
+          <div class="graph-command-meter">
+            <label>{{ scoreCommandSurface.grade }}</label>
+            <strong>{{ scoreCommandSurface.metric }}</strong>
+            <i :style="{ width: `${scoreCommandSurface.intensity || 0}%` }" />
+          </div>
+          <div class="graph-command-signal" :class="`tone-${scoreCommandSurface.dominant_signal?.tone || 'accent'}`">
+            <span>{{ scoreCommandSurface.dominant_signal?.label }}</span>
+            <strong>{{ scoreCommandSurface.dominant_signal?.value }}</strong>
+          </div>
+        </div>
+      </div>
+      <div class="graph-route-bands score-signal-tape">
+        <div
+          v-for="item in scoreSignalTape"
+          :key="`${item.step}-${item.label}`"
+          class="graph-route-band"
+          :class="[`tone-${item.tone || 'accent'}`]"
+        >
+          <em>{{ item.label }}</em>
+          <div class="graph-route-band-copy">
+            <strong>{{ item.value }}</strong>
+            <span>{{ item.intensity }}%</span>
+          </div>
+          <i :style="{ width: `${item.intensity || 0}%` }" />
+        </div>
+      </div>
     </section>
 
     <LoadingState v-if="scoreState.loading.value" />
