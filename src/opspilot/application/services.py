@@ -1398,6 +1398,81 @@ class OpsPilotService:
             },
         }
 
+    def company_stress_test(
+        self,
+        company_name: str,
+        scenario: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        workspace = self.company_workspace(
+            company_name,
+            report_period,
+            user_role=user_role,
+        )
+        graph = self.company_graph(
+            company_name,
+            workspace["report_period"],
+            user_role=user_role,
+        )
+        propagation_steps = _build_stress_propagation_steps(
+            company_name=company_name,
+            scenario=scenario,
+            graph_nodes=graph["nodes"],
+            graph_edges=graph["edges"],
+            top_risks=workspace["top_risks"],
+            alert_items=workspace["alerts"]["items"],
+            task_items=workspace["tasks"]["items"],
+        )
+        severity = _classify_stress_severity(
+            scenario=scenario,
+            risk_count=workspace["score_summary"]["risk_count"],
+            open_tasks=workspace["tasks"]["summary"]["in_progress"],
+            open_alerts=workspace["alerts"]["summary"]["new"]
+            + workspace["alerts"]["summary"]["in_progress"],
+        )
+        return {
+            "company_name": company_name,
+            "report_period": workspace["report_period"],
+            "user_role": user_role,
+            "scenario": scenario,
+            "severity": severity,
+            "score_summary": workspace["score_summary"],
+            "affected_dimensions": _build_stress_affected_dimensions(workspace),
+            "propagation_steps": propagation_steps,
+            "actions": [
+                {
+                    "priority": item["priority"],
+                    "title": item["title"],
+                    "action": item["action"],
+                    "reason": item["reason"],
+                }
+                for item in workspace["action_cards"][:3]
+            ],
+            "related_routes": [
+                {
+                    "label": "查看企业体检",
+                    "path": "/score",
+                    "query": {"company": company_name, "period": workspace["report_period"]},
+                },
+                {
+                    "label": "查看图谱推理",
+                    "path": "/graph",
+                    "query": {"company": company_name, "period": workspace["report_period"]},
+                },
+                {
+                    "label": "返回协同分析",
+                    "path": "/workspace",
+                    "query": {"company": company_name},
+                },
+            ],
+            "evidence_navigation": {
+                "links": _build_stress_evidence_links(workspace),
+            },
+            "chart": _build_stress_test_chart(propagation_steps),
+        }
+
     def task_board(
         self, user_role: str = "management", report_period: str | None = None, limit: int = 12
     ) -> dict[str, Any]:
@@ -3043,6 +3118,129 @@ def _build_industry_risk_chart(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "type": "bar",
                 "data": [item["risk_count"] for item in rows],
                 "barMaxWidth": 36,
+            }
+        ],
+    }
+
+
+def _build_stress_propagation_steps(
+    *,
+    company_name: str,
+    scenario: str,
+    graph_nodes: list[dict[str, Any]],
+    graph_edges: list[dict[str, Any]],
+    top_risks: list[str],
+    alert_items: list[dict[str, Any]],
+    task_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    path_labels: list[str] = []
+    node_label_map = {node["id"]: node.get("label") or node["id"] for node in graph_nodes}
+    for edge in graph_edges[:4]:
+        source_label = node_label_map.get(edge["source"], edge["source"])
+        target_label = node_label_map.get(edge["target"], edge["target"])
+        path_labels.append(f"{source_label} -> {target_label}")
+    risk_summary = "、".join(top_risks[:3]) or "当前重点风险"
+    alert_summary = alert_items[0]["summary"] if alert_items else "尚未形成新增预警"
+    task_summary = task_items[0]["title"] if task_items else "等待生成首要动作"
+    return [
+        {
+            "step": 1,
+            "title": "注入冲击",
+            "detail": scenario,
+            "tone": "input",
+        },
+        {
+            "step": 2,
+            "title": "映射到当前风险面",
+            "detail": f"{company_name} 当前重点关注 {risk_summary}。",
+            "tone": "risk",
+        },
+        {
+            "step": 3,
+            "title": "沿图谱与执行链传导",
+            "detail": "；".join(path_labels[:3]) or "执行链尚在准备中。",
+            "tone": "graph",
+        },
+        {
+            "step": 4,
+            "title": "触发预警与动作",
+            "detail": f"{alert_summary}；当前优先动作：{task_summary}。",
+            "tone": "action",
+        },
+    ]
+
+
+def _classify_stress_severity(
+    *,
+    scenario: str,
+    risk_count: int,
+    open_tasks: int,
+    open_alerts: int,
+) -> dict[str, Any]:
+    scenario_weight = 0
+    hard_keywords = ("禁令", "断供", "停产", "关税", "制裁", "减产", "召回", "事故", "限制", "进口")
+    for keyword in hard_keywords:
+        if keyword in scenario:
+            scenario_weight += 2 if keyword in ("禁令", "断供", "停产", "关税", "制裁") else 1
+    score = risk_count + open_tasks + open_alerts + scenario_weight
+    if scenario_weight >= 4 and (risk_count >= 1 or open_alerts >= 1):
+        return {"level": "CRITICAL", "label": "高压场景", "color": "risk"}
+    if score >= 8:
+        return {"level": "CRITICAL", "label": "高压场景", "color": "risk"}
+    if score >= 5:
+        return {"level": "HIGH", "label": "重点关注", "color": "warning"}
+    return {"level": "MEDIUM", "label": "可控冲击", "color": "success"}
+
+
+def _build_stress_affected_dimensions(workspace: dict[str, Any]) -> list[dict[str, Any]]:
+    score_summary = workspace["score_summary"]
+    task_summary = workspace["tasks"]["summary"]
+    alert_summary = workspace["alerts"]["summary"]
+    document_count = workspace["document_upgrades"]["count"]
+    return [
+        {"label": "风险标签", "value": score_summary["risk_count"], "hint": score_summary["grade"]},
+        {"label": "在办任务", "value": task_summary["in_progress"], "hint": "需推进"},
+        {"label": "未闭环预警", "value": alert_summary["new"] + alert_summary["in_progress"], "hint": "待处理"},
+        {"label": "解析支撑", "value": document_count, "hint": "解析结果"},
+    ]
+
+
+def _build_stress_evidence_links(workspace: dict[str, Any]) -> list[dict[str, Any]]:
+    links: list[dict[str, Any]] = []
+    for item in workspace["document_upgrades"]["items"][:2]:
+        route = item.get("route") or {}
+        if route.get("path"):
+            links.append(
+                {
+                    "label": f"{item['stage']} 解析详情",
+                    "path": route["path"],
+                    "query": route.get("query") or {},
+                }
+            )
+        evidence_navigation = item.get("evidence_navigation") or {}
+        primary_route = evidence_navigation.get("primary_route") or {}
+        if primary_route.get("path"):
+            links.append(
+                {
+                    "label": "证据入口",
+                    "path": primary_route["path"],
+                    "query": primary_route.get("query") or {},
+                }
+            )
+    return links[:4]
+
+
+def _build_stress_test_chart(steps: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "tooltip": {"trigger": "axis"},
+        "xAxis": {"type": "category", "data": [item["title"] for item in steps]},
+        "yAxis": {"type": "value", "max": 100},
+        "series": [
+            {
+                "type": "line",
+                "smooth": True,
+                "data": [28, 46, 72, 84][: len(steps)],
+                "areaStyle": {},
             }
         ],
     }

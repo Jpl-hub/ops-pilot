@@ -18,6 +18,7 @@ from opspilot.api.schemas import (
     LoginRequest,
     RegisterRequest,
     ScoreRequest,
+    StressTestRequest,
     TaskStatusUpdateRequest,
     WatchCompanyRequest,
     WatchboardDispatchRequest,
@@ -467,6 +468,22 @@ def company_graph(
             company_name,
             report_period,
             user_role=user_role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/company/stress-test")
+def company_stress_test(
+    request: StressTestRequest,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    try:
+        return get_service().company_stress_test(
+            request.company_name,
+            request.scenario,
+            request.report_period,
+            user_role=request.user_role,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

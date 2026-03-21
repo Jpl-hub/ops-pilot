@@ -23,9 +23,11 @@ const navItems = [
   { to: '/', label: '首页', description: '系统入口' },
   { to: '/brain', label: '产业大脑', description: '实时监测', auth: true },
   { to: '/workspace', label: '协同分析', description: '任务主台', auth: true },
+  { to: '/graph', label: '图谱检索', description: '路径推理', auth: true },
+  { to: '/stress', label: '压力测试', description: '冲击推演', auth: true },
   { to: '/score', label: '企业体检', description: '经营诊断', auth: true },
-  { to: '/risk', label: '压力测试', description: '冲击推演', auth: true },
   { to: '/verify', label: '研报核验', description: '观点核对', auth: true },
+  { to: '/vision', label: '多模态解析', description: '文档理解', auth: true },
   { to: '/admin', label: '管理台', description: '作业链路', auth: true },
 ]
 
