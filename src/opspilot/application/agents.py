@@ -44,7 +44,19 @@ def run_chat_agent(query: str, company: dict[str, Any] | None, report_period: st
             
             # The company_id is the security code (e.g. 600438)
             security_code = company["company_id"]
-            chunks = retriever.search(security_code, query, report_period, top_k=6)
+            
+            # Execute Hybrid RAG (BM25 + Semantic PgVector)
+            from opspilot.config import get_settings
+            import asyncio
+            chunks = asyncio.run(
+                retriever.hybrid_search(
+                    security_code=security_code,
+                    query=query,
+                    dsn=get_settings().postgres_dsn,
+                    report_period=report_period,
+                    top_k=6
+                )
+            )
             
             if chunks:
                 context_text = "\n\n".join([f"Excerpt {i+1}:\n{c.get('text', '')}" for i, c in enumerate(chunks)])
@@ -62,6 +74,26 @@ def run_chat_agent(query: str, company: dict[str, Any] | None, report_period: st
         
     prompt += f"\n--- Context Evidence ---\n{context_text}\n------------------------\n"
     prompt += "Now, respond strictly in JSON matching the schema."
+    
+    tools_schema = [
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup_financial_metric",
+                "description": "Lookup an exact financial metric from the enterprise data lake if Context Evidence lacks precision.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "metric_name": {
+                            "type": "string", 
+                            "description": "The target financial metric, e.g. '营业总收入', '净利润'"
+                        },
+                    },
+                    "required": ["metric_name"]
+                }
+            }
+        }
+    ]
         
     try:
         response_text = asyncio.run(
@@ -69,7 +101,8 @@ def run_chat_agent(query: str, company: dict[str, Any] | None, report_period: st
                 prompt=prompt,
                 system_prompt=system_prompt,
                 model="gpt-4o-mini",
-                temperature=0.2
+                temperature=0.2,
+                tools=tools_schema
             )
         )
         

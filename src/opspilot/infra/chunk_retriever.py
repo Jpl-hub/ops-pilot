@@ -19,6 +19,11 @@ class LocalChunkRetriever:
         self.bronze_chunks_dir = Path(bronze_chunks_dir)
 
     def search(self, security_code: str, query: str, report_period: str | None = None, top_k: int = 8) -> list[dict[str, Any]]:
+        chunks = self._load_chunks_for_target(security_code, report_period)
+        if not chunks: return []
+        return self._bm25_score(chunks, query, top_k)
+
+    def _load_chunks_for_target(self, security_code: str, report_period: str | None = None) -> list[dict[str, Any]]:
         target_dir = None
         for exchange in ['SSE', 'SZSE']:
             p = self.bronze_chunks_dir / exchange / security_code
@@ -38,7 +43,6 @@ class LocalChunkRetriever:
                     try:
                         chunk = json.loads(line)
                         title = chunk.get("title", "")
-                        # Simple heuristic: if a target year is provided, require the report title to contain it.
                         if report_period:
                             year = report_period[:4]
                             if year not in title:
@@ -46,11 +50,9 @@ class LocalChunkRetriever:
                         chunks.append(chunk)
                     except json.JSONDecodeError:
                         pass
+        return chunks
 
-        if not chunks:
-            return []
-
-        # Executing BM25 Scoring
+    def _bm25_score(self, chunks: list[dict[str, Any]], query: str, top_k: int) -> list[dict[str, Any]]:
         query_terms = tokenize(query)
         if not query_terms:
             return chunks[:top_k]
@@ -88,4 +90,65 @@ class LocalChunkRetriever:
             scores.append((score, chunks[i]))
 
         scores.sort(key=lambda x: x[0], reverse=True)
+        for rank, (s, c) in enumerate(scores):
+            c["bm25_rank"] = rank + 1
         return [c for s, c in scores[:top_k] if s > 0]
+
+    async def hybrid_search(self, security_code: str, query: str, dsn: str, report_period: str | None = None, top_k: int = 6) -> list[dict]:
+        """
+        Executes a 2026-era Hybrid RAG technique by calculating exact BM25 lexical distances and 
+        combining them via RRF (Reciprocal Rank Fusion) with semantic vector approximations.
+        """
+        from opspilot.infra.vector_store import VectorStore
+        from opspilot.core.llm import get_embeddings, get_embedding
+        import asyncio
+        
+        chunks = self._load_chunks_for_target(security_code, report_period)
+        if not chunks: 
+            return []
+            
+        v_store = VectorStore(dsn)
+        
+        # 1. Evaluate Semantic Cache status
+        period_key = report_period or "all"
+        if not v_store.has_records(security_code, period_key):
+            # On-the-fly local batch embedding generation for missing companies
+            texts = [c.get("text", "")[:5000] for c in chunks] # limit chunk size for embed stringency
+            # Gather in batches of 100 to respect standard rate limits
+            embeddings = []
+            for i in range(0, len(texts), 100):
+                batch_emb = await get_embeddings(texts[i:i+100])
+                embeddings.extend(batch_emb)
+                await asyncio.sleep(0.1)
+                
+            for c, emb in zip(chunks, embeddings):
+                c["embedding"] = emb
+            v_store.add_chunks(security_code, period_key, chunks)
+
+        # 2. Run distinct pipelines
+        bm25_results = self._bm25_score(chunks, query, top_k=20)
+        
+        q_emb = await get_embedding(query)
+        v_results = v_store.search(security_code, q_emb, report_period=None, top_k=20) # we use period_key logic inside store
+        
+        # 3. Reciprocal Rank Fusion (RRF)
+        fused_scores = {}
+        lookup_map = {}
+        
+        k = 60
+        for c in bm25_results:
+            uid = c.get("text", "")[:100]
+            rank = c["bm25_rank"]
+            fused_scores[uid] = fused_scores.get(uid, 0.0) + 1.0 / (k + rank)
+            lookup_map[uid] = c
+            
+        for rank, vr in enumerate(v_results):
+            uid = vr.get("text", "")[:100]
+            fused_scores[uid] = fused_scores.get(uid, 0.0) + 1.0 / (k + rank + 1)
+            # Only update lookup map if not exists to avoid losing full chunk dict context
+            if uid not in lookup_map:
+                lookup_map[uid] = {"text": vr.get("text"), "title": vr.get("title")}
+
+        # 4. Final Sorting
+        sorted_keys = sorted(fused_scores.keys(), key=lambda uid: fused_scores[uid], reverse=True)
+        return [lookup_map[uid] for uid in sorted_keys[:top_k]]
