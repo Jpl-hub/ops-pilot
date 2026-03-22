@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(find /mnt/d/code/ops-pilot/data/bronze/official -name *.jsonl)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl -s https://raw.githubusercontent.com/Jpl-hub/ops-x/main/src/components/MultiAgentChat.tsx)",
+      "Bash(curl:*)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//mnt/d/code/ops-pilot/**)",
+      "Bash(done)",
+      "Bash(sed -n '5835,5860p' /mnt/d/code/ops-pilot/src/opspilot/application/services.py)",
+      "Bash(sed -n '5834,5836p' /mnt/d/code/ops-pilot/src/opspilot/application/services.py)"
+    ]
+  }
+}
