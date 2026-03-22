@@ -139,7 +139,7 @@ async function logout() {
           </div>
         </div>
       </header>
-      <div class="page-content" style="flex: 1; padding: 16px 24px 24px; overflow-y: auto; min-height: 0;">
+      <div class="page-content" style="flex: 1; display: flex; flex-direction: column; padding: 16px 24px 24px; overflow-y: auto; min-height: 0;">
         <slot />
       </div>
     </main>

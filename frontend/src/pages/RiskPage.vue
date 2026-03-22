@@ -175,7 +175,7 @@ watch(
           <!-- Bottom Split -->
           <div class="bottom-split">
             <!-- Full Risk Board Grid -->
-            <div class="glass-panel flex-1 min-w-0 p-5 scroll-area" style="max-height: 400px;">
+            <div class="glass-panel flex-1 min-w-0 p-5 scroll-area">
               <h3 class="panel-sm-title mb-3">全量风险名单</h3>
               <div class="company-grid-mini">
                 <RouterLink
@@ -194,7 +194,7 @@ watch(
             </div>
 
             <!-- Reports List -->
-            <div class="glass-panel flex-1 min-w-0 p-5 scroll-area" style="max-height: 400px;">
+            <div class="glass-panel flex-1 min-w-0 p-5 scroll-area">
               <h3 class="panel-sm-title mb-3">行业研报观察</h3>
               <div class="reports-list">
                 <article v-for="group in state.data.value.industry_research.groups" :key="group.industry_name" class="report-card glass-panel-hover">
@@ -378,6 +378,8 @@ watch(
   display: flex;
   gap: 16px;
   flex-shrink: 0;
+  min-height: 280px;
+  max-height: 340px;
 }
 .company-grid-mini {
   display: grid;

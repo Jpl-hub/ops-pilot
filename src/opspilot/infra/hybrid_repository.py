@@ -63,3 +63,23 @@ class HybridRepository:
             if item is not None:
                 evidence.append(item)
         return evidence
+
+    def get_security_code(self, company_name: str) -> str | None:
+        if hasattr(self._official_repository, "get_security_code"):
+            return self._official_repository.get_security_code(company_name)
+        return None
+
+    async def hybrid_evidence_search(
+        self,
+        company_name: str,
+        query: str,
+        report_period: str | None,
+        dsn: str,
+        top_k: int = 4,
+    ) -> list[dict[str, Any]]:
+        """Delegate to OfficialMetricsRepository's Hybrid RAG pipeline."""
+        if hasattr(self._official_repository, "hybrid_evidence_search"):
+            return await self._official_repository.hybrid_evidence_search(
+                company_name, query, report_period, dsn, top_k
+            )
+        return []

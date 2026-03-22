@@ -19,6 +19,7 @@ const router = createRouter({
     { path: '/profile', component: () => import('@/pages/ProfilePage.vue'), meta: { requiresAuth: true } },
     { path: '/admin', component: () => import('@/pages/AdminPage.vue'), meta: { requiresAuth: true } },
     { path: '/evidence/:chunkId', component: () => import('@/pages/EvidencePage.vue'), props: true, meta: { requiresAuth: true } },
+    { path: '/:pathMatch(.*)*', component: () => import('@/pages/NotFoundPage.vue') },
   ],
   scrollBehavior() {
     return { top: 0 }

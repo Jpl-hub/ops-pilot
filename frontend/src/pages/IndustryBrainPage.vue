@@ -51,11 +51,7 @@ function connectStream() {
 }
 
 onMounted(async () => {
-  try {
-    await state.execute(() => get('/industry/brain'))
-  } catch (error) {
-    console.error('Backend 500 Error Gracefully Caught:', error)
-  }
+  await state.execute(() => get('/industry/brain')).catch(() => {})
   connectStream()
 })
 
@@ -74,7 +70,7 @@ onBeforeUnmount(() => {
           <div class="ib-error-icon mb-4">⚠</div>
           <h3 class="text-xl text-red-400 mb-2">后端服务暂时不可用</h3>
           <p class="ib-muted max-w-md text-center">{{ state.error.value }}</p>
-          <button class="ib-btn-primary mt-6" @click="() => { state.execute(() => get('/industry/brain')).catch(e => console.error(e)); connectStream(); }">重试连接</button>
+          <button class="ib-btn-primary mt-6" @click="() => { state.execute(() => get('/industry/brain')).catch(() => {}); connectStream(); }">重试连接</button>
       </div>
 
       <template v-else-if="payload">
@@ -251,7 +247,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* Full App Canvas Overrides */
-.ib-layout { display: flex; flex-direction: column; height: 100%; width: 100%; background: transparent; color: #e2e8f0; font-family: ui-sans-serif, system-ui, sans-serif; overflow: hidden; margin: -16px -24px -24px; padding: 0; }
+.ib-layout { display: flex; flex-direction: column; height: 100%; width: 100%; background: transparent; color: #e2e8f0; font-family: ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
 .ib-glass { background: #121212; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5); position: relative; overflow: hidden; }
 
 /* Ticker Tape */

@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import asyncio
 import json
 import math
 import re
@@ -5,155 +8,264 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+
+# ---------------------------------------------------------------------------
+#  Tokenizer
+# ---------------------------------------------------------------------------
+
 def tokenize(text: str) -> list[str]:
-    """Extract Chinese characters and alphanumeric words for inverted indexing."""
+    """Extract Chinese characters and ASCII words for BM25 inverted index."""
     return [c for c in re.findall(r'[a-zA-Z0-9]+|[\u4e00-\u9fa5]', text.lower())]
+
+
+# ---------------------------------------------------------------------------
+#  Period helpers
+# ---------------------------------------------------------------------------
+
+_PERIOD_KEYWORDS: dict[str, str] = {
+    "第一季度": "Q1",
+    "半年度": "H1",
+    "半年报": "H1",
+    "第三季度": "Q3",
+    "年度报告": "FY",
+    "年报": "FY",
+}
+
+
+def _infer_period_from_chunk(chunk: dict) -> str | None:
+    """
+    Infer report period from the chunk's title / report_type fields.
+
+    Returns period strings like '2024Q1', '2024H1', '2024Q3', '2024FY', or None.
+    """
+    # Prefer structured report_type field if available
+    report_type: str = chunk.get("report_type", "") or ""
+    title: str = chunk.get("title", "") or ""
+    text_for_search = report_type + title
+
+    year_match = re.search(r'(\d{4})年', text_for_search)
+    if not year_match:
+        return None
+    year = year_match.group(1)
+
+    for keyword, suffix in _PERIOD_KEYWORDS.items():
+        if keyword in text_for_search:
+            # Disambiguate FY: "年度报告" must not co-occur with 季度/半年
+            if suffix == "FY" and ("季度" in text_for_search or "半年" in text_for_search):
+                continue
+            return f"{year}{suffix}"
+    return None
+
+
+def _period_matches(chunk: dict, report_period: str) -> bool:
+    """Return True if the chunk's inferred period equals report_period."""
+    inferred = _infer_period_from_chunk(chunk)
+    if inferred is None:
+        # Fall back to year-in-title heuristic
+        year = report_period[:4]
+        return year in (chunk.get("title", "") + chunk.get("report_type", ""))
+    return inferred == report_period
+
+
+# ---------------------------------------------------------------------------
+#  LocalChunkRetriever
+# ---------------------------------------------------------------------------
 
 class LocalChunkRetriever:
     """
-    A lightweight, embedded BM25 dense retriever over local JSONL chunks.
-    This bypasses the need to spin up a heavy Vector Database cluster while 
-    fulfilling the Big Data 'Traceable Data Source' requirements cleanly.
+    2-stage Hybrid RAG retriever over the bronze JSONL chunk store.
+
+    Stage 1: BM25 lexical retrieval (from local JSONL files)
+    Stage 2: Dense ANN retrieval (from pgvector via VectorStore)
+    Fusion:  Reciprocal Rank Fusion (RRF, k=60) on stable chunk_id keys
+    Rerank:  LLM Zero-Shot reranker (RankGPT style, top-15 → top-k)
     """
-    def __init__(self, bronze_chunks_dir: Path):
+
+    def __init__(self, bronze_chunks_dir: Path) -> None:
         self.bronze_chunks_dir = Path(bronze_chunks_dir)
 
-    def search(self, security_code: str, query: str, report_period: str | None = None, top_k: int = 8) -> list[dict[str, Any]]:
-        chunks = self._load_chunks_for_target(security_code, report_period)
-        if not chunks: return []
-        return self._bm25_score(chunks, query, top_k)
+    # ------------------------------------------------------------------
+    #  Public interface
+    # ------------------------------------------------------------------
 
-    def _load_chunks_for_target(self, security_code: str, report_period: str | None = None) -> list[dict[str, Any]]:
-        target_dir = None
-        for exchange in ['SSE', 'SZSE']:
-            p = self.bronze_chunks_dir / exchange / security_code
-            if p.exists() and p.is_dir():
-                target_dir = p
-                break
-        
-        if not target_dir:
+    def search(
+        self,
+        security_code: str,
+        query: str,
+        report_period: str | None = None,
+        top_k: int = 8,
+    ) -> list[dict[str, Any]]:
+        """Pure BM25 search (synchronous, no LLM / vector calls)."""
+        chunks = self._load_chunks(security_code, report_period)
+        if not chunks:
+            return []
+        return self._bm25_rank(chunks, query, top_k)
+
+    async def hybrid_search(
+        self,
+        security_code: str,
+        query: str,
+        dsn: str,
+        report_period: str | None = None,
+        top_k: int = 6,
+    ) -> list[dict[str, Any]]:
+        """
+        Full Hybrid RAG pipeline:
+          BM25(top-20) ⊕ Dense-ANN(top-20) → RRF → LLM-Rerank(top-k)
+
+        On-demand embedding: if the VectorStore lacks records for this
+        (security_code, report_period), embeddings are built and upserted
+        before the dense search runs.
+        """
+        from opspilot.infra.vector_store import VectorStore
+        from opspilot.core.llm import get_embedding, get_embeddings, rerank_chunks
+
+        chunks = self._load_chunks(security_code, report_period)
+        if not chunks:
             return []
 
-        chunks = []
-        for jsonl_file in target_dir.glob("*.jsonl"):
-            with open(jsonl_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if not line.strip(): 
+        v_store = VectorStore(dsn)
+        period_key = report_period or "all"
+
+        # ---- Stage 0: build embeddings on-demand if missing ----
+        if not v_store.has_records(security_code, period_key):
+            texts = [c.get("text", "")[:2000] for c in chunks]
+            embeddings: list[list[float]] = []
+            for i in range(0, len(texts), 100):
+                batch = await get_embeddings(texts[i : i + 100])
+                embeddings.extend(batch)
+                if i + 100 < len(texts):
+                    await asyncio.sleep(0.05)
+
+            for c, emb in zip(chunks, embeddings):
+                c["embedding"] = emb
+            inserted = v_store.add_chunks(security_code, period_key, chunks)
+            logger.debug("Upserted %d new embeddings for %s/%s", inserted, security_code, period_key)
+
+        # ---- Stage 1: BM25 lexical retrieval ----
+        bm25_results = self._bm25_rank(chunks, query, top_k=20)
+
+        # ---- Stage 2: Dense ANN retrieval ----
+        q_emb = await get_embedding(query)
+        v_results = v_store.search(
+            security_code, q_emb, report_period=period_key, top_k=20
+        )
+
+        # ---- Stage 3: Reciprocal Rank Fusion (RRF, k=60) ----
+        # Key fix: use stable chunk_id as fusion uid, not text[:100]
+        fused_scores: dict[str, float] = {}
+        lookup: dict[str, dict] = {}
+        k = 60
+
+        for rank, c in enumerate(bm25_results):
+            uid = c.get("chunk_id") or c.get("text", "")[:100]
+            fused_scores[uid] = fused_scores.get(uid, 0.0) + 1.0 / (k + rank + 1)
+            lookup[uid] = c
+
+        for rank, vr in enumerate(v_results):
+            # VectorStore.search now returns chunk_id
+            uid = vr.get("chunk_id") or vr.get("text", "")[:100]
+            fused_scores[uid] = fused_scores.get(uid, 0.0) + 1.0 / (k + rank + 1)
+            if uid not in lookup:
+                # Reconstruct a chunk-like dict from VectorStore result
+                lookup[uid] = {
+                    "chunk_id": vr.get("chunk_id", uid),
+                    "title": vr.get("title", ""),
+                    "text": vr.get("text", ""),
+                    "page_start": vr.get("page_start", 0),
+                }
+
+        sorted_uids = sorted(fused_scores, key=lambda u: fused_scores[u], reverse=True)
+        rrf_top = [lookup[u] for u in sorted_uids[:15]]
+
+        # ---- Stage 4: LLM Zero-Shot Reranker (RankGPT style) ----
+        return await rerank_chunks(query, rrf_top, top_k)
+
+    # ------------------------------------------------------------------
+    #  Internal helpers
+    # ------------------------------------------------------------------
+
+    def _load_chunks(
+        self,
+        security_code: str,
+        report_period: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Load bronze JSONL chunks for a given security code and optional period."""
+        target_dir: Path | None = None
+        for exchange in ("SSE", "SZSE"):
+            p = self.bronze_chunks_dir / exchange / security_code
+            if p.is_dir():
+                target_dir = p
+                break
+        if target_dir is None:
+            return []
+
+        chunks: list[dict[str, Any]] = []
+        for jsonl_file in sorted(target_dir.glob("*.jsonl")):
+            with open(jsonl_file, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
                         continue
                     try:
                         chunk = json.loads(line)
-                        title = chunk.get("title", "")
-                        if report_period:
-                            year = report_period[:4]
-                            if year not in title:
-                                continue
-                        chunks.append(chunk)
                     except json.JSONDecodeError:
-                        pass
+                        continue
+                    if report_period and not _period_matches(chunk, report_period):
+                        continue
+                    chunks.append(chunk)
         return chunks
 
-    def _bm25_score(self, chunks: list[dict[str, Any]], query: str, top_k: int) -> list[dict[str, Any]]:
+    def _bm25_rank(
+        self,
+        chunks: list[dict[str, Any]],
+        query: str,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        """Classic BM25 ranking (k1=1.5, b=0.75)."""
         query_terms = tokenize(query)
         if not query_terms:
             return chunks[:top_k]
 
-        N = len(chunks)
-        df = Counter()
-        chunk_tfs = []
-        doc_lens = []
-        
+        n = len(chunks)
+        df: Counter[str] = Counter()
+        chunk_tfs: list[Counter[str]] = []
+        doc_lens: list[int] = []
+
         for c in chunks:
             terms = tokenize(c.get("text", ""))
             doc_lens.append(len(terms))
-            tf = Counter(terms)
+            tf: Counter[str] = Counter(terms)
             chunk_tfs.append(tf)
             for term in set(terms):
                 df[term] += 1
 
-        avgdl = sum(doc_lens) / N if N > 0 else 1
-        k1 = 1.5
-        b = 0.75
+        avgdl = sum(doc_lens) / n if n else 1
+        k1, b = 1.5, 0.75
+        scores: list[tuple[float, dict]] = []
 
-        scores = []
-        for i in range(N):
+        for i, (c, tf, dl) in enumerate(zip(chunks, chunk_tfs, doc_lens)):
             score = 0.0
-            dl = doc_lens[i]
-            tf = chunk_tfs[i]
             for q in query_terms:
-                if q not in df: 
+                if q not in df:
                     continue
-                idf = math.log(1 + (N - df[q] + 0.5) / (df[q] + 0.5))
-                term_tf = tf[q]
-                numerator = term_tf * (k1 + 1)
-                denominator = term_tf + k1 * (1 - b + b * (dl / avgdl))
-                score += idf * (numerator / denominator)
-            scores.append((score, chunks[i]))
+                idf = math.log(1 + (n - df[q] + 0.5) / (df[q] + 0.5))
+                tf_val = tf[q]
+                score += idf * (tf_val * (k1 + 1)) / (tf_val + k1 * (1 - b + b * dl / avgdl))
+            scores.append((score, c))
 
         scores.sort(key=lambda x: x[0], reverse=True)
+        result = []
         for rank, (s, c) in enumerate(scores):
+            if s <= 0:
+                break
+            c = dict(c)  # shallow copy to avoid mutating original
             c["bm25_rank"] = rank + 1
-        return [c for s, c in scores[:top_k] if s > 0]
+            result.append(c)
+            if len(result) >= top_k:
+                break
+        return result
 
-    async def hybrid_search(self, security_code: str, query: str, dsn: str, report_period: str | None = None, top_k: int = 6) -> list[dict]:
-        """
-        Executes a 2026-era Hybrid RAG technique by calculating exact BM25 lexical distances and 
-        combining them via RRF (Reciprocal Rank Fusion) with semantic vector approximations.
-        """
-        from opspilot.infra.vector_store import VectorStore
-        from opspilot.core.llm import get_embeddings, get_embedding
-        import asyncio
-        
-        chunks = self._load_chunks_for_target(security_code, report_period)
-        if not chunks: 
-            return []
-            
-        v_store = VectorStore(dsn)
-        
-        # 1. Evaluate Semantic Cache status
-        period_key = report_period or "all"
-        if not v_store.has_records(security_code, period_key):
-            # On-the-fly local batch embedding generation for missing companies
-            texts = [c.get("text", "")[:5000] for c in chunks] # limit chunk size for embed stringency
-            # Gather in batches of 100 to respect standard rate limits
-            embeddings = []
-            for i in range(0, len(texts), 100):
-                batch_emb = await get_embeddings(texts[i:i+100])
-                embeddings.extend(batch_emb)
-                await asyncio.sleep(0.1)
-                
-            for c, emb in zip(chunks, embeddings):
-                c["embedding"] = emb
-            v_store.add_chunks(security_code, period_key, chunks)
 
-        # 2. Run distinct pipelines
-        bm25_results = self._bm25_score(chunks, query, top_k=20)
-        
-        q_emb = await get_embedding(query)
-        v_results = v_store.search(security_code, q_emb, report_period=None, top_k=20) # we use period_key logic inside store
-        
-        # 3. Reciprocal Rank Fusion (RRF)
-        fused_scores = {}
-        lookup_map = {}
-        
-        k = 60
-        for c in bm25_results:
-            uid = c.get("text", "")[:100]
-            rank = c["bm25_rank"]
-            fused_scores[uid] = fused_scores.get(uid, 0.0) + 1.0 / (k + rank)
-            lookup_map[uid] = c
-            
-        for rank, vr in enumerate(v_results):
-            uid = vr.get("text", "")[:100]
-            fused_scores[uid] = fused_scores.get(uid, 0.0) + 1.0 / (k + rank + 1)
-            # Only update lookup map if not exists to avoid losing full chunk dict context
-            if uid not in lookup_map:
-                lookup_map[uid] = {"text": vr.get("text"), "title": vr.get("title")}
-
-        # 4. Final Sorting (RRF Top-15)
-        sorted_keys = sorted(fused_scores.keys(), key=lambda uid: fused_scores[uid], reverse=True)
-        top_rrf_chunks = [lookup_map[uid] for uid in sorted_keys[:15]]
-        
-        # 5. LLM Zero-Shot Reranker (Top-15 -> Top-K)
-        # This pushes the architecture to 'Grand Prize' levels
-        from opspilot.core.llm import rerank_chunks
-        return await rerank_chunks(query, top_rrf_chunks, top_k)
+import logging
+logger = logging.getLogger(__name__)

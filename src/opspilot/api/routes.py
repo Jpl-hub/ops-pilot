@@ -46,6 +46,7 @@ def get_service() -> OpsPilotService:
         official_repository=OfficialMetricsRepository(
             settings.silver_data_path,
             settings.sample_data_path.parent / "universe" / "formal_company_pool.json",
+            bronze_chunks_dir=settings.bronze_data_path / "chunks",
         ),
         sample_repository=SampleRepository(settings.sample_data_path),
     )
@@ -193,6 +194,22 @@ def admin_document_pipeline_result_detail(
         return get_service().document_pipeline_result_detail(stage, report_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/workspace/companies")
+def workspace_companies(_: dict = Depends(require_current_user)) -> dict:
+    """轻量接口：仅返回公司列表和主周期，不触发风险扫描。"""
+    svc = get_service()
+    preferred = svc._preferred_period()
+    companies = [c["company_name"] for c in svc.repository.list_companies()]
+    # deduplicate, preserve order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in companies:
+        if name not in seen:
+            seen.add(name)
+            unique.append(name)
+    return {"companies": unique, "preferred_period": preferred}
 
 
 @router.get("/workspace/overview")
@@ -375,9 +392,9 @@ def watchboard_dispatch(
 
 
 @router.post("/chat/turn")
-def chat_turn(request: ChatTurnRequest, _: dict = Depends(require_current_user)) -> dict:
+async def chat_turn(request: ChatTurnRequest, _: dict = Depends(require_current_user)) -> dict:
     try:
-        return get_service().chat_turn(
+        return await get_service().chat_turn(
             query=request.query,
             company_name=request.company_name,
             report_period=request.report_period,
@@ -627,12 +644,12 @@ def vision_run_detail(run_id: str, _: dict = Depends(require_current_user)) -> d
 
 
 @router.post("/company/stress-test")
-def company_stress_test(
+async def company_stress_test(
     request: StressTestRequest,
     _: dict = Depends(require_current_user),
 ) -> dict:
     try:
-        return get_service().company_stress_test(
+        return await get_service().company_stress_test(
             request.company_name,
             request.scenario,
             request.report_period,

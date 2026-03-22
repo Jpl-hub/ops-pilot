@@ -22,8 +22,8 @@ const verifyCommandSurface = ref<any | null>(null)
 const verifyDeltaTape = ref<any[]>([])
 
 async function loadCompanies() {
-  const risk = await get<any>('/industry/risk-scan')
-  companies.value = risk.risk_board.map((item: any) => item.company_name)
+  const data = await get<any>('/workspace/companies')
+  companies.value = data.companies
 }
 
 async function loadReports() {
@@ -305,7 +305,7 @@ watch(
 </template>
 
 <style scoped>
-.dashboard-wrapper { display: flex; flex-direction: column; gap: 24px; }
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: hidden; }
 .control-bar { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-radius: 16px; flex-shrink: 0; }
 .control-left { display: flex; align-items: center; gap: 16px; }
 .glow-icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); color: #3b82f6; display: grid; place-items: center; font-weight: bold; font-size: 18px; box-shadow: 0 0 15px rgba(59, 130, 246, 0.2); }
@@ -320,9 +320,12 @@ watch(
 .empty-content { text-align: center; }
 
 /* Dashboard Grid */
-.dashboard-grid { display: grid; grid-template-columns: 380px 1fr; gap: 24px; }
-.dashboard-col { display: flex; flex-direction: column; gap: 16px; }
-.scroll-area { /* scroll handled naturally */ }
+.dashboard-grid { display: grid; grid-template-columns: 360px 1fr; gap: 16px; flex: 1; min-height: 0; }
+.dashboard-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.dashboard-col::-webkit-scrollbar { width: 4px; }
+.dashboard-col::-webkit-scrollbar-track { background: transparent; }
+.dashboard-col::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.scroll-area { overflow-y: auto; }
 
 /* Score Hero (Left) */
 .score-hero-panel { padding: 24px; border-radius: 20px; display: flex; flex-direction: column; gap: 20px; }
@@ -347,10 +350,10 @@ watch(
 .ci-metrics { display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8; }
 
 /* Charts & Details  */
-.charts-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; min-height: 480px; flex-shrink: 0; }
-.chart-container { border-radius: 20px; padding: 16px; display: flex; flex-direction: column; }
-:deep(.chart-panel) { padding: 0; flex: 1; display: flex; flex-direction: column; background: transparent !important; border: none !important; }
-:deep(.chart-root) { flex: 1; min-height: 400px !important; }
+.charts-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; flex: 0 0 260px; flex-shrink: 0; }
+.chart-container { border-radius: 20px; padding: 16px; display: flex; flex-direction: column; min-height: 0; }
+:deep(.chart-panel) { padding: 0; flex: 1; display: flex; flex-direction: column; background: transparent !important; border: none !important; min-height: 0; }
+:deep(.chart-root) { flex: 1; min-height: 200px !important; }
 
 .details-panel { padding: 24px; border-radius: 20px; }
 .claims-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }

@@ -277,7 +277,7 @@ async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_tr
 </template>
 
 <style scoped>
-.dashboard-wrapper { display: flex; flex-direction: column; gap: 24px; padding-bottom: 24px; }
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 24px; padding-bottom: 24px; overflow-y: auto; height: 100%; }
 
 /* Metrics Strip */
 .metrics-strip { display: grid; grid-template-columns: repeat(4, 1fr); padding: 16px 24px; border-radius: 16px; flex-shrink: 0; }

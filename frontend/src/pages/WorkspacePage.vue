@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 
 import AppShell from '@/components/AppShell.vue'
-import ChartPanel from '@/components/ChartPanel.vue'
 import ErrorState from '@/components/ErrorState.vue'
-import LoadingState from '@/components/LoadingState.vue'
 import TagPill from '@/components/TagPill.vue'
 import { useWorkspaceRole } from '@/composables/useWorkspaceRole'
 import { useSession } from '@/lib/session'
@@ -18,66 +16,67 @@ const {
   selectedCompany,
   query,
   messages,
-  taskQueue,
-  taskSummary,
-  alertQueue,
-  overviewSummary,
   agentFlow,
-  controlPlane,
-  charts,
   latestPayload,
-  loadingOverview,
   loadingTurn,
-  overviewError,
   turnError,
 } = storeToRefs(workspace)
 
 const chatScrollRef = ref<HTMLElement | null>(null)
 const { roleCopy } = useWorkspaceRole(() => session.activeRole.value || 'investor')
 
+// 快捷问题来自后端 role_profile 或本地 fallback
 const starterQueries = computed(
   () => latestPayload.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries,
 )
 
-const workflowLanes = computed(() =>
+// Agent 流程状态（用于内联展示，不再是视频格）
+const agentSteps = computed(() =>
   agentFlow.value.map((item: any) => ({
-    key: `${item.step}-${item.agent}`,
-    step: item.step,
-    agent: item.agent,
+    key: `${item.step}-${item.agent_key}`,
+    agent_key: item.agent_key,
+    agent_label: item.agent_label ?? item.agent,
     title: item.title,
-    status: item.status === 'completed' ? 'Done' : 'Processing',
+    summary: item.summary,
+    status: item.status, // 'completed' | 'processing'
   })),
 )
 
-// Simulated active speaker detection for video tiles
-const activeAgent = computed(() => {
-  if (!loadingTurn.value) return 'none'
-  const processing = workflowLanes.value.find((l: any) => l.status === 'Processing')
-  if (processing) return processing.agent.toLowerCase()
-  return 'system'
-})
-
-// The latest Answer payload for the Right Sidebar Supporting Info
+// 最新一条 AI 回答
 const latestAnswer = computed(() => {
-  const ans = messages.value.filter(m => m.kind === 'result')
-  return ans.length > 0 ? ans[ans.length - 1].payload : null
+  const results = messages.value.filter(m => m.kind === 'result')
+  return results.length > 0 ? results[results.length - 1].payload : null
 })
 
-function appendWelcomeMessage() {
-  workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
-}
+// 右侧面板数据
+const insightCards = computed(() => latestAnswer.value?.insight_cards ?? [])
+const actionCards  = computed(() => latestAnswer.value?.action_cards  ?? [])
 
-async function runQuery(inputQuery?: string) {
-  if(inputQuery) query.value = inputQuery;
-  await workspace.sendQuery(session.activeRole.value || 'investor', query.value)
-  if (!workspace.turnError) {
-    await nextTick()
-    if(chatScrollRef.value) {
-      chatScrollRef.value.scrollTo({ top: chatScrollRef.value.scrollHeight, behavior: 'smooth' })
-    }
-  }
-}
+// 角色显示
+const roleLabel = computed(() => {
+  const map: Record<string, string> = { investor: '投资者', management: '管理层', regulator: '监管方' }
+  return map[session.activeRole.value || 'investor'] ?? '投资者'
+})
 
+const roleDot = computed(() => {
+  const map: Record<string, string> = { investor: '#60a5fa', management: '#a78bfa', regulator: '#f59e0b' }
+  return map[session.activeRole.value || 'investor'] ?? '#60a5fa'
+})
+
+// ------------------------------------------------------------------
+// Agent icon colors
+// ------------------------------------------------------------------
+const agentColor: Record<string, { icon: string; dot: string }> = {
+  router:   { icon: '#10b981', dot: '#10b981' },
+  data:     { icon: '#60a5fa', dot: '#3b82f6' },
+  risk:     { icon: '#f59e0b', dot: '#f59e0b' },
+  strategy: { icon: '#a78bfa', dot: '#7c3aed' },
+}
+function agentStyle(key: string) { return agentColor[key] ?? { icon: '#9ca3af', dot: '#6b7280' } }
+
+// ------------------------------------------------------------------
+// Input handling
+// ------------------------------------------------------------------
 function handleEnter(e: KeyboardEvent) {
   if (!e.shiftKey) {
     e.preventDefault()
@@ -85,24 +84,38 @@ function handleEnter(e: KeyboardEvent) {
   }
 }
 
-// Time formatter for top bar
-const currentTime = ref(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
-setInterval(() => {
-  currentTime.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-}, 1000)
+async function runQuery(inputQuery?: string) {
+  if (inputQuery) query.value = inputQuery
+  await workspace.sendQuery(session.activeRole.value || 'investor', query.value)
+  if (!workspace.turnError) {
+    await nextTick()
+    if (chatScrollRef.value) {
+      chatScrollRef.value.scrollTo({ top: chatScrollRef.value.scrollHeight, behavior: 'smooth' })
+    }
+  }
+}
+
+// ------------------------------------------------------------------
+// Lifecycle
+// ------------------------------------------------------------------
+let _timer: ReturnType<typeof setInterval> | null = null
 
 onMounted(async () => {
-  appendWelcomeMessage()
+  workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
   await workspace.loadOverview(session.activeRole.value || 'investor')
   if (!companies.value.includes(selectedCompany.value)) {
     selectedCompany.value = companies.value[0]
   }
 })
 
+onBeforeUnmount(() => {
+  if (_timer) clearInterval(_timer)
+})
+
 watch(
   () => session.activeRole.value,
   async () => {
-    appendWelcomeMessage()
+    workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
     await workspace.loadOverview(session.activeRole.value || 'investor')
   },
 )
@@ -115,345 +128,734 @@ watch(selectedCompany, async (company, previous) => {
 
 <template>
   <AppShell title="">
-    <div class="mtg-container">
-      
-      <!-- TOP NAVBAR -->
-      <header class="mtg-header">
-        <div class="mtg-header-left">
-          <svg class="mtg-icon-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-          <div class="mtg-title-block">
-            <h1>深度研判专场 - {{ selectedCompany || '初始化中...' }}</h1>
-            <span class="mtg-meeting-id">Meeting ID: {{ String(Math.floor(Math.random() * 900) + 100) }}-{{ String(Math.floor(Math.random() * 900) + 100) }}-2026</span>
+    <div class="chat-shell">
+
+      <!-- ── HEADER ─────────────────────────────────────────── -->
+      <header class="chat-header">
+        <div class="chat-header-left">
+          <!-- logo mark -->
+          <div class="chat-logo">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
           </div>
-        </div>
-        
-        <div class="mtg-header-center">
-          <div class="mtg-target-selector">
-            <span class="mtg-lbl">研判标的:</span>
-            <select v-model="selectedCompany" class="mtg-select">
+          <span class="chat-brand">OpsPilot-X</span>
+          <div class="chat-divider"/>
+          <!-- company selector -->
+          <div class="chat-target">
+            <span class="chat-target-label">分析公司</span>
+            <select v-model="selectedCompany" class="chat-select">
               <option v-for="c in companies" :key="c" :value="c">{{ c }}</option>
             </select>
           </div>
         </div>
 
-        <div class="mtg-header-right">
-          <div class="mtg-time">{{ currentTime }}</div>
-          <div class="mtg-network">
-            <svg viewBox="0 0 24 24" class="mtg-icon-sm" fill="none" stroke="#10b981" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
-            <span class="mtg-ms">12ms</span>
+        <div class="chat-header-right">
+          <!-- role badge -->
+          <div class="chat-role-badge">
+            <span class="chat-role-dot" :style="{ background: roleDot }"/>
+            {{ roleLabel }}
           </div>
-          <button class="mtg-btn-leave">结束会议</button>
         </div>
       </header>
 
-      <!-- MAIN LAYOUT -->
-      <div class="mtg-body">
-        
-        <!-- LEFT/CENTER COLUMN -->
-        <div class="mtg-col-main">
-          
-          <!-- TOP STAGE: PARTICIPANTS (VIDEO TILES) -->
-          <div class="mtg-stage">
-            
-            <div class="mtg-tile user-tile">
-              <div class="mtg-tile-content">
-                <div class="mtg-avatar user-avatar">MD</div>
-                <div class="mtg-tile-label">指挥台 (User)</div>
+      <!-- ── BODY ───────────────────────────────────────────── -->
+      <div class="chat-body">
+
+        <!-- LEFT/CENTER: messages + input ─────────────────── -->
+        <div class="chat-main">
+
+          <!-- messages scroll area -->
+          <div class="chat-messages" ref="chatScrollRef">
+
+            <!-- welcome / empty state -->
+            <div v-if="messages.length <= 1" class="chat-welcome">
+              <div class="chat-welcome-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="1.5">
+                  <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73A2 2 0 0 1 10 4a2 2 0 0 1 2-2z"/>
+                </svg>
               </div>
+              <p class="chat-welcome-text">
+                正在分析 <strong>{{ selectedCompany || '...' }}</strong>，作为 <strong>{{ roleLabel }}</strong> 视角<br>
+                <span class="chat-welcome-sub">从下方快捷问题开始，或直接输入你的分析指令</span>
+              </p>
             </div>
 
-            <div class="mtg-tile" :class="{ 'speaking': activeAgent === 'data' || activeAgent === 'news' }">
-              <div class="mtg-tile-content">
-                <div class="mtg-avatar data-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg></div>
-                <div class="mtg-tile-label">Data Agent 
-                  <span v-if="activeAgent === 'data' || activeAgent === 'news'" class="mtg-status-mic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg></span>
-                  <span v-else class="mtg-status-mic muted"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02 3.17c-.99.58-2.16.94-3.48.94-3.41 0-6-2.72-6-6.72H5c0 3.41 2.72 6.23 6 6.72v3.28h2v-3.28c.91-.13 1.77-.45 2.54-.9l-1.56-1.56zM7.53 11c0-1.05.35-2.01.93-2.77L6.68 6.44A5.85 5.85 0 0 0 5.83 11h1.7zM12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5c0 1-.22 1.94-.61 2.76l1.45 1.45C10.55 8.7 11.23 8.35 12 8.35c.98 0 1.77.79 1.77 1.77 0 .77-.49 1.44-1.19 1.68l1.6 1.6c.45-.66.72-1.48.72-2.4v6c0 .48-.1.93-.27 1.35l1.2 1.2c.48-.7.83-1.52 1.02-2.4h-1.75zM4.27 3L3 4.27l6.01 6.01c-.01.24-.01.48-.01.72v6c0 1.66 1.34 3 3 3 .24 0 .48 0 .72-.01l6.01 6.01L21 19.73 4.27 3z"/></svg></span>
+            <!-- message loop -->
+            <template v-for="message in messages" :key="message.id">
+
+              <!-- user query — right aligned -->
+              <div v-if="message.kind === 'query'" class="chat-row chat-row-user">
+                <div class="chat-bubble-user">
+                  <p class="chat-bubble-text">{{ message.text }}</p>
+                </div>
+                <div class="chat-avatar chat-avatar-user">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
+                  </svg>
                 </div>
               </div>
-            </div>
 
-            <div class="mtg-tile" :class="{ 'speaking': activeAgent === 'risk' }">
-              <div class="mtg-tile-content">
-                <div class="mtg-avatar risk-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
-                <div class="mtg-tile-label">Risk Agent
-                  <span v-if="activeAgent === 'risk'" class="mtg-status-mic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg></span>
-                  <span v-else class="mtg-status-mic muted"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02 3.17c-.99.58-2.16.94-3.48.94-3.41 0-6-2.72-6-6.72H5c0 3.41 2.72 6.23 6 6.72v3.28h2v-3.28c.91-.13 1.77-.45 2.54-.9l-1.56-1.56zM7.53 11c0-1.05.35-2.01.93-2.77L6.68 6.44A5.85 5.85 0 0 0 5.83 11h1.7zM12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5c0 1-.22 1.94-.61 2.76l1.45 1.45C10.55 8.7 11.23 8.35 12 8.35c.98 0 1.77.79 1.77 1.77 0 .77-.49 1.44-1.19 1.68l1.6 1.6c.45-.66.72-1.48.72-2.4v6c0 .48-.1.93-.27 1.35l1.2 1.2c.48-.7.83-1.52 1.02-2.4h-1.75zM4.27 3L3 4.27l6.01 6.01c-.01.24-.01.48-.01.72v6c0 1.66 1.34 3 3 3 .24 0 .48 0 .72-.01l6.01 6.01L21 19.73 4.27 3z"/></svg></span>
+              <!-- AI result — left aligned -->
+              <div v-else-if="message.kind === 'result'" class="chat-row chat-row-ai">
+                <div class="chat-avatar chat-avatar-ai">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+                  </svg>
                 </div>
-              </div>
-            </div>
 
-            <div class="mtg-tile" :class="{ 'speaking': activeAgent === 'strategy' }">
-              <div class="mtg-tile-content">
-                <div class="mtg-avatar strat-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg></div>
-                <div class="mtg-tile-label">Strategy Agent
-                   <span v-if="activeAgent === 'strategy'" class="mtg-status-mic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg></span>
-                  <span v-else class="mtg-status-mic muted"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02 3.17c-.99.58-2.16.94-3.48.94-3.41 0-6-2.72-6-6.72H5c0 3.41 2.72 6.23 6 6.72v3.28h2v-3.28c.91-.13 1.77-.45 2.54-.9l-1.56-1.56zM7.53 11c0-1.05.35-2.01.93-2.77L6.68 6.44A5.85 5.85 0 0 0 5.83 11h1.7zM12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5c0 1-.22 1.94-.61 2.76l1.45 1.45C10.55 8.7 11.23 8.35 12 8.35c.98 0 1.77.79 1.77 1.77 0 .77-.49 1.44-1.19 1.68l1.6 1.6c.45-.66.72-1.48.72-2.4v6c0 .48-.1.93-.27 1.35l1.2 1.2c.48-.7.83-1.52 1.02-2.4h-1.75zM4.27 3L3 4.27l6.01 6.01c-.01.24-.01.48-.01.72v6c0 1.66 1.34 3 3 3 .24 0 .48 0 .72-.01l6.01 6.01L21 19.73 4.27 3z"/></svg></span>
-                </div>
-              </div>
-            </div>
+                <div class="chat-bubble-ai">
+                  <!-- answer sections -->
+                  <template v-if="message.payload?.answer_sections?.length">
+                    <section
+                      v-for="section in message.payload.answer_sections"
+                      :key="section.title"
+                      class="chat-answer-section"
+                    >
+                      <div class="chat-section-title">{{ section.title }}</div>
+                      <p
+                        v-for="line in section.lines"
+                        :key="line"
+                        class="chat-section-line"
+                      >{{ line }}</p>
+                    </section>
+                  </template>
+                  <p v-else-if="message.payload?.summary" class="chat-section-line">
+                    {{ message.payload.summary }}
+                  </p>
 
-          </div><!-- end mtg-stage -->
+                  <!-- key numbers strip -->
+                  <div v-if="message.payload?.key_numbers?.length" class="chat-key-nums">
+                    <span
+                      v-for="kn in message.payload.key_numbers"
+                      :key="kn.label"
+                      class="chat-kn-badge"
+                    >
+                      <span class="chat-kn-label">{{ kn.label }}</span>
+                      <span class="chat-kn-value">{{ kn.value }}<em v-if="kn.unit">{{ kn.unit }}</em></span>
+                    </span>
+                  </div>
 
-          <!-- MID STAGE: REASONING & CHAT THREAD (MEETING CHAT) -->
-          <div class="mtg-chat-area">
-            
-            <div class="mtg-chat-header">会议通讯录 (Meeting Transcripts)</div>
-            <div class="mtg-chat-scroll custom-scrollbar" ref="chatScrollRef">
-              
-              <!-- Init MSG -->
-              <div v-if="messages.length <= 1" class="mtg-msg mtg-msg-sys">
-                 <span>[System] 会议已桥接。多模态 Agent 组队完成。聚焦目标《{{selectedCompany}}》. 等待指挥台接入指令。</span>
-              </div>
+                  <!-- agent flow (collapsible thinking block) -->
+                  <details
+                    v-if="message.payload?.agent_flow?.length"
+                    class="chat-thinking"
+                  >
+                    <summary class="chat-thinking-summary">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                      分析过程 · {{ message.payload.agent_flow.length }} 步
+                    </summary>
+                    <div class="chat-thinking-grid">
+                      <div
+                        v-for="step in message.payload.agent_flow"
+                        :key="step.step"
+                        class="chat-think-item"
+                        :style="{ '--dot': agentStyle(step.agent_key ?? '').dot }"
+                      >
+                        <span class="chat-think-dot"/>
+                        <div class="chat-think-body">
+                          <span class="chat-think-agent">{{ step.agent_label }}</span>
+                          <span class="chat-think-title">{{ step.title }}</span>
+                        </div>
+                        <span class="chat-think-status done">✓</span>
+                      </div>
+                    </div>
+                  </details>
 
-              <!-- Messages Loop -->
-              <template v-for="message in messages" :key="message.id">
-                
-                <div v-if="message.kind === 'query'" class="mtg-msg mtg-msg-user">
-                  <div class="mtg-msg-avatar">MD</div>
-                  <div class="mtg-msg-content">
-                    <div class="mtg-msg-author">指挥台 (You)</div>
-                    <div class="mtg-msg-text">{{ message.text }}</div>
+                  <!-- follow-up suggestions -->
+                  <div v-if="message.payload?.follow_up_questions?.length" class="chat-followup">
+                    <span class="chat-followup-label">追问</span>
+                    <button
+                      v-for="q in message.payload.follow_up_questions.slice(0, 3)"
+                      :key="q"
+                      class="chat-followup-btn"
+                      @click="runQuery(q)"
+                    >{{ q }}</button>
                   </div>
                 </div>
+              </div>
 
-                <div v-else-if="message.kind === 'result'" class="mtg-msg mtg-msg-ai">
-                  <div class="mtg-msg-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="mtg-icon-sm pt-1"><path d="M12 2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M12 8v14"/><path d="M5.5 14H12"/><path d="M18.5 14H12"/></svg></div>
-                  <div class="mtg-msg-content">
-                    <div class="mtg-msg-author">Core Engine</div>
-                    <div class="mtg-msg-bubble">
-                      <section v-for="section in message.payload?.answer_sections" :key="section.title" class="mb-4">
-                        <strong class="cot-color-emerald">{{ section.title }}</strong><br/>
-                        <span v-for="line in section.lines" :key="line" style="display:block; margin-top: 4px;">{{ line }}</span>
-                      </section>
-                      <div v-if="(!message.payload?.answer_sections || message.payload.answer_sections.length === 0) && message.payload?.summary">
-                        {{ message.payload.summary }}
+            </template>
+
+            <!-- loading: live agent thinking block -->
+            <div v-if="loadingTurn" class="chat-row chat-row-ai">
+              <div class="chat-avatar chat-avatar-ai thinking-pulse">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+                </svg>
+              </div>
+              <div class="chat-bubble-ai chat-bubble-loading">
+                <div v-if="agentSteps.length" class="chat-live-flow">
+                  <div class="chat-live-header">
+                    <span class="chat-live-spinner"/>
+                    正在推理中…
+                  </div>
+                  <div class="chat-thinking-grid">
+                    <div
+                      v-for="step in agentSteps"
+                      :key="step.key"
+                      class="chat-think-item"
+                      :style="{ '--dot': agentStyle(step.agent_key).dot }"
+                    >
+                      <span class="chat-think-dot" :class="step.status === 'completed' ? 'done' : 'active'"/>
+                      <div class="chat-think-body">
+                        <span class="chat-think-agent">{{ step.agent_label }}</span>
+                        <span class="chat-think-title">{{ step.title }}</span>
                       </div>
+                      <span v-if="step.status === 'completed'" class="chat-think-status done">✓</span>
+                      <span v-else class="chat-think-status pending">…</span>
                     </div>
                   </div>
                 </div>
-              </template>
-
-              <!-- CoT Live Tracker (Reasoning Panel) -->
-              <div v-if="workflowLanes.length > 0 && loadingTurn" class="mtg-msg mtg-msg-sys mtg-reasoning-panel">
-                <div class="mtg-reasoning-title"><svg class="mtg-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> Chain of Thought (Live Trace)</div>
-                <div class="mtg-cot-lane" v-for="lane in workflowLanes" :key="lane.key">
-                  <span :class="['mtg-lane-dot', lane.status === 'Processing' ? 'mtg-pulse-blue' : 'mtg-solid-green']"></span>
-                  <span style="width: 120px; color: #9ca3af">[{{ lane.agent }}]</span>
-                  <span class="mtg-lane-truncate" :style="{ color: lane.status === 'Processing' ? '#fff' : '#6b7280' }">{{ lane.title }}</span>
+                <div v-else class="chat-typing">
+                  <span/><span/><span/>
                 </div>
               </div>
-
-              <!-- Loading Indicator -->
-              <div v-if="loadingTurn" class="mtg-msg mtg-msg-ai">
-                 <div class="mtg-msg-avatar">
-                   <svg class="mtg-icon-sm animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
-                 </div>
-              </div>
-              <ErrorState v-if="turnError" :message="turnError" />
-
             </div>
-          </div>
-        </div>
 
-        <!-- RIGHT SIDEBAR: SUPPORTING INFO DOCK (Shared Material) -->
-        <div class="mtg-sidebar">
-          <div class="mtg-sidebar-header">会议材料辅屏 (Shared Intel)</div>
-          
-          <div class="mtg-sidebar-body custom-scrollbar">
-            <template v-if="latestAnswer">
-              <!-- Insight Cards -->
-              <div v-if="latestAnswer.insight_cards?.length" class="mtg-sb-block">
-                <h3><span class="mtg-dot"></span>核心量化指标 (Metrics)</h3>
-                <div class="mtg-ic-grid">
-                  <div v-for="item in latestAnswer.insight_cards" :key="item.label" class="mtg-ic-card">
-                    <div class="mtg-ic-lbl">{{ item.label }}</div>
-                    <div class="mtg-ic-val">{{ item.value }} <span class="text-xs text-gray-400">{{item.unit}}</span></div>
+            <ErrorState v-if="turnError" :message="turnError" />
+          </div><!-- /chat-messages -->
+
+          <!-- input zone -->
+          <footer class="chat-footer">
+            <!-- quick prompts (horizontal scroll, no line break) -->
+            <div class="chat-prompts">
+              <button
+                v-for="item in starterQueries.slice(0, 5)"
+                :key="item"
+                class="chat-prompt-pill"
+                @click="runQuery(`${selectedCompany} ${item}`)"
+              >{{ item }}</button>
+            </div>
+
+            <div class="chat-input-wrap" :class="{ 'is-loading': loadingTurn }">
+              <textarea
+                v-model="query"
+                class="chat-textarea"
+                :placeholder="`向 ${selectedCompany || '...'} 发起分析，Shift+Enter 换行`"
+                @keydown.enter="handleEnter"
+                rows="1"
+              />
+              <button
+                class="chat-send"
+                :disabled="loadingTurn || !query.trim()"
+                @click="runQuery()"
+              >
+                <svg v-if="loadingTurn" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+          </footer>
+
+        </div><!-- /chat-main -->
+
+        <!-- RIGHT PANEL: insight + charts ──────────────────── -->
+        <aside class="chat-panel">
+          <div class="panel-header">分析结果</div>
+          <div class="panel-body">
+
+            <template v-if="insightCards.length || actionCards.length">
+
+              <!-- key metrics grid -->
+              <div v-if="insightCards.length" class="panel-block">
+                <div class="panel-block-title">
+                  <span class="panel-dot" style="background:#10b981"/>
+                  核心指标
+                </div>
+                <div class="panel-metrics-grid">
+                  <div v-for="item in insightCards" :key="item.label" class="panel-metric-card">
+                    <div class="panel-metric-label">{{ item.label }}</div>
+                    <div class="panel-metric-value">
+                      {{ item.value }}
+                      <em v-if="item.unit">{{ item.unit }}</em>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Actions/Risks -->
-              <div v-if="latestAnswer.action_cards?.length" class="mtg-sb-block">
-                <h3><span class="mtg-dot mtg-dot-red"></span>风险/行动点 (Actions)</h3>
-                <div class="mtg-act-list">
+              <!-- action / risk tags -->
+              <div v-if="actionCards.length" class="panel-block">
+                <div class="panel-block-title">
+                  <span class="panel-dot" style="background:#f43f5e"/>
+                  风险 & 行动
+                </div>
+                <div class="panel-tags">
                   <TagPill
-                    v-for="item in latestAnswer.action_cards"
+                    v-for="item in actionCards"
                     :key="item.title"
                     :label="`[${item.priority}] ${item.title}`"
-                    :tone="item.priority.toLowerCase() === 'high' ? 'risk' : 'default'"
+                    :tone="item.priority?.toLowerCase() === 'high' ? 'risk' : 'default'"
                   />
                 </div>
               </div>
+
             </template>
-            <div v-else class="mtg-sb-empty">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-              <span>暂无演示材料</span>
+
+            <!-- empty state -->
+            <div v-else class="panel-empty">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+              <span>发起分析后结果将展示于此</span>
             </div>
 
-             <!-- Pre-rendered Charts as follow up inside AI Response area -->
-             <div v-if="charts.length > 0" class="mtg-sb-block mtg-sb-charts">
-                <h3><span class="mtg-dot mtg-dot-blue"></span>实时图表 (Charts)</h3>
-                <div v-for="chart in charts" :key="chart.title" class="mtg-sb-chart">
-                  <ChartPanel :title="chart.title" :options="chart.options" />
-                </div>
-             </div>
           </div>
-        </div>
-      </div> <!-- end mtg-body -->
+        </aside>
 
-      <!-- BOTTOM CONTROL BAR -->
-      <footer class="mtg-footer">
-        <!-- Quick Prompts (floating above input) -->
-        <div class="mtg-quick-prompts">
-          <button v-for="item in starterQueries.slice(0,4)" :key="item" class="mtg-qp" @click="runQuery(`${selectedCompany} ${item}`)">
-            {{ item }}
-          </button>
-        </div>
-
-        <div class="mtg-controls-wrap">
-          <!-- Fake AV Controls -->
-          <div class="mtg-av-controls">
-            <div class="mtg-av-btn active"><svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg><span>解除静音</span></div>
-            <div class="mtg-av-btn"><svg viewBox="0 0 24 24"><path d="M21 6h-7.59l3.29-3.29L16 1.3 11.71 5.58m4.29 4.42l-4.29 4.29-1.41-1.41 4.29-4.29zm-8.8 8l2.79 2.79-1.41 1.41-2.79-2.79-1.41-1.41L1.3 16l1.41-1.41 2.79 2.79 1.41 1.41 2.79-2.79zM5.58 11.71L1.3 16l1.41 1.41 4.29-4.29zm8.42-8.42L16.79 6H21V4h-7z"/></svg><span>开启摄像头</span></div>
-            <div class="mtg-av-btn highlight"><svg viewBox="0 0 24 24"><path d="M20 3H4c-1.11 0-2 .89-2 2v10c0 1.11.89 2 2 2h6v2H8v2h8v-2h-2v-2h6c1.11 0 2-.89 2-2V5c0-1.11-.89-2-2-2zm0 12H4V5h16v10z"/></svg><span>共享屏幕</span></div>
-          </div>
-
-          <!-- Main Input -->
-          <div class="mtg-input-box">
-             <textarea
-               v-model="query"
-               class="mtg-textarea custom-scrollbar"
-               placeholder="发送消息到会议室，或使用宏指令如 /stress ..."
-               @keydown.enter="handleEnter"
-             />
-             <button class="mtg-send-btn" :disabled="loadingTurn || !query" @click="runQuery()">
-               <svg v-if="loadingTurn" class="mtg-icon-sm animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-               <svg v-else class="mtg-icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-             </button>
-          </div>
-        </div>
-      </footer>
+      </div><!-- /chat-body -->
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-/* Full App Takeover */
-.mtg-container { display: flex; flex-direction: column; height: 100vh; width: 100vw; background: #141414; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; overflow: hidden; margin: -16px -24px -24px; padding: 0; box-sizing: border-box; }
+/* ── SHELL ───────────────────────────────────────────────────── */
+.chat-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  background: #141414;
+  color: #e2e8f0;
+  overflow: hidden;
+  margin: -16px -24px -24px;
+  padding: 0;
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
 * { box-sizing: border-box; }
 
-/* HEADER */
-.mtg-header { height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background: #1d1d1d; border-bottom: 1px solid #2a2a2a; flex-shrink: 0; }
-.mtg-header-left { display: flex; align-items: center; gap: 12px; }
-.mtg-icon-shield { width: 20px; height: 20px; color: #10b981; }
-.mtg-title-block h1 { margin: 0; font-size: 15px; font-weight: 500; color: #fff; }
-.mtg-meeting-id { font-size: 11px; color: #9ca3af; font-family: monospace; }
+/* ── HEADER ──────────────────────────────────────────────────── */
+.chat-header {
+  height: 52px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: #1a1a1a;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.chat-header-left { display: flex; align-items: center; gap: 12px; }
+.chat-logo {
+  width: 30px; height: 30px;
+  background: rgba(16,185,129,0.1);
+  border: 1px solid rgba(16,185,129,0.3);
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+}
+.chat-brand { font-size: 14px; font-weight: 600; color: #fff; letter-spacing: 0.02em; }
+.chat-divider { width: 1px; height: 18px; background: rgba(255,255,255,0.12); }
+.chat-target { display: flex; align-items: center; gap: 8px; }
+.chat-target-label { font-size: 12px; color: #6b7280; }
+.chat-select {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: #10b981;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 3px 8px;
+  outline: none;
+  cursor: pointer;
+}
+.chat-select:focus { border-color: rgba(16,185,129,0.4); }
+.chat-header-right { display: flex; align-items: center; gap: 12px; }
+.chat-role-badge {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  padding: 3px 12px;
+  font-size: 12px;
+  color: #d1d5db;
+}
+.chat-role-dot { width: 7px; height: 7px; border-radius: 50%; }
 
-.mtg-header-center { flex: 1; display: flex; justify-content: center; }
-.mtg-target-selector { background: #2a2a2a; border-radius: 6px; display: flex; align-items: center; padding: 2px 8px; border: 1px solid #333; }
-.mtg-lbl { font-size: 12px; color: #9ca3af; margin-right: 8px; }
-.mtg-select { background: transparent; border: none; color: #10b981; font-weight: 500; outline: none; font-size: 13px; cursor: pointer; }
+/* ── BODY ────────────────────────────────────────────────────── */
+.chat-body { flex: 1; display: flex; overflow: hidden; }
 
-.mtg-header-right { display: flex; align-items: center; gap: 16px; font-size: 12px; color: #d1d5db; }
-.mtg-network { display: flex; align-items: center; gap: 4px; }
-.mtg-btn-leave { background: #dc2626; color: white; border: none; border-radius: 4px; padding: 6px 16px; font-size: 12px; font-weight: 500; cursor: pointer; transition: background 0.2s; }
-.mtg-btn-leave:hover { background: #b91c1c; }
+/* ── MAIN (chat + input) ─────────────────────────────────────── */
+.chat-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 
-/* BODY */
-.mtg-body { flex: 1; display: flex; overflow: hidden; }
+/* ── MESSAGES ────────────────────────────────────────────────── */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  scroll-behavior: smooth;
+}
+.chat-messages::-webkit-scrollbar { width: 6px; }
+.chat-messages::-webkit-scrollbar-thumb { background: rgba(16,185,129,0.25); border-radius: 3px; }
+.chat-messages::-webkit-scrollbar-track { background: transparent; }
 
-/* COL MAIN (Stage + Chat) */
-.mtg-col-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+/* welcome */
+.chat-welcome {
+  display: flex; align-items: center; gap: 16px;
+  padding: 20px 24px;
+  background: rgba(16,185,129,0.05);
+  border: 1px solid rgba(16,185,129,0.15);
+  border-radius: 12px;
+  max-width: 600px;
+  align-self: center;
+  margin: auto 0;
+}
+.chat-welcome-icon {
+  width: 48px; height: 48px;
+  background: rgba(16,185,129,0.1);
+  border: 1px solid rgba(16,185,129,0.25);
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.chat-welcome-text { font-size: 14px; line-height: 1.7; color: #d1d5db; margin: 0; }
+.chat-welcome-text strong { color: #10b981; font-weight: 600; }
+.chat-welcome-sub { font-size: 12px; color: #6b7280; }
 
-/* TOP STAGE (Participant Video Tiles) */
-.mtg-stage { height: 200px; padding: 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; background: #0a0a0a; border-bottom: 1px solid #2a2a2a; flex-shrink: 0; }
-.mtg-tile { background: #222; border-radius: 8px; border: 1px solid #333; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease; }
-.mtg-tile.speaking { border-color: #10b981; box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); }
-.mtg-tile-content { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
-.mtg-avatar { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 600; color: #fff; background: #333; }
-.user-avatar { background: #2563eb; }
-.data-avatar { background: #059669; }
-.risk-avatar { background: #d97706; }
-.strat-avatar { background: #7c3aed; }
-.mtg-tile-label { font-size: 12px; color: #fff; background: rgba(0,0,0,0.6); padding: 4px 12px; border-radius: 12px; position: absolute; bottom: 12px; left: 12px; display: flex; align-items: center; gap: 6px; }
-.mtg-status-mic { width: 14px; height: 14px; color: #10b981; }
-.mtg-status-mic.muted { color: #f43f5e; }
+/* message rows */
+.chat-row { display: flex; gap: 12px; max-width: 840px; width: 100%; }
+.chat-row-user { align-self: flex-end; flex-direction: row-reverse; }
+.chat-row-ai   { align-self: flex-start; }
 
-/* CHAT AREA */
-.mtg-chat-area { flex: 1; display: flex; flex-direction: column; background: #141414; overflow: hidden; }
-.mtg-chat-header { font-size: 12px; color: #9ca3af; padding: 12px 24px; border-bottom: 1px solid #2a2a2a; background: #1a1a1a; font-weight: 500; letter-spacing: 0.05em; }
-.mtg-chat-scroll { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
+/* avatars */
+.chat-avatar {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.chat-avatar-user { background: rgba(37,99,235,0.25); border: 1px solid rgba(59,130,246,0.4); color: #60a5fa; }
+.chat-avatar-ai   { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #10b981; }
+.thinking-pulse { animation: avatar-pulse 1.6s ease-in-out infinite; }
+@keyframes avatar-pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
 
-.mtg-msg { display: flex; gap: 16px; max-width: 900px; margin: 0 auto; width: 100%; }
-.mtg-msg-avatar { width: 36px; height: 36px; border-radius: 6px; background: #333; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; }
-.mtg-msg-user .mtg-msg-avatar { background: #2563eb; }
-.mtg-msg-ai .mtg-msg-avatar { background: #10b981; }
-.mtg-msg-sys { padding: 12px 16px; background: #1e1e1e; border: 1px solid #333; border-radius: 8px; color: #9ca3af; font-size: 13px; font-family: monospace; }
-.mtg-msg-content { flex: 1; min-width: 0; }
-.mtg-msg-author { font-size: 12px; color: #9ca3af; margin-bottom: 6px; }
-.mtg-msg-text { font-size: 14px; line-height: 1.6; color: #e5e7eb; }
-.mtg-msg-bubble { background: #1e1e1e; border: 1px solid #2a2a2a; border-radius: 8px; padding: 16px; font-size: 14px; line-height: 1.6; color: #e5e7eb; }
-.cot-color-emerald { color: #10b981; }
+/* user bubble */
+.chat-bubble-user {
+  background: rgba(37,99,235,0.2);
+  border: 1px solid rgba(59,130,246,0.3);
+  border-radius: 14px 4px 14px 14px;
+  padding: 10px 16px;
+  max-width: 72%;
+}
+.chat-bubble-text { margin: 0; font-size: 14px; line-height: 1.6; color: #e2e8f0; }
 
-.mtg-reasoning-panel { background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); flex-direction: column; gap: 8px; align-items: flex-start; }
-.mtg-reasoning-title { display: flex; align-items: center; gap: 8px; color: #60a5fa; font-weight: bold; margin-bottom: 8px; }
-.mtg-cot-lane { display: flex; align-items: center; gap: 12px; width: 100%; font-size: 12px; }
-.mtg-lane-dot { width: 8px; height: 8px; border-radius: 50%; }
-.mtg-pulse-blue { background: #60a5fa; box-shadow: 0 0 8px #60a5fa; animation: pulse 1.5s infinite; }
-.mtg-solid-green { background: #10b981; }
-.mtg-lane-truncate { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* AI bubble */
+.chat-bubble-ai {
+  background: #1e1e1e;
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 4px 14px 14px 14px;
+  padding: 16px 18px;
+  max-width: 88%;
+  position: relative;
+  overflow: hidden;
+}
+.chat-bubble-loading { min-width: 220px; }
 
-/* RIGHT SIDEBAR (DOCKING INFO BOARD) */
-.mtg-sidebar { width: 340px; background: #1a1a1a; border-left: 1px solid #2a2a2a; display: flex; flex-direction: column; flex-shrink: 0; }
-.mtg-sidebar-header { height: 48px; display: flex; align-items: center; padding: 0 16px; font-size: 14px; font-weight: 500; border-bottom: 1px solid #2a2a2a; color: #f3f4f6; }
-.mtg-sidebar-body { flex: 1; overflow-y: auto; padding: 16px; }
-.mtg-sb-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #6b7280; gap: 12px; font-size: 14px; }
-.mtg-sb-empty svg { width: 48px; height: 48px; opacity: 0.5; }
+/* answer sections */
+.chat-answer-section { margin-bottom: 14px; }
+.chat-answer-section:last-of-type { margin-bottom: 0; }
+.chat-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #10b981;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.chat-section-line {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: #d1d5db;
+}
 
-.mtg-sb-block { margin-bottom: 24px; }
-.mtg-sb-block h3 { margin: 0 0 12px 0; font-size: 13px; color: #d1d5db; display: flex; align-items: center; gap: 8px; }
-.mtg-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; }
-.mtg-dot-red { background: #f43f5e; }
-.mtg-dot-blue { background: #3b82f6; }
+/* key numbers strip */
+.chat-key-nums {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.chat-kn-badge {
+  display: flex; align-items: baseline; gap: 5px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+.chat-kn-label { font-size: 11px; color: #6b7280; }
+.chat-kn-value { font-size: 14px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+.chat-kn-value em { font-style: normal; font-size: 11px; color: #9ca3af; margin-left: 2px; }
 
-.mtg-ic-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.mtg-ic-card { background: #222; border: 1px solid #333; padding: 12px; border-radius: 6px; }
-.mtg-ic-lbl { font-size: 11px; color: #9ca3af; margin-bottom: 4px; }
-.mtg-ic-val { font-size: 16px; font-weight: bold; color: #fff; }
-.mtg-act-list { display: flex; flex-direction: column; gap: 8px; }
+/* agent thinking (collapsible) */
+.chat-thinking {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.chat-thinking-summary {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px;
+  color: #6b7280;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: color .2s;
+}
+.chat-thinking-summary:hover { color: #9ca3af; }
+.chat-thinking-summary::-webkit-details-marker { display: none; }
 
-.mtg-sb-charts { margin-top: 24px; border-top: 1px solid #2a2a2a; padding-top: 16px; }
-.mtg-sb-chart { height: 200px; background: #222; border: 1px solid #333; border-radius: 6px; overflow: hidden; margin-bottom: 16px; }
+/* live flow (while loading) */
+.chat-live-flow { display: flex; flex-direction: column; gap: 10px; }
+.chat-live-header {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+  font-family: 'JetBrains Mono', monospace;
+}
+.chat-live-spinner {
+  width: 10px; height: 10px;
+  border: 2px solid rgba(16,185,129,0.3);
+  border-top-color: #10b981;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
 
-/* BOTTOM CONTROL BAR */
-.mtg-footer { background: #1d1d1d; border-top: 1px solid #2a2a2a; display: flex; flex-direction: column; z-index: 10; position: relative; }
-.mtg-quick-prompts { display: flex; gap: 8px; padding: 8px 16px 0; }
-.mtg-qp { background: #2a2a2a; border: 1px solid #333; color: #d1d5db; font-size: 11px; padding: 4px 12px; border-radius: 12px; cursor: pointer; white-space: nowrap; transition: 0.2s; }
-.mtg-qp:hover { background: #333; border-color: #4b5563; }
+/* 2-col thinking grid */
+.chat-thinking-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+.chat-think-item {
+  display: flex; align-items: flex-start; gap: 8px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 8px 10px;
+  position: relative;
+  overflow: hidden;
+}
+.chat-think-item::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: var(--dot, #6b7280);
+}
+.chat-think-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--dot, #6b7280);
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.chat-think-dot.active { animation: dot-pulse 1.2s ease-in-out infinite; }
+.chat-think-dot.done   { background: #10b981; }
+@keyframes dot-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(1.3)} }
 
-.mtg-controls-wrap { display: flex; align-items: center; padding: 12px 24px; gap: 24px; }
-.mtg-av-controls { display: flex; gap: 8px; }
-.mtg-av-btn { width: 64px; display: flex; flex-direction: column; align-items: center; gap: 6px; color: #9ca3af; cursor: pointer; transition: 0.2s; }
-.mtg-av-btn:hover { color: #fff; }
-.mtg-av-btn svg { width: 24px; height: 24px; fill: currentColor; }
-.mtg-av-btn span { font-size: 10px; }
-.mtg-av-btn.active { color: #fff; }
-.mtg-av-btn.highlight { color: #10b981; }
+.chat-think-body { flex: 1; min-width: 0; }
+.chat-think-agent { display: block; font-size: 11px; font-weight: 600; color: #9ca3af; margin-bottom: 2px; font-family: monospace; }
+.chat-think-title { display: block; font-size: 12px; color: #d1d5db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-think-status { font-size: 11px; flex-shrink: 0; }
+.chat-think-status.done    { color: #10b981; }
+.chat-think-status.pending { color: #6b7280; }
 
-.mtg-input-box { flex: 1; display: flex; background: #222; border: 1px solid #333; border-radius: 8px; overflow: hidden; padding: 4px; transition: border 0.2s; }
-.mtg-input-box:focus-within { border-color: #10b981; }
-.mtg-textarea { flex: 1; background: transparent; border: none; outline: none; padding: 12px; color: #fff; font-size: 14px; resize: none; min-height: 48px; max-height: 96px; line-height: 1.5; }
-.mtg-send-btn { width: 44px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; color: #10b981; cursor: pointer; border-radius: 6px; }
-.mtg-send-btn:hover:not(:disabled) { background: rgba(16, 185, 129, 0.1); }
-.mtg-send-btn:disabled { color: #4b5563; cursor: not-allowed; }
+/* typing dots */
+.chat-typing { display: flex; align-items: center; gap: 5px; padding: 4px 0; }
+.chat-typing span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #4b5563;
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+.chat-typing span:nth-child(2) { animation-delay: .15s; }
+.chat-typing span:nth-child(3) { animation-delay: .30s; }
+@keyframes typing-bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
 
-.mtg-icon-sm { width: 18px; height: 18px; }
+/* follow-up suggestions */
+.chat-followup {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.chat-followup-label { font-size: 11px; color: #6b7280; }
+.chat-followup-btn {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  color: #94a3b8;
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: all .2s;
+  white-space: nowrap;
+}
+.chat-followup-btn:hover { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); color: #10b981; }
 
-/* UTILS */
-.animate-spin { animation: spin 1s linear infinite; }
-@keyframes spin { 100% { transform: rotate(360deg); } }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
-.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+/* ── FOOTER (prompts + input) ────────────────────────────────── */
+.chat-footer {
+  flex-shrink: 0;
+  background: #1a1a1a;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  padding: 12px 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* quick prompts: horizontal scroll row */
+.chat-prompts {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+.chat-prompts::-webkit-scrollbar { display: none; }
+.chat-prompt-pill {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  color: #9ca3af;
+  font-size: 12px;
+  padding: 5px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all .2s;
+}
+.chat-prompt-pill:hover { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); color: #10b981; }
+
+/* input wrap */
+.chat-input-wrap {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 8px 10px 8px 14px;
+  transition: border-color .2s;
+}
+.chat-input-wrap:focus-within { border-color: rgba(16,185,129,0.4); }
+.chat-input-wrap.is-loading { opacity: .7; pointer-events: none; }
+.chat-textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e2e8f0;
+  font-size: 14px;
+  line-height: 1.55;
+  resize: none;
+  min-height: 22px;
+  max-height: 110px;
+  font-family: inherit;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.chat-textarea::placeholder { color: #4b5563; }
+.chat-send {
+  width: 36px; height: 36px;
+  background: rgba(16,185,129,0.15);
+  border: 1px solid rgba(16,185,129,0.3);
+  border-radius: 8px;
+  color: #10b981;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all .2s;
+}
+.chat-send:hover:not(:disabled) { background: rgba(16,185,129,0.25); border-color: rgba(16,185,129,0.5); }
+.chat-send:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ── RIGHT PANEL ─────────────────────────────────────────────── */
+.chat-panel {
+  width: 300px;
+  flex-shrink: 0;
+  background: #1a1a1a;
+  border-left: 1px solid rgba(255,255,255,0.07);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel-header {
+  height: 46px;
+  flex-shrink: 0;
+  display: flex; align-items: center;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #9ca3af;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  letter-spacing: 0.03em;
+}
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 14px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16,185,129,0.2) transparent;
+}
+
+.panel-block { margin-bottom: 20px; }
+.panel-block:last-child { margin-bottom: 0; }
+.panel-block-title {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.panel-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+/* metrics 2-col grid */
+.panel-metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.panel-metric-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.panel-metric-label { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
+.panel-metric-value { font-size: 17px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+.panel-metric-value em { font-style: normal; font-size: 11px; color: #9ca3af; margin-left: 2px; }
+
+/* tags */
+.panel-tags { display: flex; flex-direction: column; gap: 6px; }
+
+/* empty state */
+.panel-empty {
+  height: 100%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px;
+  color: #374151;
+  font-size: 13px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+/* ── UTILS ───────────────────────────────────────────────────── */
+.spin { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* responsive: collapse panel below 1100px */
+@media (max-width: 1100px) {
+  .chat-panel { display: none; }
+}
+@media (max-width: 720px) {
+  .chat-messages { padding: 16px; }
+  .chat-footer { padding: 10px 14px 12px; }
+  .chat-row { max-width: 100%; }
+  .chat-thinking-grid { grid-template-columns: 1fr; }
+}
 </style>

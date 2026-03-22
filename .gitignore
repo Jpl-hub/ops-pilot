@@ -27,3 +27,10 @@ data/raw/official/company_snapshots/**/*.json
 data/raw/**/*.jsonl
 data/bronze/**/*.json
 data/bronze/**/*.jsonl
+
+# scratch / debug files
+saiti1.txt
+saiti2.txt
+api_logs.txt
+test_api.py
+*.log

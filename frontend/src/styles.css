@@ -744,6 +744,39 @@ select,
 .text-area { width: 100%; }
 .text-area { min-height: 136px; resize: vertical; line-height: 1.7; }
 
+/* ── Global: dark select / option (fixes white dropdown on all pages) ── */
+option {
+  background-color: #13141a;
+  color: #e2e8f0;
+}
+
+/* glass-select: opaque dark base so browser doesn't bleed white through */
+.glass-select {
+  background: #1a1b22 !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.glass-select:focus {
+  outline: none;
+  border-color: rgba(16,185,129,0.5) !important;
+  box-shadow: 0 0 0 1px rgba(16,185,129,0.2);
+}
+
+/* chat-select in WorkspacePage */
+.chat-select {
+  background: #1a1b22;
+  color: #e2e8f0;
+  border: 1px solid rgba(255,255,255,0.1);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
 .command-card {
   display: block;
   padding: 22px;

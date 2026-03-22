@@ -16,6 +16,11 @@ from opspilot.domain.rules import evaluate_opportunity_labels, evaluate_risk_lab
 from opspilot.domain.scoring import score_company
 from opspilot.infra.sample_repository import SampleRepository
 
+# 域服务 — 拆分后的模块化架构
+from opspilot.application.scoring_service import ScoringService
+from opspilot.application.workspace_service import WorkspaceService
+from opspilot.application.stress_service import StressService
+
 
 LABEL_METRIC_CODES = {
     "R1": ("C1", "G2"),
@@ -90,6 +95,10 @@ class OpsPilotService:
             "payload": None,
             "history": [],
         }
+        # 域服务实例（Facade 委托）
+        self._scoring = ScoringService(repository, settings)
+        self._workspace = WorkspaceService(repository, settings)
+        self._stress = StressService(repository, settings, facade=self)
 
     def health(self) -> dict[str, Any]:
         preferred_period = self._preferred_period()
@@ -849,179 +858,13 @@ class OpsPilotService:
         return self.repository.list_company_names()
 
     def score_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
-        period = report_period or self._preferred_period()
-        company = self._resolve_company(company_name, period)
-        if company is None:
-            raise ValueError(f"未找到公司：{company_name}")
-
-        peers = self.repository.list_companies(company["report_period"])
-        score_result = score_company(company, peers)
-        risks = evaluate_risk_labels(company)
-        opportunities = evaluate_opportunity_labels(company)
-        formula_cards = _build_formula_cards(company)
-        label_cards = _build_label_cards(company, risks, opportunities, formula_cards)
-        action_cards = _build_action_cards(company, score_result, risks, opportunities)
-        evidence_ids = _collect_evidence_ids(company, score_result, risks, opportunities)
-        evidence = self.repository.resolve_evidence(evidence_ids)
-        evidence_groups = _build_evidence_groups(label_cards, formula_cards, evidence)
-        key_numbers = [
-            {"label": "总分", "value": score_result["total_score"], "unit": "分"},
-            {"label": "子行业分位", "value": score_result["subindustry_percentile"], "unit": "pct"},
-        ]
-        calculations = [{"step": "维度加权汇总", "detail": score_result["dimension_scores"]}]
-        calculations.extend(_build_formula_calculations(formula_cards))
-        audit = build_audit(
-            key_numbers=key_numbers,
-            evidence=evidence,
-            calculations=calculations,
-            min_evidence=self.settings.audit_min_evidence,
-        )
-        return {
-            "company_name": company["company_name"],
-            "subindustry": company["subindustry"],
-            "report_period": company["report_period"],
-            "answer_markdown": _render_score_answer(company, score_result, risks, opportunities),
-            "query_type": "company_scoring",
-            "key_numbers": key_numbers,
-            "charts": _build_company_charts(company, score_result),
-            "evidence": evidence,
-            "evidence_groups": evidence_groups,
-            "calculations": calculations,
-            "formula_cards": formula_cards,
-            "label_cards": label_cards,
-            "action_cards": action_cards,
-            "available_periods": _list_company_periods(self.repository, company_name),
-            "audit": audit,
-            "score_command_surface": _build_score_command_surface(
-                company=company,
-                score_result=score_result,
-                risks=risks,
-                opportunities=opportunities,
-                action_cards=action_cards,
-                timeline_payload=self.company_timeline(company_name),
-            ),
-            "score_signal_tape": _build_score_signal_tape(
-                score_result=score_result,
-                risks=risks,
-                opportunities=opportunities,
-                action_cards=action_cards,
-            ),
-            "scorecard": {
-                **score_result,
-                "risk_labels": risks,
-                "opportunity_labels": opportunities,
-                "action_cards": action_cards,
-            },
-        }
+        return self._scoring.score_company(company_name, report_period)
 
     def benchmark_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
-        period = report_period or self._preferred_period()
-        company = self._resolve_company(company_name, period)
-        if company is None:
-            raise ValueError(f"未找到公司：{company_name}")
-        peers = self.repository.list_companies(company["report_period"])
-        rows = []
-        for peer in peers:
-            score_result = score_company(peer, peers)
-            rows.append(
-                {
-                    "company_name": peer["company_name"],
-                    "subindustry": peer["subindustry"],
-                    "total_score": score_result["total_score"],
-                    "grade": score_result["grade"],
-                }
-            )
-        rows.sort(key=lambda item: item["total_score"], reverse=True)
-        target = next(item for item in rows if item["company_name"] == company_name)
-        return {
-            "query_type": "peer_benchmark",
-            "answer_markdown": f"**{company_name}** 当前总分为 **{target['total_score']} 分**，在样本集中位列第 **{rows.index(target) + 1}** 位。",
-            "benchmark": rows,
-            "charts": [
-                {
-                    "type": "bar",
-                    "title": "样本集企业总分对比",
-                    "options": {
-                        "xAxis": {"type": "category", "data": [row["company_name"] for row in rows]},
-                        "yAxis": {"type": "value", "max": 100},
-                        "series": [{"type": "bar", "data": [row["total_score"] for row in rows]}],
-                    },
-                }
-            ],
-        }
+        return self._scoring.benchmark_company(company_name, report_period)
 
     def company_timeline(self, company_name: str) -> dict[str, Any]:
-        periods = _list_company_periods(self.repository, company_name)
-        if not periods:
-            raise ValueError(f"未找到公司：{company_name}")
-
-        snapshots: list[dict[str, Any]] = []
-        previous_snapshot: dict[str, Any] | None = None
-        for period in periods:
-            company = self.repository.get_company(company_name, period)
-            if company is None:
-                continue
-            peers = self.repository.list_companies(period)
-            score_result = score_company(company, peers)
-            risks = evaluate_risk_labels(company)
-            opportunities = evaluate_opportunity_labels(company)
-            snapshot = {
-                "report_period": period,
-                "total_score": score_result["total_score"],
-                "grade": score_result["grade"],
-                "risk_count": len(risks),
-                "opportunity_count": len(opportunities),
-                "revenue_growth": company["metrics"].get("G1"),
-                "profit_growth": company["metrics"].get("G2"),
-                "cash_quality": company["metrics"].get("C1"),
-                "top_risks": [item["name"] for item in risks[:3]],
-                "top_opportunities": [item["name"] for item in opportunities[:3]],
-            }
-            if previous_snapshot is not None:
-                snapshot["score_delta"] = round(
-                    snapshot["total_score"] - previous_snapshot["total_score"], 2
-                )
-                snapshot["risk_delta"] = snapshot["risk_count"] - previous_snapshot["risk_count"]
-            else:
-                snapshot["score_delta"] = None
-                snapshot["risk_delta"] = None
-            snapshots.append(snapshot)
-            previous_snapshot = snapshot
-
-        if not snapshots:
-            raise ValueError(f"未找到公司：{company_name}")
-
-        latest = snapshots[0]
-        return {
-            "company_name": company_name,
-            "latest_period": latest["report_period"],
-            "key_numbers": [
-                {"label": "已覆盖报期", "value": len(snapshots), "unit": "个"},
-                {"label": "当前总分", "value": latest["total_score"], "unit": "分"},
-                {"label": "当前风险数", "value": latest["risk_count"], "unit": "项"},
-            ],
-            "snapshots": snapshots,
-            "charts": [
-                {
-                    "type": "line",
-                    "title": "报期总分变化",
-                    "options": {
-                        "xAxis": {
-                            "type": "category",
-                            "data": [item["report_period"] for item in reversed(snapshots)],
-                        },
-                        "yAxis": {"type": "value", "max": 100},
-                        "series": [
-                            {
-                                "type": "line",
-                                "smooth": True,
-                                "data": [item["total_score"] for item in reversed(snapshots)],
-                            }
-                        ],
-                    },
-                }
-            ],
-        }
+        return self._scoring.company_timeline(company_name)
 
     def company_workspace(
         self,
@@ -2492,7 +2335,7 @@ class OpsPilotService:
         }
         return payload
 
-    def company_stress_test(
+    async def company_stress_test(
         self,
         company_name: str,
         scenario: str,
@@ -2500,114 +2343,9 @@ class OpsPilotService:
         *,
         user_role: str = "management",
     ) -> dict[str, Any]:
-        workspace = self.company_workspace(
-            company_name,
-            report_period,
-            user_role=user_role,
+        return await self._stress.company_stress_test(
+            company_name, scenario, report_period, user_role=user_role
         )
-        graph = self.company_graph(
-            company_name,
-            workspace["report_period"],
-            user_role=user_role,
-        )
-        from opspilot.application.agents import run_stress_agent
-        agent_data = run_stress_agent(company_name, scenario, workspace["report_period"])
-        
-        propagation_steps = agent_data.get("propagation_steps", [])
-        severity = agent_data.get("severity", {
-            "level": "MEDIUM", "label": "Unknown", "color": "warning"
-        })
-        transmission_matrix = agent_data.get("transmission_matrix", [])
-        simulation_log = agent_data.get("simulation_log", [])
-        
-        payload = {
-            "company_name": company_name,
-            "report_period": workspace["report_period"],
-            "user_role": user_role,
-            "scenario": scenario,
-            "severity": severity,
-            "score_summary": workspace["score_summary"],
-            "affected_dimensions": _build_stress_affected_dimensions(workspace),
-            "propagation_steps": propagation_steps,
-            "transmission_matrix": transmission_matrix,
-            "simulation_log": simulation_log,
-            "stress_command_surface": _build_stress_command_surface(
-                company_name=company_name,
-                scenario=scenario,
-                severity=severity,
-                transmission_matrix=transmission_matrix,
-                simulation_log=simulation_log,
-                workspace=workspace,
-            ),
-            "stress_wavefront": _build_stress_wavefront(
-                propagation_steps=propagation_steps,
-                transmission_matrix=transmission_matrix,
-                simulation_log=simulation_log,
-                severity=severity,
-            ),
-            "stress_impact_tape": _build_stress_impact_tape(
-                transmission_matrix=transmission_matrix,
-                simulation_log=simulation_log,
-                severity=severity,
-            ),
-            "stress_recovery_sequence": _build_stress_recovery_sequence(
-                actions=workspace["action_cards"],
-                top_risks=workspace["top_risks"],
-                severity=severity,
-            ),
-            "actions": [
-                {
-                    "priority": item["priority"],
-                    "title": item["title"],
-                    "action": item["action"],
-                    "reason": item["reason"],
-                }
-                for item in workspace["action_cards"][:3]
-            ],
-            "related_routes": [
-                {
-                    "label": "查看企业体检",
-                    "path": "/score",
-                    "query": {"company": company_name, "period": workspace["report_period"]},
-                },
-                {
-                    "label": "查看图谱推理",
-                    "path": "/graph",
-                    "query": {"company": company_name, "period": workspace["report_period"]},
-                },
-                {
-                    "label": "返回协同分析",
-                    "path": "/workspace",
-                    "query": {"company": company_name},
-                },
-            ],
-            "evidence_navigation": {
-                "links": _build_stress_evidence_links(workspace),
-            },
-            "chart": _build_stress_test_chart(propagation_steps),
-        }
-        run_id = _build_stress_test_run_id(company_name)
-        detail_path = _stress_test_run_detail_path(self.settings, run_id)
-        _write_json(detail_path, payload)
-        manifest = _load_stress_test_run_manifest(self.settings)
-        records = [item for item in manifest["records"] if item.get("run_id") != run_id]
-        records.insert(
-            0,
-            {
-                "run_id": run_id,
-                "company_name": company_name,
-                "report_period": workspace["report_period"],
-                "user_role": user_role,
-                "scenario": scenario,
-                "severity": severity,
-                "created_at": _utcnow_iso(),
-                "detail_path": str(detail_path),
-            },
-        )
-        manifest["records"] = records[:200]
-        _write_stress_test_run_manifest(self.settings, manifest)
-        payload["run_id"] = run_id
-        return payload
 
     def stress_test_runs(
         self,
@@ -2617,48 +2355,15 @@ class OpsPilotService:
         user_role: str = "management",
         limit: int = 20,
     ) -> dict[str, Any]:
-        records = [
-            item
-            for item in _load_stress_test_run_manifest(self.settings)["records"]
-            if item.get("user_role") == user_role
-            and (report_period is None or item.get("report_period") == report_period)
-            and (company_name is None or item.get("company_name") == company_name)
-        ]
-        return {
-            "company_name": company_name,
-            "report_period": report_period,
-            "user_role": user_role,
-            "total": len(records),
-            "runs": records[:limit],
-        }
+        return self._stress.stress_test_runs(
+            company_name=company_name,
+            report_period=report_period,
+            user_role=user_role,
+            limit=limit,
+        )
 
     def stress_test_run_detail(self, run_id: str) -> dict[str, Any]:
-        record = next(
-            (
-                item
-                for item in _load_stress_test_run_manifest(self.settings)["records"]
-                if item.get("run_id") == run_id
-            ),
-            None,
-        )
-        if record is None:
-            raise ValueError(f"未找到压力测试运行：{run_id}")
-        detail_path = Path(record["detail_path"])
-        if not detail_path.exists():
-            raise ValueError(f"未找到压力测试详情：{run_id}")
-        try:
-            with detail_path.open("r", encoding="utf-8") as file:
-                payload = json.load(file)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"运行记录损坏：{run_id}") from exc
-        payload["run_meta"] = {
-            "run_id": run_id,
-            "created_at": record.get("created_at"),
-            "company_name": record.get("company_name"),
-            "report_period": record.get("report_period"),
-            "user_role": record.get("user_role"),
-        }
-        return payload
+        return self._stress.stress_test_run_detail(run_id)
 
     def task_board(
         self, user_role: str = "management", report_period: str | None = None, limit: int = 12
@@ -3229,7 +2934,7 @@ class OpsPilotService:
             "research_timeline": self.summarize_research_timeline(company_name),
         }
 
-    def chat_turn(
+    async def chat_turn(
         self,
         *,
         query: str,
@@ -3237,62 +2942,16 @@ class OpsPilotService:
         report_period: str | None = None,
         user_role: str = "investor",
     ) -> dict[str, Any]:
-        period = report_period or self._preferred_period()
-        detected_company_str = (
-            company_name
-            or self.repository.find_company_from_query(query, period)
-            or self.repository.find_company_from_query(query, None)
-        )
-        
-        company_obj = self.get_company(detected_company_str, period) if detected_company_str else None
-        
-        # Invoke the Agentic Engine
-        from opspilot.application.agents import run_chat_agent
-        agent_data = run_chat_agent(query, company_obj, period)
-        
-        query_type = agent_data.get("query_type", "metric_query")
-        answer_markdown = agent_data.get("summary", "分析已完成，但未能提取有效摘要。")
-        
-        key_numbers = []
-        for m in agent_data.get("metrics", []):
-            key_numbers.append({
-                "label": m.get("name", ""), 
-                "value": m.get("value", ""), 
-                "unit": m.get("unit", "")
-            })
-            
-        payload = {
-            "company_name": detected_company_str or "无指定主体",
-            "report_period": period,
-            "answer_markdown": answer_markdown,
-            "query_type": query_type,
-            "key_numbers": key_numbers,
-            "charts": [],
-            "evidence": [],
-            "calculations": [],
-            "formula_cards": [],
-            "audit": None,
-        }
-        
-        workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
-        return self._persist_workspace_run(
-            workspace_payload,
+        return await self._workspace.chat_turn(
             query=query,
-            company_name=detected_company_str,
+            company_name=company_name,
+            report_period=report_period,
             user_role=user_role,
+            service=self,
         )
 
     def workspace_runs(self, limit: int = 20) -> dict[str, Any]:
-        manifest = _load_workspace_run_manifest(self.settings)
-        records = sorted(
-            manifest["records"],
-            key=lambda item: item.get("created_at") or "",
-            reverse=True,
-        )
-        return {
-            "total": len(records),
-            "runs": records[:limit],
-        }
+        return self._workspace.workspace_runs(limit=limit)
 
     def workspace_history(
         self,
@@ -3449,61 +3108,15 @@ class OpsPilotService:
         }
 
     def workspace_run_detail(self, run_id: str) -> dict[str, Any]:
-        manifest = _load_workspace_run_manifest(self.settings)
-        record = next((item for item in manifest["records"] if item["run_id"] == run_id), None)
-        if record is None:
-            raise ValueError(f"未找到运行记录：{run_id}")
-        detail_path = Path(record["detail_path"])
-        if not detail_path.exists():
-            raise ValueError(f"未找到运行详情：{detail_path}")
-        try:
-            with detail_path.open("r", encoding="utf-8") as file:
-                detail = json.load(file)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"压力测试记录损坏：{run_id}") from exc
-        return {"run": record, "detail": detail}
+        return self._workspace.workspace_run_detail(run_id)
 
     def metric_query(
         self, *, query: str, company_name: str | None, report_period: str | None
     ) -> dict[str, Any]:
-        if not company_name:
-            raise ValueError("当前样本问答需要显式包含公司名。")
-        company = self._resolve_company(company_name, report_period)
-        if company is None:
-            raise ValueError(f"未找到公司：{company_name}")
-        metric_code = _guess_metric_code(query)
-        metric_def = METRIC_BY_CODE[metric_code]
-        value = company["metrics"][metric_code]
-        evidence = self.repository.resolve_evidence(company.get("metric_evidence", {}).get(metric_code, []))
-        calculations = [{"step": "指标直取", "detail": f"{metric_code} = {value}"}]
-        formula_cards = []
-        if formula_card := _build_formula_card(company, metric_code):
-            formula_cards.append(formula_card)
-            calculations.extend(_build_formula_calculations(formula_cards))
-        audit = build_audit(
-            key_numbers=[{"label": metric_def.name, "value": value, "unit": ""}],
-            evidence=evidence,
-            calculations=calculations,
-            min_evidence=self.settings.audit_min_evidence,
-        )
-        return {
-            "company_name": company["company_name"],
-            "report_period": company["report_period"],
-            "answer_markdown": f"**{company_name}** 在 **{company['report_period']}** 的 **{metric_def.name}** 为 **{value}**。",
-            "query_type": "metric_query",
-            "key_numbers": [{"label": metric_def.name, "value": value, "unit": ""}],
-            "charts": [],
-            "evidence": evidence,
-            "calculations": calculations,
-            "formula_cards": formula_cards,
-            "audit": audit,
-        }
+        return self._workspace.metric_query(query=query, company_name=company_name, report_period=report_period)
 
     def get_evidence(self, chunk_id: str) -> dict[str, Any]:
-        evidence = self.repository.get_evidence(chunk_id)
-        if evidence is None:
-            raise ValueError(f"未找到证据：{chunk_id}")
-        return evidence
+        return self._workspace.get_evidence(chunk_id)
 
     def _persist_workspace_run(
         self,
@@ -5453,16 +5066,20 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
     formula_count = len(payload.get("formula_cards", []))
     claim_count = len(payload.get("claim_cards", []))
     query_type = payload.get("query_type")
+    tool_trace = payload.get("tool_trace", [])
+    tools_called = [t["tool_name"] for t in tool_trace if t.get("success")]
     return [
         {
             "step": 1,
-            "agent": "总控调度",
+            "agent_key": "router",
+            "agent_label": "Router",
+            "agent": "Router",
             "status": "completed",
             "title": "识别任务并锁定公司",
             "summary": f"已将问题归类为 {payload.get('query_type')}，目标问题是：{query}",
             "source": "问题文本 + 公司池 + 报期索引",
             "tool": "intent_router",
-            "handoff": "信号分析",
+            "handoff": "data",
             "route": _build_agent_route("orchestrator", payload),
             "metrics": [
                 {"label": "任务类型", "value": query_type or "unknown"},
@@ -5472,29 +5089,34 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
         },
         {
             "step": 2,
-            "agent": "信号分析",
+            "agent_key": "data",
+            "agent_label": "Data Agent",
+            "agent": "Data Agent",
             "status": "completed",
             "title": "抽取经营与风险信号",
             "summary": (
-                f"识别到 {risk_count} 个重点风险，生成 {formula_count} 条公式链。"
+                f"调用了 {len(tools_called)} 个工具: {', '.join(tools_called) or '无'}。"
+                f" 识别到 {risk_count} 个风险，{formula_count} 条公式链。"
                 if payload.get("query_type") == "company_scoring"
-                else f"提取了 {len(payload.get('key_numbers', []))} 个关键结果。"
+                else f"调用了 {len(tools_called)} 个工具，提取 {len(payload.get('key_numbers', []))} 个关键结果。"
             ),
             "source": _resolve_agent_signal_source(query_type),
             "tool": _resolve_agent_signal_tool(query_type),
-            "handoff": "证据审计",
+            "handoff": "risk",
             "route": _build_agent_route("signal_analyst", payload),
             "metrics": _build_signal_agent_metrics(payload, risk_count, formula_count, claim_count),
         },
         {
             "step": 3,
-            "agent": "证据审计",
+            "agent_key": "risk",
+            "agent_label": "Risk Agent",
+            "agent": "Risk Agent",
             "status": "completed",
             "title": "回放来源与可核查证据",
             "summary": f"当前返回 {evidence_count} 条证据引用，优先暴露页码和来源片段。",
             "source": "官方财报页级解析 + 研报详情页 + 公式输入字段",
             "tool": "evidence_auditor",
-            "handoff": "动作生成",
+            "handoff": "strategy",
             "route": _build_agent_route("evidence_auditor", payload),
             "metrics": [
                 {"label": "证据条数", "value": evidence_count},
@@ -5504,7 +5126,9 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
         },
         {
             "step": 4,
-            "agent": "动作生成",
+            "agent_key": "strategy",
+            "agent_label": "Strategy Agent",
+            "agent": "Strategy Agent",
             "status": "completed",
             "title": "按角色给出下一步",
             "summary": (
@@ -7591,7 +7215,7 @@ def _build_runtime_capsule_module(
 def _run_document_pipeline_job(
     stage: str, job: dict[str, Any], settings: Settings
 ) -> tuple[dict[str, Any], Path]:
-    page_json_path = Path(job["page_json_path"])
+    page_json_path = Path(str(job["page_json_path"]).replace("\\", "/"))
     if not page_json_path.is_absolute():
         page_json_path = (Path.cwd() / page_json_path).resolve()
     with page_json_path.open("r", encoding="utf-8") as file:

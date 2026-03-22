@@ -7,6 +7,8 @@ from typing import Any
 import json
 import re
 
+from opspilot.domain.evidence import from_hybrid_chunk, deduplicate
+
 
 PERIOD_SUFFIX_ORDER = {"Q1": 1, "H1": 2, "Q3": 3, "FY": 4}
 RAW_METRIC_CODES = {
@@ -55,12 +57,23 @@ LABEL_METRIC_MAP = {
 
 
 class OfficialMetricsRepository:
-    def __init__(self, silver_root: Path, universe_path: Path) -> None:
+    def __init__(
+        self,
+        silver_root: Path,
+        universe_path: Path,
+        bronze_chunks_dir: Path | None = None,
+    ) -> None:
         self._manifest_path = silver_root / "manifests" / "financial_metrics_manifest.json"
         self._pool_by_name = _load_company_pool(universe_path)
         self._records = _load_manifest_records(self._manifest_path)
         self._companies = self._build_companies()
         self._evidence_by_id = self._build_evidence_index()
+        # Resolve bronze chunks directory for Hybrid RAG
+        if bronze_chunks_dir is not None:
+            self._bronze_chunks_dir: Path | None = Path(bronze_chunks_dir)
+        else:
+            # Compute from silver_root: data/silver/official → data/bronze/official/chunks
+            self._bronze_chunks_dir = silver_root.parent.parent / "bronze" / silver_root.name / "chunks"
 
     def list_companies(self, report_period: str | None = None) -> list[dict[str, Any]]:
         if report_period is None:
@@ -129,6 +142,43 @@ class OfficialMetricsRepository:
             for chunk_id in chunk_ids
             if (evidence := self.get_evidence(chunk_id)) is not None
         ]
+
+    def get_security_code(self, company_name: str) -> str | None:
+        """Return the security code for a company by name."""
+        pool_entry = self._pool_by_name.get(company_name)
+        if pool_entry:
+            return pool_entry.get("security_code")
+        for record in self._records:
+            if record.get("company_name") == company_name:
+                return record.get("security_code")
+        return None
+
+    async def hybrid_evidence_search(
+        self,
+        company_name: str,
+        query: str,
+        report_period: str | None,
+        dsn: str,
+        top_k: int = 4,
+    ) -> list[dict[str, Any]]:
+        """
+        Run the full Hybrid RAG pipeline (BM25 + Dense + RRF + LLM-Rerank)
+        for a free-form query about a specific company.
+
+        Returns canonical evidence dicts compatible with resolve_evidence output.
+        """
+        if self._bronze_chunks_dir is None or not self._bronze_chunks_dir.exists():
+            return []
+        security_code = self.get_security_code(company_name)
+        if not security_code:
+            return []
+
+        from opspilot.infra.chunk_retriever import LocalChunkRetriever
+        retriever = LocalChunkRetriever(self._bronze_chunks_dir)
+        raw_chunks = await retriever.hybrid_search(
+            security_code, query, dsn, report_period, top_k
+        )
+        return [from_hybrid_chunk(c, company_name, report_period) for c in raw_chunks]
 
     def _latest_company_snapshots(self) -> list[dict[str, Any]]:
         latest_by_company: dict[str, dict[str, Any]] = {}
@@ -429,3 +479,6 @@ def _period_sort_key(period: str) -> tuple[int, int]:
     if not match:
         return (0, 0)
     return (int(match.group(1)), PERIOD_SUFFIX_ORDER[match.group(2)])
+
+
+# _normalize_chunk_evidence 已迁移至 opspilot.domain.evidence.from_hybrid_chunk

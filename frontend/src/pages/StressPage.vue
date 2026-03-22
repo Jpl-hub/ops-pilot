@@ -5,16 +5,21 @@ import { useRoute } from 'vue-router'
 import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
 import ErrorState from '@/components/ErrorState.vue'
+import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
 
 const overviewState = useAsyncState<any>()
 const stressState = useAsyncState<any>()
 const runsState = useAsyncState<any>()
-const runtimeState = useAsyncState<any>()
 const route = useRoute()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
+const availablePeriods = computed(() => {
+  const preferred = overviewState.data.value?.preferred_period
+  const base = preferred ? [preferred] : []
+  return [...new Set([...base, '2025Q3', '2025Q2', '2025Q1', '2024Q4', '2024Q3'])]
+})
 const selectedCompany = ref('')
 const selectedPeriod = ref('')
 const scenario = ref('欧盟对动力电池临时加征关税并限制关键材料进口')
@@ -33,10 +38,8 @@ const propagationSteps = computed(() => stressState.data.value?.propagation_step
 const transmissionMatrix = computed(() => stressState.data.value?.transmission_matrix || [])
 const simulationLog = computed(() => stressState.data.value?.simulation_log || [])
 const stressWavefront = computed(() => stressState.data.value?.stress_wavefront || [])
+const activeWavefront = computed(() => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null)
 const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.value] || null)
-const activeWavefront = computed(
-  () => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null,
-)
 
 async function runStress() {
   if (!selectedCompany.value || !scenarioDraft.value.trim()) return
@@ -49,22 +52,20 @@ async function runStress() {
       scenario: scenario.value,
     }),
   )
-  
-  const params = new URLSearchParams()
-  params.set('company_name', selectedCompany.value)
+  const params = new URLSearchParams({ company_name: selectedCompany.value })
   if (selectedPeriod.value) params.set('report_period', selectedPeriod.value)
   params.set('user_role', 'management')
-
   await runsState.execute(() => get(`/stress-test/runs?${params.toString()}&limit=6`))
-  await runtimeState.execute(() => get(`/company/intelligence-runtime?${params.toString()}`))
   activeStressStep.value = 0
 }
 
 onMounted(async () => {
-  await overviewState.execute(() => get('/workspace/overview?user_role=management'))
+  await overviewState.execute(() => get('/workspace/companies'))
   selectedCompany.value =
     (typeof route.query.company === 'string' ? route.query.company : '') || companies.value[0] || ''
-  selectedPeriod.value = typeof route.query.period === 'string' ? route.query.period : ''
+  selectedPeriod.value = typeof route.query.period === 'string' && route.query.period
+    ? route.query.period
+    : (overviewState.data.value?.preferred_period || '')
   await runStress()
   stressTicker = window.setInterval(() => {
     if (!propagationSteps.value.length) return
@@ -73,10 +74,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  if (stressTicker) {
-    window.clearInterval(stressTicker)
-    stressTicker = null
-  }
+  if (stressTicker) { window.clearInterval(stressTicker); stressTicker = null }
 })
 
 function selectPreset(item: string) {
@@ -86,336 +84,280 @@ function selectPreset(item: string) {
 </script>
 
 <template>
-  <AppShell title="">
-    <div class="rag-layout custom-scrollbar">
-      
-      <!-- Top Branding -->
-      <header class="rag-header">
-        <div class="rag-header-left">
-          <svg class="rag-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
-          <div class="rag-header-titles">
-            <h1 class="rag-title">产业链压力测试 (Stress Test)</h1>
-            <span class="rag-subtitle">Supply Chain Systemic Risk Simulation</span>
+  <AppShell title="产业链压力测试">
+    <div class="dashboard-wrapper">
+
+      <!-- Control Bar -->
+      <section class="glass-panel control-bar">
+        <div class="control-left">
+          <div class="glow-icon">压</div>
+          <div>
+            <h3 class="company-name text-gradient">{{ selectedCompany || '选择公司' }}</h3>
           </div>
         </div>
-        
-        <!-- Controls -->
-        <div class="rag-header-right">
-           <label class="rag-label-desktop">Entity:</label>
-           <select v-model="selectedCompany" class="rag-select">
-             <option v-for="company in companies" :key="company" :value="company" class="rag-option">{{ company }}</option>
-           </select>
-           <input v-model="selectedPeriod" class="rag-select rag-select-small" placeholder="Period" />
+        <div class="inline-context">
+          <label class="inline-field">
+            <span class="subtle-label">公司</span>
+            <select v-model="selectedCompany" class="glass-select">
+              <option v-for="c in companies" :key="c" :value="c">{{ c }}</option>
+            </select>
+          </label>
+          <label class="inline-field">
+            <span class="subtle-label">报期</span>
+            <select v-model="selectedPeriod" class="glass-select">
+              <option value="">默认主周期</option>
+              <option v-for="p in availablePeriods" :key="p" :value="p">{{ p }}</option>
+            </select>
+          </label>
         </div>
-      </header>
+      </section>
 
-      <div class="rag-content">
-        <ErrorState v-if="stressState.error.value" :message="String(stressState.error.value)" class="rag-error-margin" />
-        
-        <!-- Search/Scenario Input Interface -->
-        <div class="rag-search-box">
-           <div class="rag-sb-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="rag-sb-icon-svg"><circle cx="12" cy="12" r="10"></circle><path d="M16 12l-4-4-4 4"></path><path d="M12 16V8"></path></svg>
-           </div>
-           <div class="rag-sb-input-area">
-              <input v-model="scenarioDraft" type="text" class="rag-sb-input" placeholder="输入压力场景，例如：上游核心矿产断供..." @keydown.enter="runStress" :disabled="stressState.loading.value"/>
-              <div class="rag-sb-sub">Stress Engine 正在推演冲击传导并量化风险敞口... 
-                <span v-if="stressState.loading.value" class="rag-pulse-text">Simulating...</span>
-              </div>
-           </div>
-           
-           <div class="rag-sb-stats">
-              <svg class="rag-sb-stats-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-              <span>Severity: 
-                <strong class="rag-severity-val" :class="stressState.data.value?.severity?.color === 'risk' ? 'rag-tone-risk' : 'rag-tone-safe'">
-                  {{ stressState.data.value?.severity?.level || 'N/A' }} 
-                  {{ stressState.data.value?.severity?.label || 'Ready' }}
-                </strong>
-              </span>
-           </div>
+      <!-- Scenario Input -->
+      <section class="glass-panel scenario-bar">
+        <div class="scenario-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
         </div>
-        
-        <!-- Preset Scenarios -->
-        <div class="rag-preset-list">
-          <button
-            v-for="item in presetScenarios"
-            :key="item"
-            class="rag-preset-btn"
-            @click="selectPreset(item)"
-          >
-            >> {{ item }}
-          </button>
+        <input
+          v-model="scenarioDraft"
+          class="scenario-input"
+          placeholder="输入压力场景，例如：上游核心矿产断供…"
+          :disabled="stressState.loading.value"
+          @keydown.enter="runStress"
+        />
+        <div v-if="stressState.data.value?.severity" class="severity-badge" :class="`tone-${stressState.data.value.severity.color || 'warning'}`">
+          {{ stressState.data.value.severity.level }} {{ stressState.data.value.severity.label }}
         </div>
+        <button class="button-primary scenario-btn" :disabled="stressState.loading.value || !selectedCompany" @click="runStress">
+          {{ stressState.loading.value ? '推演中…' : '启动推演' }}
+        </button>
+      </section>
 
-        <!-- Colossal Canvas Area -->
-        <div class="rag-canvas-container rag-canvas-stress">
-           
-           <!-- Left: Transmission Matrix & Ribbon -->
-           <div class="rag-main-col">
-              
-              <div class="rag-section-header">
-                 <div class="rag-section-title">冲击传导网络 (Transmission Matrix)</div>
-              </div>
+      <!-- Preset Pills -->
+      <div class="preset-row">
+        <button v-for="item in presetScenarios" :key="item" class="preset-pill" @click="selectPreset(item)">
+          {{ item }}
+        </button>
+      </div>
 
-              <!-- Transmission Nodes Pipeline -->
-              <div class="rag-transmission-grid">
-                 <div 
-                   v-for="(item, index) in transmissionMatrix" 
-                   :key="item.stage"
-                   class="rag-transmission-node"
-                   :class="[`node-${item.tone || 'warning'}`, { 'is-active': activeWavefront?.active_stage === 'upstream' && index === 0 || activeWavefront?.active_stage === 'midstream' && index === 1 || activeWavefront?.active_stage === 'downstream' && index === 2 }]"
-                 >
-                    <div class="node-stage-badge">
-                      <div class="node-stage-dot"></div>
-                      {{ item.stage }}
-                    </div>
-                    <div class="node-headline">{{ item.headline }}</div>
-                    <div class="node-impact-score">{{ item.impact_score }}</div>
-                    <div class="node-impact-label">{{ item.impact_label }}</div>
-                    
-                    <!-- decorative arrow connecting nodes -->
-                    <div v-if="index < transmissionMatrix.length - 1" class="node-connector">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path><path d="M12 5l7 7-7 7"></path></svg>
-                    </div>
-                 </div>
-              </div>
+      <LoadingState v-if="overviewState.loading.value || stressState.loading.value" class="state-container" />
+      <ErrorState v-else-if="stressState.error.value" :message="String(stressState.error.value)" class="state-container" />
 
-              <!-- Embedded Chart Panel if exists -->
-              <div v-if="stressState.data.value?.chart" class="rag-chart-wrapper">
-                 <ChartPanel
-                   :title="'冲击传导强度 (Impact Magnitude over Phases)'"
-                   :options="stressState.data.value.chart.options"
-                 />
-              </div>
-              
-              <div class="rag-spacer"></div>
-              
-              <!-- Propagation Ribbon at bottom -->
-              <div v-if="propagationSteps.length" class="rag-inference-ribbon">
-                <div class="rag-ribbon-title">
-                   传播推演链路 (Propagation Chain):
+      <!-- Main Content -->
+      <div v-else class="content-grid">
+
+        <!-- Left: Transmission Matrix + Propagation Chain -->
+        <div class="left-col">
+
+          <!-- Transmission Matrix -->
+          <article class="glass-panel matrix-panel" v-if="transmissionMatrix.length">
+            <h3 class="panel-title">冲击传导网络</h3>
+            <div class="matrix-grid">
+              <div
+                v-for="(item, index) in transmissionMatrix"
+                :key="item.stage"
+                class="matrix-node"
+                :class="[`node-${item.tone || 'warning'}`, {
+                  'is-active': activeWavefront?.active_stage === 'upstream' && index === 0
+                    || activeWavefront?.active_stage === 'midstream' && index === 1
+                    || activeWavefront?.active_stage === 'downstream' && index === 2
+                }]"
+              >
+                <div class="node-header">
+                  <div class="node-dot"></div>
+                  <span class="node-stage">{{ item.stage }}</span>
+                  <div v-if="index < transmissionMatrix.length - 1" class="node-arrow">→</div>
                 </div>
-                <div class="rag-ribbon-list">
-                   <template v-for="(item, idx) in propagationSteps" :key="item.step">
-                     <div 
-                       class="rag-path-item" 
-                       :class="{ 'is-active': item.step - 1 === activeStressStep || idx <= activeStressStep }"
-                     >
-                        <span class="rag-path-item-main"><span class="rag-path-number">0{{ item.step }}</span> {{ item.title }}</span>
-                     </div>
-                     <div v-if="idx < propagationSteps.length - 1" class="rag-path-arrow">→</div>
-                   </template>
+                <div class="node-headline">{{ item.headline }}</div>
+                <div class="node-score">{{ item.impact_score }}</div>
+                <div class="node-label muted">{{ item.impact_label }}</div>
+              </div>
+            </div>
+          </article>
+
+          <!-- Chart Panel -->
+          <article class="glass-panel chart-panel" v-if="stressState.data.value?.chart">
+            <ChartPanel
+              title="冲击传导强度"
+              :options="stressState.data.value.chart.options"
+            />
+          </article>
+
+          <!-- Propagation Chain -->
+          <article class="glass-panel chain-panel" v-if="propagationSteps.length">
+            <h3 class="panel-title">传播推演链路</h3>
+            <div class="chain-list">
+              <template v-for="(item, idx) in propagationSteps" :key="item.step">
+                <div class="chain-item" :class="{ 'is-active': idx <= activeStressStep }">
+                  <span class="chain-num">{{ String(item.step).padStart(2, '0') }}</span>
+                  <span class="chain-title">{{ item.title }}</span>
                 </div>
-              </div>
-           </div>
-           
-           <!-- Right: Simulation Log Stream -->
-           <div class="rag-side-col">
-              <div class="rag-side-title">仿真日志 (Simulation Stream)</div>
-              
-              <!-- Highlighted Active Frame -->
-              <div class="rag-log-active-frame">
-                 <div class="rag-frame-header">
-                    <span class="rag-frame-lbl">Current Wavefront</span>
-                    <span class="rag-frame-badge">SIM ACTIVE</span>
-                 </div>
-                 <h4 class="rag-frame-title">{{ activeWavefront?.headline || activeSimulationLog?.title || '等待推演' }}</h4>
-                 <p class="rag-frame-desc">{{ activeWavefront?.log || activeSimulationLog?.detail || '系统准备冲击波前计算...' }}</p>
-                 
-                 <!-- Intensity Meter -->
-                 <div class="rag-frame-meter-box">
-                    <div class="rag-meter-lbl">
-                      <span>IMPACT ENERGY</span>
-                      <strong class="rag-meter-val">{{ activeWavefront?.impact_score || 0 }}</strong>
-                    </div>
-                    <div class="rag-meter-track">
-                       <div class="rag-meter-fill" :style="{ width: `${activeWavefront?.energy || 0}%` }"></div>
-                    </div>
-                 </div>
-              </div>
-              
-              <!-- Historical Log List -->
-              <div class="rag-log-list custom-scrollbar">
-                 <div 
-                   v-for="item in simulationLog" 
-                   :key="`log-${item.step}`"
-                   class="rag-log-item"
-                   :class="{'is-active': item.step - 1 === activeStressStep }"
-                 >
-                    <div class="rag-log-item-title"><span class="rag-log-item-num">{{ item.step }}.</span>{{ item.title }}</div>
-                    <div class="rag-log-item-desc">{{ item.detail }}</div>
-                 </div>
-              </div>
-              
-           </div>
-           
+                <div v-if="idx < propagationSteps.length - 1" class="chain-sep">→</div>
+              </template>
+            </div>
+          </article>
+
+          <!-- Empty Left -->
+          <article v-if="!transmissionMatrix.length && !propagationSteps.length" class="glass-panel empty-panel">
+            <div class="empty-content">
+              <h3 class="text-gradient mb-2">等待压力推演</h3>
+              <p class="muted">选择公司并输入压力场景后点击「启动推演」。</p>
+            </div>
+          </article>
         </div>
 
+        <!-- Right: Simulation Stream -->
+        <div class="right-col">
+          <article class="glass-panel stream-panel">
+            <h3 class="panel-title">仿真日志</h3>
+
+            <!-- Active Wavefront -->
+            <div class="wavefront-card">
+              <div class="wavefront-head">
+                <span class="wavefront-lbl">当前冲击波前</span>
+                <span class="wavefront-badge">{{ activeWavefront ? '推演中' : '就绪' }}</span>
+              </div>
+              <h4 class="wavefront-title">{{ activeWavefront?.headline || activeSimulationLog?.title || '等待推演' }}</h4>
+              <p class="wavefront-desc muted">{{ activeWavefront?.log || activeSimulationLog?.detail || '系统准备冲击波前计算…' }}</p>
+              <div class="meter-box">
+                <div class="meter-row">
+                  <span class="muted">冲击能量</span>
+                  <strong class="meter-val">{{ activeWavefront?.impact_score || 0 }}</strong>
+                </div>
+                <div class="meter-track">
+                  <div class="meter-fill" :style="{ width: `${activeWavefront?.energy || 0}%` }"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Log List -->
+            <div class="log-list">
+              <div
+                v-for="item in simulationLog"
+                :key="`log-${item.step}`"
+                class="log-item glass-panel-hover"
+                :class="{ 'is-active': item.step - 1 === activeStressStep }"
+              >
+                <div class="log-num">{{ item.step }}</div>
+                <div class="log-body">
+                  <strong class="log-title">{{ item.title }}</strong>
+                  <p class="log-desc muted">{{ item.detail }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Empty Right -->
+            <div v-if="!simulationLog.length" class="empty-stream muted">
+              推演完成后将显示仿真日志
+            </div>
+          </article>
+        </div>
       </div>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-/* Base Layout (Shared with Graph) */
-.rag-layout { display: flex; flex-direction: column; height: 100%; width: 100%; background: #080808; overflow-y: auto; overflow-x: hidden; margin: -16px -24px -24px; padding: 0; }
-.rag-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 40px; border-bottom: 1px solid rgba(255,255,255,0.03); background: #000; z-index: 20; flex-shrink: 0; }
-.rag-header-left { display: flex; align-items: center; gap: 12px; }
-.rag-header-icon { color: #f43f5e; width: 24px; height: 24px; }
-.rag-header-titles { display: flex; flex-direction: column; }
-.rag-title { font-size: 20px; font-weight: 700; letter-spacing: -0.025em; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px; }
-.rag-subtitle { font-size: 10px; font-family: monospace; color: #6b7280; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px; }
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 14px; height: 100%; overflow: hidden; }
 
-.rag-header-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
-.rag-label-desktop { font-size: 12px; font-family: monospace; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; display: none; }
-@media (min-width: 640px) { .rag-label-desktop { display: block; } }
+/* Control Bar */
+.control-bar { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-radius: 16px; flex-shrink: 0; }
+.control-left { display: flex; align-items: center; gap: 16px; }
+.glow-icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(244,63,94,0.15); border: 1px solid rgba(244,63,94,0.4); color: #f43f5e; display: grid; place-items: center; font-weight: bold; font-size: 18px; box-shadow: 0 0 15px rgba(244,63,94,0.2); }
+.company-name { margin: 0; font-size: 20px; font-weight: 600; }
+.text-gradient { background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(to right, #f43f5e, #fb923c); }
+.inline-context { display: flex; align-items: center; gap: 16px; }
+.inline-field { display: flex; align-items: center; gap: 8px; }
+.subtle-label { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+.glass-select { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); min-height: 36px; padding: 0 12px; border-radius: 8px; color: #fff; }
+.glass-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); min-height: 36px; padding: 0 12px; border-radius: 8px; color: #fff; width: 100px; outline: none; }
 
-.rag-select { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 8px 16px; border-radius: 6px; outline: none; font-size: 14px; transition: border 0.2s; }
-.rag-select:focus { border-color: rgba(244, 63, 94, 0.5); }
-.rag-select-small { width: 96px; }
-.rag-option { background: #000; }
+/* Scenario Bar */
+.scenario-bar { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-radius: 12px; flex-shrink: 0; }
+.scenario-icon { width: 36px; height: 36px; border-radius: 50%; background: rgba(244,63,94,0.1); border: 1px solid rgba(244,63,94,0.2); display: flex; align-items: center; justify-content: center; color: #f43f5e; flex-shrink: 0; }
+.scenario-input { flex: 1; background: transparent; border: none; font-size: 15px; color: #fff; outline: none; font-weight: 500; }
+.scenario-input::placeholder { color: var(--muted); }
+.scenario-input:disabled { opacity: 0.5; }
+.severity-badge { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; flex-shrink: 0; }
+.tone-risk { background: rgba(244,63,94,0.15); color: #f43f5e; border: 1px solid rgba(244,63,94,0.3); }
+.tone-warning { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+.tone-safe { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+.scenario-btn { min-height: 36px; padding: 0 16px; border-radius: 8px; font-size: 13px; flex-shrink: 0; }
 
-/* Content Wrapper */
-.rag-content { flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 24px 32px; }
-.rag-error-margin { margin-bottom: 16px; }
+/* Presets */
+.preset-row { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.preset-pill { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--muted); padding: 6px 14px; border-radius: 99px; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+.preset-pill:hover { background: rgba(244,63,94,0.1); border-color: rgba(244,63,94,0.3); color: #fb7185; }
 
-/* Preset Buttons */
-.rag-preset-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 8px; }
-.rag-preset-btn {
-  background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9ca3af;
-  padding: 6px 14px; border-radius: 99px; font-size: 12px; font-family: 'JetBrains Mono', monospace;
-  cursor: pointer; transition: all 0.2s; backdrop-filter: blur(8px);
-}
-.rag-preset-btn:hover { background: rgba(244, 63, 94, 0.1); border-color: rgba(244, 63, 94, 0.3); color: #fb7185; }
+.state-container { flex: 1; }
 
-/* Search Box (Rose variant) */
-.rag-search-box { 
-  display: flex; align-items: center; gap: 20px; padding: 16px 24px; 
-  background: rgba(15, 15, 20, 0.8); border: 1px solid rgba(255,255,255,0.06); 
-  border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  backdrop-filter: blur(20px); z-index: 10;
-}
-.rag-sb-icon { 
-  width: 40px; height: 40px; border-radius: 50%; background: rgba(244, 63, 94, 0.1); 
-  display: flex; align-items: center; justify-content: center; color: #fb7185; flex-shrink: 0;
-  border: 1px solid rgba(244, 63, 94, 0.2);
-}
-.rag-sb-icon-svg { width: 18px; height: 18px; }
-.rag-sb-input-area { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.rag-sb-input { 
-  background: transparent; border: none; font-size: 16px; color: #fff; width: 100%; 
-  font-weight: 500; outline: none;
-}
-.rag-sb-input::placeholder { color: #4b5563; }
-.rag-sb-input:focus { outline: none; }
-.rag-sb-sub { font-size: 12px; color: #6b7280; font-family: monospace; }
-.rag-pulse-text { color: #f43f5e; margin-left: 8px; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+/* Content Grid */
+.content-grid { display: grid; grid-template-columns: 1fr 320px; gap: 14px; flex: 1; min-height: 0; }
+.left-col { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; }
+.left-col::-webkit-scrollbar { width: 4px; }
+.left-col::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.right-col { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 
-.rag-sb-stats { 
-  display: flex; align-items: center; padding: 6px 12px; background: rgba(0,0,0,0.4); 
-  border: 1px solid rgba(244, 63, 94, 0.2); border-radius: 6px; color: #fda4af; 
-  font-size: 11px; font-family: monospace; flex-shrink: 0;
-}
-.rag-sb-stats-icon { width: 14px; height: 14px; margin-right: 6px; }
-.rag-tone-risk { color: #f43f5e; }
-.rag-tone-safe { color: #10b981; }
+.panel-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.muted { color: var(--muted); }
 
-/* Canvas Area */
-.rag-canvas-container { 
-  position: relative; flex: 1; min-height: 500px;
-  background: radial-gradient(circle at 10% 90%, rgba(244, 63, 94, 0.05) 0%, rgba(0,0,0,0) 60%), #040404; 
-  border: 1px solid rgba(255,255,255,0.03); border-radius: 12px; overflow: hidden;
-  display: flex; gap: 24px; padding: 24px;
-}
-.rag-main-col { flex: 1; display: flex; flex-direction: column; gap: 24px; position: relative; z-index: 10; }
-.rag-side-col { width: 320px; display: flex; flex-direction: column; gap: 16px; border-left: 1px solid rgba(255,255,255,0.05); padding-left: 24px; position: relative; z-index: 10; }
+/* Matrix */
+.matrix-panel { padding: 20px; border-radius: 16px; flex-shrink: 0; }
+.matrix-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.matrix-node { position: relative; background: rgba(39,39,42,0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px; transition: all 0.3s; }
+.matrix-node:hover { transform: translateY(-3px); }
+.matrix-node.is-active { background: rgba(127,29,29,0.2); border-color: rgba(244,63,94,0.3); box-shadow: 0 0 24px rgba(244,63,94,0.12); }
+.node-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.node-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.3); flex-shrink: 0; }
+.is-active .node-dot { background: #f43f5e; box-shadow: 0 0 6px #f43f5e; }
+.node-stage { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.node-arrow { margin-left: auto; color: rgba(255,255,255,0.15); font-size: 14px; }
+.node-headline { font-size: 14px; font-weight: 600; color: #f3f4f6; line-height: 1.4; }
+.node-score { font-size: 26px; font-family: 'JetBrains Mono', monospace; font-weight: 300; color: #fb7185; }
+.node-label { font-size: 12px; }
 
-.rag-section-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px; }
-.rag-section-title { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: 0.1em; text-transform: uppercase; }
-.rag-spacer { flex: 1; }
+/* Chart */
+.chart-panel { padding: 16px; border-radius: 16px; flex-shrink: 0; min-height: 220px; display: flex; flex-direction: column; }
+:deep(.chart-panel-inner) { flex: 1; min-height: 0; }
 
-/* Transmission Nodes */
-.rag-transmission-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; min-height: 192px; }
-.rag-transmission-node {
-  position: relative; background: rgba(39, 39, 42, 0.3); backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,0.05); border-radius: 16px;
-  padding: 24px; display: flex; flex-direction: column; justify-content: flex-start;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.rag-transmission-node:hover { transform: translateY(-5px); background: rgba(255,255,255,0.04); }
-.rag-transmission-node.is-active {
-  background: rgba(127, 29, 29, 0.2); border-color: rgba(239, 68, 68, 0.3);
-  box-shadow: 0 0 30px rgba(244, 63, 94, 0.15);
-}
+/* Propagation Chain */
+.chain-panel { padding: 20px; border-radius: 16px; flex-shrink: 0; }
+.chain-list { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.chain-item { padding: 8px 14px; border-radius: 6px; background: rgba(127,29,29,0.1); border: 1px solid rgba(244,63,94,0.12); display: flex; align-items: center; gap: 8px; transition: all 0.3s; }
+.chain-item.is-active { background: rgba(127,29,29,0.25); border-color: rgba(244,63,94,0.35); box-shadow: 0 0 14px rgba(244,63,94,0.12); }
+.chain-num { font-size: 11px; color: rgba(244,63,94,0.7); font-family: 'JetBrains Mono', monospace; }
+.chain-title { font-size: 13px; color: #e5e7eb; white-space: nowrap; }
+.chain-sep { color: rgba(255,255,255,0.15); font-size: 14px; }
 
-.node-stage-badge { 
-  align-self: flex-start; font-size: 11px; font-family: monospace; font-weight: 500;
-  text-transform: uppercase; letter-spacing: 1px; padding: 6px 12px; border-radius: 99px; 
-  background: rgba(255,255,255,0.05); color: #9ca3af; margin-bottom: 12px;
-  display: flex; align-items: center; gap: 6px;
-}
-.node-stage-dot { width: 6px; height: 6px; border-radius: 50%; background: #9ca3af; }
-.is-active .node-stage-badge { background: rgba(244, 63, 94, 0.2); color: #fda4af; }
-.is-active .node-stage-dot { background: #fda4af; box-shadow: 0 0 8px #fda4af; }
+/* Empty */
+.empty-panel { display: grid; place-items: center; flex: 1; border-radius: 16px; }
+.empty-content { text-align: center; }
+.text-gradient { background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(to right, #f43f5e, #fb923c); }
+.mb-2 { margin-bottom: 8px; }
 
-.node-headline { font-size: 16px; font-weight: bold; color: #f3f4f6; margin-bottom: auto; line-height: 1.4; }
-.node-impact-score { font-size: 28px; font-family: 'JetBrains Mono'; font-weight: 300; color: #fb7185; margin: 16px 0 4px; }
-.node-impact-label { font-size: 13px; color: #9ca3af; }
+/* Simulation Stream */
+.stream-panel { flex: 1; padding: 20px; border-radius: 16px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
 
-.node-connector {
-  position: absolute; right: -28px; top: 50%; transform: translateY(-50%);
-  width: 32px; height: 32px; color: rgba(255,255,255,0.1);
-}
-.is-active .node-connector { color: rgba(244, 63, 94, 0.5); animation: pulse 2s infinite; }
+.wavefront-card { background: linear-gradient(135deg, rgba(244,63,94,0.08), rgba(0,0,0,0.3)); border: 1px solid rgba(244,63,94,0.2); border-radius: 12px; padding: 14px; flex-shrink: 0; }
+.wavefront-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.wavefront-lbl { font-size: 11px; color: #fb7185; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+.wavefront-badge { font-size: 10px; background: rgba(244,63,94,0.15); color: #fda4af; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(244,63,94,0.25); }
+.wavefront-title { font-size: 14px; font-weight: 600; color: #fff; margin: 0 0 6px; line-height: 1.4; }
+.wavefront-desc { font-size: 12px; margin: 0; line-height: 1.5; }
+.meter-box { margin-top: 12px; }
+.meter-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; }
+.meter-val { color: #fb7185; font-weight: 700; }
+.meter-track { height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; }
+.meter-fill { height: 100%; background: #f43f5e; box-shadow: 0 0 8px #f43f5e; transition: width 0.5s ease; }
 
-/* Chart Wrapper */
-.rag-chart-wrapper { background: rgba(0,0,0,0.4); border-radius: 12px; padding: 16px; border: 1px solid rgba(255,255,255,0.03); flex: 1; min-height: 250px; display: flex; }
+.log-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.log-list::-webkit-scrollbar { width: 4px; }
+.log-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.log-item { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); transition: all 0.3s; }
+.log-item.is-active { border-color: rgba(244,63,94,0.3); background: rgba(244,63,94,0.05); }
+.log-num { width: 24px; height: 24px; border-radius: 50%; background: rgba(244,63,94,0.1); border: 1px solid rgba(244,63,94,0.2); color: #fb7185; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.log-body { display: flex; flex-direction: column; gap: 3px; }
+.log-title { font-size: 13px; color: #fff; }
+.log-desc { font-size: 12px; margin: 0; line-height: 1.5; }
 
-/* Ribbon */
-.rag-inference-ribbon { background: rgba(10, 10, 12, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 16px 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.8); z-index: 5; }
-.rag-ribbon-title { font-size: 13px; font-family: monospace; color: #fb7185; margin-bottom: 16px; letter-spacing: 0.05em; font-weight: bold; }
-.rag-ribbon-list { display: flex; align-items: stretch; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
-.rag-path-item {
-  position: relative;
-  padding: 10px 16px; border-radius: 6px; background: rgba(153, 27, 27, 0.1); 
-  border: 1px solid rgba(244, 63, 94, 0.15); font-size: 13px; white-space: nowrap;
-  display: flex; flex-direction: column; gap: 4px; transition: all 0.3s ease;
-}
-.rag-path-item-main { color: #e5e7eb; font-weight: 500; display: flex; align-items: center; gap: 8px;}
-.rag-path-number { opacity: 0.5; color: #fb7185; }
-.rag-path-arrow { display: flex; align-items: center; color: #4b5563; font-weight: 300; font-size: 18px; padding: 0 4px; }
-
-.rag-path-item.is-active { background: rgba(153, 27, 27, 0.25); border-color: rgba(244, 63, 94, 0.4); box-shadow: 0 0 20px rgba(244, 63, 94, 0.15); }
-.rag-path-item.is-active::after {
-  content: ''; position: absolute; bottom: -1px; left: 0; height: 3px; width: 100%;
-  background: #f43f5e; border-radius: 0 0 6px 6px;
-  box-shadow: 0 -2px 10px rgba(244, 63, 94, 0.5);
-}
-
-/* Simulation Side Stream */
-.rag-side-title { font-size: 12px; font-family: monospace; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.1em; }
-.rag-log-active-frame { background: linear-gradient(135deg, rgba(244, 63, 94, 0.1) 0%, rgba(0,0,0,0.4) 100%); border: 1px solid rgba(244, 63, 94, 0.2); border-radius: 12px; padding: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); backdrop-filter: blur(8px); }
-.rag-frame-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.rag-frame-lbl { color: #fb7185; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
-.rag-frame-badge { font-size: 10px; background: rgba(244, 63, 94, 0.2); color: #fda4af; padding: 0 8px; border-radius: 4px; font-family: monospace; border: 1px solid rgba(244, 63, 94, 0.3); line-height: 18px; }
-.rag-frame-title { color: #fff; font-size: 14px; font-weight: 500; margin: 0 0 4px; line-height: 1.3; }
-.rag-frame-desc { color: #9ca3af; font-size: 12px; margin: 0; line-height: 1.5; }
-.rag-frame-meter-box { margin-top: 16px; background: rgba(0,0,0,0.5); border-radius: 4px; padding: 8px; border: 1px solid rgba(255,255,255,0.05); }
-.rag-meter-lbl { display: flex; justify-content: space-between; font-size: 10px; font-family: monospace; color: #6b7280; margin-bottom: 4px; }
-.rag-meter-val { color: #fb7185; }
-.rag-meter-track { height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; }
-.rag-meter-fill { height: 100%; background: #f43f5e; box-shadow: 0 0 8px #f43f5e; transition: width 0.5s ease; }
-
-.rag-log-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 8px; }
-.rag-log-item { padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.3); transition: all 0.3s ease; backdrop-filter: blur(4px); }
-.rag-log-item.is-active { border-color: rgba(244, 63, 94, 0.3); background: rgba(244, 63, 94, 0.05); }
-.rag-log-item-title { font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-.rag-log-item-num { color: rgba(244, 63, 94, 0.7); margin-right: 4px; }
-.rag-log-item-desc { font-size: 12px; color: #6b7280; }
-
-/* Utilities */
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
-.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.empty-stream { text-align: center; padding: 32px; font-size: 13px; }
 </style>
