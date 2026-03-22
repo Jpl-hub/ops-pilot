@@ -1,90 +1,127 @@
 # OpsPilot-X
 
-OpsPilot-X 是一个面向新能源上市公司的运营分析系统，当前已接入真实官方数据，覆盖 50 家正式公司，支持企业评分、行业风险扫描、公式解释和证据追溯。
+**智能体赋能的新能源企业运营分析与决策支持系统**
+
+OpsPilot-X 面向新能源上市公司，提供企业评分、行业风险扫描、研报观点核验、同业对标、智能问答与证据追溯等核心能力。系统采用半开放式 LLM Orchestrator + 真实工具调用 + Hybrid RAG 架构，实现"可信分析、可追溯证据、可复算数值"的决策支持。
 
 ## 快速启动
 
+### 环境要求
+
+- Python `3.11`
+- Node.js `20+`
+- PostgreSQL `16` + pgvector
+
 ### 本地启动
 
-要求：Python `3.11`、Node.js `20+`
-
 ```bash
-pip install -r requirements.txt
+# 1. 安装后端
 pip install -e .
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env，填入 OPS_PILOT_OPENAI_API_KEY 等
+
+# 3. 启动后端 API
+ops-pilot-api
+
+# 4. 启动前端（另一个终端）
 cd frontend
 npm install
-cd ..
-ops-pilot-api
-ops-pilot-ui
+npm run dev
 ```
 
 - API 默认地址：`http://127.0.0.1:8000`
-- UI 默认地址：`http://127.0.0.1:8080`
-- `ops-pilot-ui` 当前会直接启动 `frontend/` 下的 Vue 3 + Vite 前端
+- 前端默认地址：`http://127.0.0.1:8080`
 - 登录/注册依赖 `OPS_PILOT_POSTGRES_DSN` 指向可用数据库
-
-如果 `8000` 或 `8080` 被占用，先停止旧进程或执行：
-
-```bash
-docker compose stop api ui
-```
 
 ### Docker 启动
 
 ```bash
+# 编辑 .env 填入 OPS_PILOT_OPENAI_API_KEY
 docker compose up --build
 ```
 
 - API：`http://127.0.0.1:8000`
-- UI：`http://127.0.0.1:8080`
+- 前端：`http://127.0.0.1:8080`
 - PostgreSQL：`127.0.0.1:5432`
 
 ## 配置
 
-示例环境变量见 `.env.example`。当前常用配置如下：
+示例环境变量见 `.env.example`。关键配置项：
 
-```env
-OPS_PILOT_ENV=development
-OPS_PILOT_HOST=0.0.0.0
-OPS_PILOT_PORT=8000
-OPS_PILOT_DEFAULT_PERIOD=2025Q3
-OPS_PILOT_SAMPLE_DATA_PATH=data/bootstrap
-OPS_PILOT_OFFICIAL_DATA_PATH=data/raw/official
-OPS_PILOT_BRONZE_DATA_PATH=data/bronze/official
-OPS_PILOT_SILVER_DATA_PATH=data/silver/official
-OPS_PILOT_POSTGRES_DSN=postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot
-```
+| 变量名 | 说明 | 示例 |
+|--------|------|------|
+| `OPS_PILOT_OPENAI_API_KEY` | OpenAI API Key（必填） | `sk-xxx` |
+| `OPS_PILOT_OPENAI_BASE_URL` | API 端点 | `https://api.openai.com/v1` |
+| `OPS_PILOT_POSTGRES_DSN` | 数据库连接 | `postgresql+psycopg://...` |
+| `OPS_PILOT_DEFAULT_PERIOD` | 默认分析报期 | `2025Q3` |
 
 ## 数据流水线
 
 ```bash
+# 官方财报 & 研报抓取
 ops-pilot-fetch-real-data --codes 601012,002129,300750,300014,300274,002202
-ops-pilot-parse-official-reports --codes 601012,002129,300750,300014,300274,002202
-ops-pilot-build-silver-metrics --codes 601012,002129,300750,300014,300274,002202
+
+# PDF 解析 → bronze chunks
+ops-pilot-parse-official-reports --codes 601012,002129,300750
+
+# 结构化指标提取 → silver metrics
+ops-pilot-build-silver-metrics --codes 601012,002129,300750
 ```
 
-关键目录：
+数据目录结构：
 
-- `data/raw/official/`：交易所 PDF 与研报原始文件
-- `data/bronze/official/`：页级文本和 chunk
-- `data/silver/official/manifests/financial_metrics_manifest.json`：结构化指标产物
+```
+data/
+├── bootstrap/          # 联调样本数据
+├── raw/official/       # 原始 PDF & 研报
+├── bronze/official/    # 页级文本 & chunk
+├── silver/official/    # 结构化财务指标
+└── universe/           # 正式公司池
+```
 
-## 当前能力
+## 系统能力
 
-- 企业评分：`/api/v1/company/score`
-- 行业风险扫描：`/api/v1/industry/risk-scan`
-- 研报观点核验：`/api/v1/claim/verify`
-- 机构观点轨迹：`/api/v1/company/research-timeline`
-- 问答入口：`/api/v1/chat/turn`
-- 登录注册：`/api/v1/auth/register`、`/api/v1/auth/login`
-- 证据查看：`/api/v1/evidence/{chunk_id}`
-- 当前正式数据规模：`50` 家公司，`154` 份定期报告 PDF，`96` 份研报详情页，`28` 份巨潮官方快照，`365` 条 silver 指标记录
-- 真实指标已覆盖：`G1 / G2 / G3 / P1 / P2 / P3 / P4 / P5 / C1 / C2 / C3 / S1 / S2 / S3 / S4 / I1 / I2 / I3 / I4`
-- UI 已迁移到 Vue 3 工程化前端，当前主页面为登录注册、对话分析台、企业体检、行业风险、研报核验、证据查看与系统管理
+| 功能 | API 路径 | 说明 |
+|------|----------|------|
+| 智能问答 | `/api/v1/chat/turn` | LLM Orchestrator + 真实工具调用 |
+| 企业评分 | `/api/v1/company/score` | 五维评分体系（19 项指标） |
+| 同业对标 | `/api/v1/company/benchmark` | 子行业分位排名 |
+| 行业风险扫描 | `/api/v1/industry/risk-scan` | 批量风险/机会标签 |
+| 研报观点核验 | `/api/v1/claim/verify` | 研报断言 vs 官方财报核验 |
+| 压力测试 | `/api/v1/company/stress-test` | 极端场景传导模拟 |
+| 证据查看 | `/api/v1/evidence/{chunk_id}` | 原文溯源 & 页码定位 |
+
+覆盖指标：`G1-G3 / P1-P5 / C1-C3 / S1-S4 / I1-I4`（共 19 项）
+
+## 技术架构
+
+```
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│   Vue 3 UI   │───▶│  FastAPI API  │───▶│  PostgreSQL  │
+│  Vite + TS   │    │  + Uvicorn   │    │  + pgvector  │
+└──────────────┘    └──────┬───────┘    └──────────────┘
+                           │
+                    ┌──────▼───────┐
+                    │ LLM Orch.    │
+                    │ gpt-4o-mini  │
+                    │ Tool Calling │
+                    │ Hybrid RAG   │
+                    └──────────────┘
+```
+
+- **Agent 架构**：半开放式 Orchestrator，确定性前处理 + 受限 LLM 工具选择
+- **检索架构**：BM25 + Dense ANN → RRF 融合 → LLM Reranker
+- **评分引擎**：同子行业分位映射 + 事件规则触发 + 缺失值权重重分配
 
 ## 开发验证
 
 ```bash
-python -m unittest discover -s tests -t .
+python -m pytest tests/ -v
 python -m compileall src
 ```
+
+## License
+
+MIT

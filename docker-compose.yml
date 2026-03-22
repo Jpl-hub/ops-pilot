@@ -32,7 +32,7 @@ services:
       OPS_PILOT_BRONZE_DATA_PATH: data/bronze/official
       OPS_PILOT_SILVER_DATA_PATH: data/silver/official
       OPS_PILOT_POSTGRES_DSN: postgresql+psycopg://ops_pilot:ops_pilot@postgres:5432/ops_pilot
-      OPS_PILOT_OPENAI_API_KEY: ${OPS_PILOT_OPENAI_API_KEY:-sk-2FfVSZCxiQ83HM0dhrx3w7DOoySKQuvaF8oKbrYBpLTUw569}
+      OPS_PILOT_OPENAI_API_KEY: ${OPS_PILOT_OPENAI_API_KEY:-}
       OPS_PILOT_OPENAI_BASE_URL: ${OPS_PILOT_OPENAI_BASE_URL:-https://api.openai-proxy.org/v1}
       PYTHONPATH: /app/src
     volumes:

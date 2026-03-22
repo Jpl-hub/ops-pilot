@@ -19,6 +19,9 @@ dist/
 
 .idea/
 .vscode/
+.claude/
+.trae/
+.gemini/
 
 *.egg-info/
 build/
@@ -31,3 +34,9 @@ data/bronze/official/chunks/
 data/bronze/official/page_text/
 
 *.log
+*.pdf
+ops-x*
+saiti*.txt
+api_logs.txt
+test_api.py
+OpsPilot_*.md

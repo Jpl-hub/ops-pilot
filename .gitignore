@@ -35,12 +35,20 @@ api_logs.txt
 test_api.py
 *.log
 
-# internal tool configs
+# internal tool / IDE configs
 .claude/
 .gemini/
+.trae/
 .idea/
 .vscode/
 
-# redundant submodule
-# ops-pilot/ (only if not intended)
+# stale submodule dirs
+ops-x
+ops-x-ref
+ops-x-reference
+ops-pilot/
 
+# competition / internal docs (不进仓库)
+赛题*.pdf
+OpsPilot_*.md
+*.pdf
