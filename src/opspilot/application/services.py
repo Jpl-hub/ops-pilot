@@ -5773,36 +5773,36 @@ def _describe_graph_focus_node(node: dict[str, Any], workspace: dict[str, Any]) 
 
 
 def _classify_intent(intent: str) -> str:
-    “””Classify intent into a primary dimension for varied path generation.”””
-    price_kw = [“价格”, “成本”, “涨价”, “跌价”, “碳酸锂”, “锂”, “铜”, “原材料”]
-    risk_kw = [“风险”, “断供”, “停产”, “下滑”, “压力”, “危机”]
-    growth_kw = [“增长”, “营收”, “市场”, “扩张”, “需求”, “份额”]
-    cash_kw = [“现金”, “流动”, “偿债”, “应收”, “账期”, “融资”]
-    supply_kw = [“供应链”, “上游”, “下游”, “传导”, “产业链”]
+    """Classify intent into a primary dimension for varied path generation."""
+    price_kw = ["价格", "成本", "涨价", "跌价", "碳酸锂", "锂", "铜", "原材料"]
+    risk_kw = ["风险", "断供", "停产", "下滑", "压力", "危机"]
+    growth_kw = ["增长", "营收", "市场", "扩张", "需求", "份额"]
+    cash_kw = ["现金", "流动", "偿债", "应收", "账期", "融资"]
+    supply_kw = ["供应链", "上游", "下游", "传导", "产业链"]
     for kw in price_kw:
         if kw in intent:
-            return “price”
+            return "price"
     for kw in cash_kw:
         if kw in intent:
-            return “cash”
+            return "cash"
     for kw in growth_kw:
         if kw in intent:
-            return “growth”
+            return "growth"
     for kw in supply_kw:
         if kw in intent:
-            return “supply”
+            return "supply"
     for kw in risk_kw:
         if kw in intent:
-            return “risk”
-    return “risk”
+            return "risk"
+    return "risk"
 
 
 _INTENT_DIMENSION_DESC = {
-    “price”: (“成本传导维度”, “识别关键原材料价格波动对毛利率的压缩路径。”),
-    “cash”: (“现金流维度”, “追踪应收账款、库存占用对经营性现金流净额的拖拽。”),
-    “growth”: (“成长性维度”, “评估营收增速驱动力与市场份额变化的可持续性。”),
-    “supply”: (“供应链维度”, “上游集中度与下游议价能力对利润的双向挤压效应。”),
-    “risk”: (“风险暴露维度”, “聚焦已命中的风险标签，建立从识别到行动的闭环。”),
+    "price": ("成本传导维度", "识别关键原材料价格波动对毛利率的压缩路径。"),
+    "cash": ("现金流维度", "追踪应收账款、库存占用对经营性现金流净额的拖拽。"),
+    "growth": ("成长性维度", "评估营收增速驱动力与市场份额变化的可持续性。"),
+    "supply": ("供应链维度", "上游集中度与下游议价能力对利润的双向挤压效应。"),
+    "risk": ("风险暴露维度", "聚焦已命中的风险标签，建立从识别到行动的闭环。"),
 }
 
 
@@ -5815,36 +5815,36 @@ def _build_graph_query_inference_path(
     workspace: dict[str, Any],
 ) -> list[dict[str, Any]]:
     dim = _classify_intent(intent)
-    dim_title, dim_detail = _INTENT_DIMENSION_DESC.get(dim, _INTENT_DIMENSION_DESC[“risk”])
-    score = workspace.get(“score_summary”, {})
+    dim_title, dim_detail = _INTENT_DIMENSION_DESC.get(dim, _INTENT_DIMENSION_DESC["risk"])
+    score = workspace.get("score_summary", {})
     steps: list[dict[str, Any]] = [
         {
-            “step”: 1,
-            “title”: company_name,
-            “detail”: f”{report_period} | 总分 {score.get('total_score', '-')} / 等级 {score.get('grade', '-')}。”,
-            “type”: “company”,
+            "step": 1,
+            "title": company_name,
+            "detail": f"{report_period} | 总分 {score.get('total_score', '-')} / 等级 {score.get('grade', '-')}。",
+            "type": "company",
         },
         {
-            “step”: 2,
-            “title”: dim_title,
-            “detail”: dim_detail,
-            “type”: “intent”,
+            "step": 2,
+            "title": dim_title,
+            "detail": dim_detail,
+            "type": "intent",
         },
     ]
     for index, node in enumerate(focal_nodes[:3], start=3):
         steps.append(
             {
-                “step”: index,
-                “title”: node[“label”],
-                “detail”: _describe_graph_focus_node(node, workspace),
-                “type”: node.get(“type”),
+                "step": index,
+                "title": node["label"],
+                "detail": _describe_graph_focus_node(node, workspace),
+                "type": node.get("type"),
             }
         )
     steps.append(
         {
-            “step”: len(steps) + 1,
-            “title”: “动作收口”,
-            “detail”: f”围绕”{intent}”把风险、任务、证据和执行流压成可操作结论。”,
+            "step": len(steps) + 1,
+            "title": "动作收口",
+            "detail": f"围绕「{intent}」把风险、任务、证据和执行流压成可操作结论。",
             "type": "action",
         }
     )
@@ -6424,7 +6424,7 @@ def _research_report_content_score(report: dict[str, Any]) -> tuple[int, int]:
 
 def _extract_research_rating(report_body: str, payload: dict[str, Any]) -> dict[str, str]:
     match = re.search(
-        r"(维持|上调至|上调为|下调至|下调为|首次覆盖给予|首次给予|给予)?[“\"]([^”\"，。]{2,8})[”\"]?评级",
+        r'(维持|上调至|上调为|下调至|下调为|首次覆盖给予|首次给予|给予)?[“”"]([^“”"，。]{2,8})[“”"]?评级',
         report_body,
     )
     if match and "投资" not in match.group(2):
