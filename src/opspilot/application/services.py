@@ -276,9 +276,9 @@ class OpsPilotService:
 
         execution_flash = [
             {
-                "title": item["title"],
-                "summary": item["type_label"],
-                "status": item["status_label"],
+                "title": item.get("title", "系统执行"),
+                "summary": item.get("type_label", item.get("type", "任务")),
+                "status": item.get("status_label", item.get("status", "完成")),
                 "route": item.get("route"),
             }
             for item in recent_records[:6]
@@ -289,8 +289,8 @@ class OpsPilotService:
                 "company_name": item["company_name"],
                 "subindustry": item["subindustry"],
                 "risk_count": item["risk_count"],
-                "headline": item["risk_labels"][0] if item["risk_labels"] else "继续跟踪",
-                "route": item["route"],
+                "headline": item["risk_labels"][0] if item.get("risk_labels") else "继续跟踪",
+                "route": item.get("route", {"path": "/score", "query": {"company": item["company_name"], "period": preferred_period}}),
             }
             for item in top_risk_companies[:4]
         ]

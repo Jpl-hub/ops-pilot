@@ -64,158 +64,353 @@ watch(
 <template>
   <AppShell
     title="行业风险与机会"
-    subtitle="先看主动预警，再下钻到公司体检和证据。"
+    subtitle="主动预警研判与全量高危追踪"
   >
-    <LoadingState v-if="state.loading.value" />
-    <ErrorState v-else-if="state.error.value" :message="state.error.value" />
-    <template v-else-if="state.data.value">
-      <section class="metrics-grid">
-        <StatCard label="覆盖公司" :value="String(state.data.value.risk_board.length)" hint="正式公司池" tone="accent" />
-        <StatCard label="高风险公司" :value="String(state.data.value.risk_board.filter((item: any) => item.risk_count > 0).length)" hint="风险标签命中数大于 0" tone="danger" />
-        <StatCard label="覆盖行业" :value="String(state.data.value.industry_research.key_numbers[0].value)" hint="行业研报" />
-        <StatCard label="行业研报" :value="String(state.data.value.industry_research.key_numbers[1].value)" hint="真实详情页" tone="success" />
+    <LoadingState v-if="state.loading.value" class="state-container" />
+    <ErrorState v-else-if="state.error.value" :message="state.error.value" class="state-container" />
+    
+    <div v-else-if="state.data.value" class="dashboard-wrapper">
+      
+      <!-- Top Metrics Strip -->
+      <section class="glass-panel metrics-strip">
+        <div class="metric-block">
+          <span class="mb-label">覆盖公司</span>
+          <strong class="mb-value text-gradient">{{ state.data.value.risk_board.length }}</strong>
+        </div>
+        <div class="metric-block">
+          <span class="mb-label">高风险公司</span>
+          <strong class="mb-value risk-text">{{ state.data.value.risk_board.filter((item: any) => item.risk_count > 0).length }}</strong>
+        </div>
+        <div class="metric-block">
+          <span class="mb-label">行业研究</span>
+          <strong class="mb-value">{{ state.data.value.industry_research.key_numbers[0].value }}</strong>
+        </div>
+        <div class="metric-block border-none">
+          <span class="mb-label">行业研报</span>
+          <strong class="mb-value text-accent">{{ state.data.value.industry_research.key_numbers[1].value }}</strong>
+        </div>
       </section>
 
-      <section>
-        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
-          <div>
-            <h3>主动预警</h3>
-            <p class="page-subtitle">识别本期风险抬升、营收转负或利润继续承压的公司。</p>
+      <!-- Main Split Layout -->
+      <div class="dashboard-grid">
+        
+        <!-- Left: Alerts List -->
+        <div class="dashboard-col glass-panel alerts-panel">
+          <div class="panel-header-sticky">
+            <h3 class="panel-sm-title m-0">主动预警</h3>
+            <div class="segmented-control">
+              <button
+                class="segment-btn" :class="{ active: alertFilter === 'all' }"
+                @click="alertFilter = 'all'"
+              >全部</button>
+              <button
+                class="segment-btn" :class="{ active: alertFilter === 'delta' }"
+                @click="alertFilter = 'delta'"
+              >新增风险</button>
+            </div>
           </div>
-          <div class="hero-actions">
-            <button
-              class="button-secondary"
-              :class="{ 'is-active-toggle': alertFilter === 'all' }"
-              @click="alertFilter = 'all'"
-            >
-              全部预警
-            </button>
-            <button
-              class="button-secondary"
-              :class="{ 'is-active-toggle': alertFilter === 'delta' }"
-              @click="alertFilter = 'delta'"
-            >
-              只看新增风险
-            </button>
-          </div>
-        </div>
-
-        <div v-if="alertBoard.length" class="stack-grid">
-          <button
-            v-for="item in alertBoard"
-            :key="`${item.company_name}-${item.report_period}`"
-            type="button"
-            class="company-card interactive-card"
-            :class="{ 'is-active-card': selectedAlertCompany === item.company_name }"
-            @click="selectedAlertCompany = item.company_name"
-          >
-            <div class="signal-top">
-              <div>
-                <div class="signal-code">{{ item.subindustry }}</div>
-                <h4>{{ item.company_name }}</h4>
+          
+          <div class="alerts-scroll-view scroll-area">
+            <div v-if="alertBoard.length" class="alerts-list">
+              <div
+                v-for="item in alertBoard"
+                :key="`${item.company_name}-${item.report_period}`"
+                class="alert-card glass-panel-hover"
+                :class="{ 'is-active': selectedAlertCompany === item.company_name }"
+                @click="selectedAlertCompany = item.company_name"
+              >
+                <div class="ac-head">
+                  <span class="ac-code">{{ item.subindustry }}</span>
+                  <span class="ac-risk-count" :class="item.risk_delta > 0 ? 'risk-text' : 'muted'">{{ item.risk_count }}项</span>
+                </div>
+                <h4 class="ac-title">{{ item.company_name }}</h4>
+                <div class="ac-tags">
+                  <span v-if="item.risk_delta > 0" class="tag risk-tag">+{{ item.risk_delta }}风险</span>
+                  <span v-else class="tag subtle-tag">风险延续</span>
+                  <span class="tag subtle-tag">{{ item.report_period }}</span>
+                </div>
               </div>
-              <div class="signal-value">{{ item.risk_count }}</div>
             </div>
-            <p class="command-copy">{{ item.summary }}</p>
-            <div class="tag-row">
-              <TagPill :label="`${item.report_period}`" />
-              <TagPill
-                :label="item.risk_delta > 0 ? `较上期 +${item.risk_delta}` : '风险延续'"
-                :tone="item.risk_delta > 0 ? 'risk' : undefined"
-              />
-              <TagPill
-                v-for="label in item.new_labels"
-                :key="label"
-                :label="label"
-                tone="risk"
-              />
-            </div>
-          </button>
-        </div>
-        <div v-else class="analysis-answer">
-          <div class="analysis-copy">当前主周期没有识别到新的重点预警。</div>
-        </div>
-
-        <article v-if="selectedAlert" class="panel" style="margin-top: 24px;">
-          <div class="panel-header">
-            <div>
-              <div class="eyebrow">预警详情</div>
-              <h3>{{ selectedAlert.company_name }}</h3>
-            </div>
-            <div class="signal-subtitle">{{ selectedAlert.report_period }}</div>
+            <div v-else class="empty-state">当前无预警</div>
           </div>
-          <p class="analysis-copy" style="margin-bottom: 16px;">{{ selectedAlert.summary }}</p>
-          <div class="link-row">
-            <RouterLink
-              class="button-primary"
-              :to="`/score?company=${encodeURIComponent(selectedAlert.company_name)}&period=${encodeURIComponent(selectedAlert.report_period)}`"
-            >
-              查看当前体检
-            </RouterLink>
-            <RouterLink
-              v-if="selectedAlert.previous_period"
-              class="button-secondary"
-              :to="`/score?company=${encodeURIComponent(selectedAlert.company_name)}&period=${encodeURIComponent(selectedAlert.previous_period)}`"
-            >
-              对比上一期
-            </RouterLink>
-          </div>
-        </article>
-      </section>
-
-      <section class="chart-grid">
-        <ChartPanel v-for="chart in state.data.value.charts" :key="chart.title" :title="chart.title" :options="chart.options" />
-      </section>
-
-      <section>
-        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
-          <h3>行业风险名单</h3>
         </div>
-        <div class="company-grid">
-          <RouterLink
-            v-for="item in state.data.value.risk_board"
-            :key="item.company_name"
-            class="company-card interactive-card"
-            :to="`/score?company=${encodeURIComponent(item.company_name)}`"
-          >
-            <div class="signal-top">
-              <div>
-                <div class="signal-code">{{ item.subindustry }}</div>
-                <h4>{{ item.company_name }}</h4>
+
+        <!-- Right: Maps/Charts/Selected Detail -->
+        <div class="dashboard-col main-panel scroll-area">
+          
+          <!-- Selected Alert Details -->
+          <article v-if="selectedAlert" class="glass-panel selected-alert-panel mb-4">
+            <div class="sa-head">
+              <div class="sa-title-block">
+                <div class="eyebrow">预警分析</div>
+                <h3 class="sa-company text-gradient">{{ selectedAlert.company_name }}</h3>
+                <span class="sa-period">{{ selectedAlert.report_period }}</span>
               </div>
-              <div class="signal-value">{{ item.risk_count }}</div>
-            </div>
-            <div class="tag-row">
-              <TagPill v-if="item.risk_labels.length === 0" label="当前主周期无高风险标签" />
-              <TagPill v-for="label in item.risk_labels" v-else :key="label" :label="label" tone="risk" />
-            </div>
-          </RouterLink>
-        </div>
-      </section>
-
-      <section>
-        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
-          <h3>行业研报观察</h3>
-        </div>
-        <div class="stack-grid">
-          <article v-for="group in state.data.value.industry_research.groups" :key="group.industry_name" class="research-card">
-            <div class="signal-top">
-              <div>
-                <div class="signal-code">行业研报</div>
-                <h4>{{ group.industry_name }}</h4>
+              <div class="sa-actions">
+                <RouterLink
+                   class="button-primary glow-button"
+                   :to="`/score?company=${encodeURIComponent(selectedAlert.company_name)}&period=${encodeURIComponent(selectedAlert.report_period)}`"
+                >体检下钻</RouterLink>
+                <RouterLink
+                   v-if="selectedAlert.previous_period"
+                   class="button-secondary p-btn"
+                   :to="`/score?company=${encodeURIComponent(selectedAlert.company_name)}&period=${encodeURIComponent(selectedAlert.previous_period)}`"
+                >环比分析</RouterLink>
               </div>
-              <div class="signal-subtitle">{{ group.report_count }} 篇</div>
             </div>
-            <h5 class="research-title" style="margin-top: 16px;">{{ group.latest_report.title }}</h5>
-            <p class="evidence-excerpt">{{ group.latest_report.excerpt }}</p>
-            <div class="research-meta" style="margin: 16px 0;">
-              <span>{{ group.latest_report.source_name }}</span>
-              <span>{{ group.latest_report.publish_date }}</span>
+            <p class="sa-summary">{{ selectedAlert.summary }}</p>
+            <div v-if="selectedAlert.new_labels?.length" class="sa-new-labels mt-3">
+              <span class="eyebrow inline-mr">新增标签:</span>
+              <TagPill v-for="label in selectedAlert.new_labels" :key="label" :label="label" tone="risk" />
             </div>
-            <a class="button-secondary" :href="group.latest_report.source_url" target="_blank" rel="noreferrer" style="width: 100%">查看详情</a>
           </article>
+
+          <!-- Charts -->
+          <div class="charts-row mb-4">
+            <div v-for="chart in state.data.value.charts" :key="chart.title" class="glass-panel chart-container">
+              <ChartPanel :title="chart.title" :options="chart.options" />
+            </div>
+          </div>
+
+          <!-- Bottom Split -->
+          <div class="bottom-split">
+            <!-- Full Risk Board Grid -->
+            <div class="glass-panel flex-1 min-w-0 p-5 scroll-area" style="max-height: 400px;">
+              <h3 class="panel-sm-title mb-3">全量风险名单</h3>
+              <div class="company-grid-mini">
+                <RouterLink
+                  v-for="item in state.data.value.risk_board"
+                  :key="item.company_name"
+                  class="mini-company-card glass-panel-hover"
+                  :to="`/score?company=${encodeURIComponent(item.company_name)}`"
+                >
+                  <div class="mcc-head">
+                    <span class="mcc-title">{{ item.company_name }}</span>
+                    <span class="mcc-count" :class="item.risk_count > 0 ? 'risk-text' : 'muted'">{{ item.risk_count }}</span>
+                  </div>
+                  <div class="mcc-industry">{{ item.subindustry }}</div>
+                </RouterLink>
+              </div>
+            </div>
+
+            <!-- Reports List -->
+            <div class="glass-panel flex-1 min-w-0 p-5 scroll-area" style="max-height: 400px;">
+              <h3 class="panel-sm-title mb-3">行业研报观察</h3>
+              <div class="reports-list">
+                <article v-for="group in state.data.value.industry_research.groups" :key="group.industry_name" class="report-card glass-panel-hover">
+                  <div class="rc-head">
+                    <span class="rc-industry">{{ group.industry_name }}</span>
+                    <span class="rc-count">{{ group.report_count }}篇</span>
+                  </div>
+                  <h5 class="rc-title">{{ group.latest_report.title }}</h5>
+                  <div class="rc-meta">
+                    <span class="muted">{{ group.latest_report.source_name }}</span>
+                    <span class="muted">{{ group.latest_report.publish_date }}</span>
+                    <a :href="group.latest_report.source_url" target="_blank" class="rc-link text-accent">阅读全文</a>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+
         </div>
-      </section>
-    </template>
+      </div>
+    </div>
   </AppShell>
 </template>
+
+<style scoped>
+.dashboard-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 16px;
+}
+
+/* Metrics Strip */
+.metrics-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 16px 24px;
+  border-radius: 16px;
+  flex-shrink: 0;
+}
+.metric-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0 16px;
+}
+.metric-block.border-none { border-right: none; }
+.mb-label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: 'JetBrains Mono', monospace; }
+.mb-value { font-size: 28px; line-height: 1; font-weight: 600; }
+.text-accent { color: #10b981; }
+
+/* Dashboard Grid */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+.dashboard-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.scroll-area { overflow-y: auto; }
+.scroll-area::-webkit-scrollbar { width: 4px; }
+
+/* Alerts Panel */
+.alerts-panel {
+  border-radius: 20px;
+  overflow: hidden;
+}
+.panel-header-sticky {
+  position: sticky;
+  top: 0;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.m-0 { margin: 0; }
+
+.segmented-control {
+  display: flex;
+  background: rgba(0,0,0,0.3);
+  border-radius: 8px;
+  padding: 4px;
+}
+.segment-btn {
+  flex: 1;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 0;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.segment-btn.active {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.alerts-scroll-view {
+  flex: 1;
+  padding: 12px 20px 20px;
+}
+.alerts-list { display: flex; flex-direction: column; gap: 8px; }
+.alert-card {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.05);
+  cursor: pointer;
+  background: rgba(255,255,255,0.02);
+  transition: all 0.2s;
+}
+.alert-card.is-active {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.08);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.1);
+}
+.ac-head { display: flex; justify-content: space-between; font-size: 11px; font-family: 'JetBrains Mono', monospace; margin-bottom: 6px; }
+.ac-code { color: var(--muted); }
+.ac-risk-count { font-weight: bold; }
+.ac-title { margin: 0 0 10px; font-size: 15px; font-weight: 500; color: #fff; }
+.ac-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; }
+.risk-tag { background: rgba(244, 63, 94, 0.15); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.3); }
+.subtle-tag { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid rgba(255,255,255,0.1); }
+
+/* Main Panel Right side */
+.main-panel {
+  border-radius: 20px;
+  flex: 1;
+}
+
+/* Selected Alert */
+.selected-alert-panel {
+  padding: 24px;
+  border-radius: 20px;
+}
+.sa-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.sa-title-block { display: flex; flex-direction: column; gap: 6px; }
+.sa-company { margin: 0; font-size: 24px; font-weight: 600; }
+.sa-period { font-size: 13px; color: var(--muted); }
+.sa-actions { display: flex; gap: 8px; }
+.glow-button { box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
+.p-btn { padding: 0 12px; height: 40px; }
+.sa-summary { margin: 0; font-size: 14px; line-height: 1.6; color: #cbd5e1; }
+.inline-mr { margin-right: 8px; font-size: 12px; }
+
+/* Charts */
+.charts-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  height: 380px;
+  flex-shrink: 0;
+}
+.mb-4 { margin-bottom: 16px; }
+.mt-3 { margin-top: 12px; }
+.p-5 { padding: 20px; }
+.chart-container {
+  border-radius: 20px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+:deep(.chart-panel) { padding: 0; flex: 1; display: flex; flex-direction: column; background: transparent !important; border: none !important; }
+:deep(.chart-root) { flex: 1; height: auto !important; }
+
+/* Bottom Splits */
+.bottom-split {
+  display: flex;
+  gap: 16px;
+  flex-shrink: 0;
+}
+.company-grid-mini {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.mini-company-card {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-decoration: none;
+}
+.mcc-head { display: flex; justify-content: space-between; align-items: center; }
+.mcc-title { font-size: 14px; font-weight: 500; color: #fff; }
+.mcc-industry { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+.reports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.report-card {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.rc-head { display: flex; justify-content: space-between; font-size: 12px; font-family: 'JetBrains Mono', monospace; margin-bottom: 8px;}
+.rc-industry { color: #818cf8; background: rgba(129, 140, 248, 0.1); padding: 2px 6px; border-radius: 4px; }
+.rc-count { color: var(--muted); }
+.rc-title { margin: 0 0 12px; font-size: 15px; font-weight: 500; color: #fff; line-height: 1.4; }
+.rc-meta { display: flex; justify-content: space-between; font-size: 12px; align-items: center; }
+.rc-link { text-decoration: none; font-weight: 500; }
+</style>

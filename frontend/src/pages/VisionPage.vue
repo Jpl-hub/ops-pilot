@@ -81,8 +81,8 @@ watch(selectedPeriod, async () => {
       :message="String(overviewState.error.value || visionState.error.value)"
     />
     <template v-else>
-      <section class="mode-stage vision-mode-stage">
-        <article class="panel mode-main-panel vision-main-panel">
+      <section class="mode-stage vision-mode-stage" style="height: auto; min-height: 800px;">
+        <article class="glass-panel mode-main-panel vision-main-panel">
           <div class="mode-query-panel">
             <div class="vision-drop-icon">⇪</div>
             <div class="mode-query-copy">

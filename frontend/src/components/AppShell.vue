@@ -53,7 +53,10 @@ async function logout() {
 
 <template>
   <div class="shell shell-layout">
-    <aside class="shell-sidebar">
+    <div class="absolute-bg shell-bg-pattern" style="position: absolute; inset: 0; pointer-events: none; z-index: 0;"></div>
+    <div class="absolute-bg shell-bg-glow" style="position: absolute; inset: 0; pointer-events: none; z-index: 0;"></div>
+
+    <aside class="shell-sidebar glass-panel">
       <RouterLink class="brand-lockup" to="/">
         <div class="brand-icon">◎</div>
         <div class="brand-copy">
@@ -128,7 +131,7 @@ async function logout() {
       </div>
     </aside>
     <main class="shell-main">
-      <header class="page-header">
+      <header class="page-header" style="padding: 24px 24px 0; flex-shrink: 0;">
         <div v-if="title || subtitle" class="page-copy" :class="{ compact }">
           <div class="page-context">
             <div v-if="title && subtitle" class="eyebrow">{{ title }}</div>
@@ -136,7 +139,9 @@ async function logout() {
           </div>
         </div>
       </header>
-      <slot />
+      <div class="page-content" style="flex: 1; padding: 16px 24px 24px; overflow-y: auto; min-height: 0;">
+        <slot />
+      </div>
     </main>
   </div>
 </template>

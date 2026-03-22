@@ -5,7 +5,6 @@ import { useRoute, RouterLink } from 'vue-router'
 import AppShell from '@/components/AppShell.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
-import StatCard from '@/components/StatCard.vue'
 import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
@@ -47,241 +46,352 @@ async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_tr
 </script>
 
 <template>
-  <AppShell
-    title="管理台"
-    subtitle="查看覆盖缺口与文档解析作业"
-    compact
-  >
-    <LoadingState v-if="state.loading.value" />
-    <ErrorState v-else-if="state.error.value" :message="state.error.value" />
-    <template v-else-if="state.data.value">
-      <section class="metrics-grid">
-        <StatCard label="运行状态" :value="state.data.value.health.status" :hint="state.data.value.health.env" tone="success" />
-        <StatCard label="主周期" :value="state.data.value.health.preferred_period" :hint="`公司 ${state.data.value.health.companies} 家`" />
-        <StatCard label="原始报告" :value="String(state.data.value.data_status.periodic_reports.record_count)" :hint="`公司 ${state.data.value.data_status.periodic_reports.company_count} 家`" />
-        <StatCard label="结构化指标" :value="String(state.data.value.data_status.silver_financial_metrics.record_count)" :hint="`公司 ${state.data.value.data_status.silver_financial_metrics.company_count} 家`" tone="accent" />
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <h3>覆盖诊断</h3>
-        </div>
-        <div class="metrics-grid">
-          <StatCard label="正式公司池" :value="String(state.data.value.quality_overview.coverage.pool_companies)" hint="当前冻结正式公司范围" />
-          <StatCard label="主周期可评估" :value="String(state.data.value.quality_overview.coverage.preferred_period_ready)" :hint="state.data.value.health.preferred_period" tone="success" />
-          <StatCard label="研报已覆盖" :value="String(state.data.value.quality_overview.coverage.research_ready)" hint="有真实研报详情页" />
-          <StatCard label="页级解析" :value="String(state.data.value.quality_overview.coverage.bronze_ready)" hint="raw -> bronze 已打通" />
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-header">
-          <h3>问题分桶</h3>
-        </div>
-        <div class="tag-row">
-          <TagPill v-for="bucket in state.data.value.quality_overview.issue_buckets" :key="bucket.code" :label="`${bucket.label} ${bucket.count}`" tone="risk" />
-        </div>
-      </section>
-
-      <section class="split-grid">
-        <article class="panel">
-          <div class="panel-header">
-            <h3>解析链状态</h3>
+  <AppShell title="系统管理台" subtitle="全域数据覆盖与文档解析追踪" compact>
+    <div class="dashboard-wrapper">
+      <LoadingState v-if="state.loading.value" class="state-container" />
+      <ErrorState v-else-if="state.error.value" :message="state.error.value" class="state-container" />
+      
+      <div v-else-if="state.data.value" class="admin-dashboard-grid">
+        
+        <!-- Top Health Strip -->
+        <section class="glass-panel metrics-strip">
+          <div class="metric-block">
+            <span class="mb-label">系统状态</span>
+            <div class="mb-val-wrap"><span class="status-dot"></span><strong class="mb-value text-accent">{{ state.data.value.health.status }}</strong></div>
+            <span class="muted text-xs">{{ state.data.value.health.env }}</span>
           </div>
-          <div class="detail-list">
-            <div class="detail-row"><span>版面解析</span><strong>{{ state.data.value.document_pipeline.layout_engine }}</strong></div>
-            <div class="detail-row"><span>OCR 引擎</span><strong>{{ state.data.value.document_pipeline.ocr_engine }}</strong></div>
-            <div class="detail-row"><span>OCR 运行时</span><strong>{{ state.data.value.document_pipeline.ocr_runtime_enabled ? 'active' : 'planned' }}</strong></div>
-            <div class="detail-row"><span>跨页拼接</span><strong>{{ state.data.value.document_pipeline.cross_page_merge.status }}</strong></div>
-            <div class="detail-row"><span>标题层级恢复</span><strong>{{ state.data.value.document_pipeline.title_hierarchy.status }}</strong></div>
-            <div class="detail-row"><span>单元格溯源</span><strong>{{ state.data.value.document_pipeline.cell_trace.status }}</strong></div>
+          <div class="metric-block">
+            <span class="mb-label">主评估周期</span>
+            <strong class="mb-value">{{ state.data.value.health.preferred_period }}</strong>
+            <span class="muted text-xs">公司池 {{ state.data.value.health.companies }} 家</span>
           </div>
-          <div class="tag-row" style="margin-top: 14px;">
-            <TagPill
-              v-for="item in state.data.value.document_pipeline.coverage"
-              :key="item.label"
-              :label="`${item.label} ${item.value}${item.unit}`"
-            />
+          <div class="metric-block">
+            <span class="mb-label">原始定期报告</span>
+            <strong class="mb-value">{{ state.data.value.data_status.periodic_reports.record_count }}</strong>
+            <span class="muted text-xs">实供公司 {{ state.data.value.data_status.periodic_reports.company_count }} 家</span>
           </div>
-        </article>
+          <div class="metric-block border-none">
+            <span class="mb-label">结构化指标池</span>
+            <strong class="mb-value text-gradient">{{ state.data.value.data_status.silver_financial_metrics.record_count }}</strong>
+            <span class="muted text-xs">覆盖 {{ state.data.value.data_status.silver_financial_metrics.company_count }} 家</span>
+          </div>
+        </section>
 
-        <article class="panel">
-          <div class="panel-header">
-            <h3>解析作业队列</h3>
-          </div>
-          <div class="timeline-list">
-            <div
-              v-for="item in state.data.value.document_pipeline_jobs.stage_summary"
-              :key="item.stage"
-              class="timeline-item"
-            >
-              <strong>{{ item.stage }}</strong>
-              <span>completed {{ item.completed }} · pending {{ item.pending }} · blocked {{ item.blocked }}</span>
-              <button
-                v-if="item.stage !== 'cell_trace'"
-                type="button"
-                class="button-secondary"
-                :disabled="runningStage === item.stage"
-                @click="runStage(item.stage)"
-              >
-                {{ runningStage === item.stage ? '执行中' : '执行 5 条' }}
-              </button>
-            </div>
-          </div>
-        </article>
-      </section>
-
-      <section>
-        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
-          <h3>文档升级结果</h3>
-        </div>
-        <div class="company-grid">
-          <article
-            v-for="job in (resultsState.data.value?.results || []).slice(0, 18)"
-            :key="`${job.report_id}-${job.stage}`"
-            class="company-card"
-          >
-            <div class="signal-top">
-              <div>
-                <div class="signal-code">{{ job.stage }}</div>
-                <h4>{{ job.company_name }}</h4>
+        <!-- 2 Columns Panel -->
+        <div class="admin-cols">
+          <!-- LEFT COLUMN -->
+          <div class="admin-col">
+            
+            <article class="glass-panel p-panel">
+              <h3 class="panel-sm-title mb-4">覆盖诊断与漏斗</h3>
+              <div class="metrics-grid-compact">
+                <div class="stat-mini glass-panel-hover">
+                  <span class="sm-label">正式公司池</span>
+                  <strong class="sm-value">{{ state.data.value.quality_overview.coverage.pool_companies }}</strong>
+                </div>
+                <div class="stat-mini glass-panel-hover" style="border-color: rgba(16,185,129,0.3);">
+                  <span class="sm-label text-accent">主周期可评估</span>
+                  <strong class="sm-value">{{ state.data.value.quality_overview.coverage.preferred_period_ready }}</strong>
+                </div>
+                <div class="stat-mini glass-panel-hover">
+                  <span class="sm-label">有真实研报</span>
+                  <strong class="sm-value">{{ state.data.value.quality_overview.coverage.research_ready }}</strong>
+                </div>
+                <div class="stat-mini glass-panel-hover">
+                  <span class="sm-label">页级解析打通</span>
+                  <strong class="sm-value">{{ state.data.value.quality_overview.coverage.bronze_ready }}</strong>
+                </div>
               </div>
-              <div class="signal-subtitle">{{ job.status }}</div>
-            </div>
-            <div class="metric-list">
-              <div class="metric-row"><span>报期</span><strong>{{ job.report_period || '-' }}</strong></div>
-              <div class="metric-row"><span>报告</span><strong>{{ job.report_id }}</strong></div>
-              <div class="metric-row"><span>摘要</span><strong>{{ job.artifact_summary || '-' }}</strong></div>
-            </div>
-            <RouterLink
-              class="inline-link"
-              :to="{ path: '/admin', query: { stage: job.stage, report_id: job.report_id } }"
-            >
-              查看详情
-            </RouterLink>
-          </article>
-        </div>
-      </section>
-
-      <section v-if="detailState.data.value" class="panel" style="margin-top: 24px;">
-        <div class="panel-header">
-          <h3>解析详情</h3>
-        </div>
-        <div class="detail-list">
-          <div class="detail-row"><span>阶段</span><strong>{{ detailState.data.value.job.stage }}</strong></div>
-          <div class="detail-row"><span>公司</span><strong>{{ detailState.data.value.job.company_name }}</strong></div>
-          <div class="detail-row"><span>报期</span><strong>{{ detailState.data.value.job.report_period || '-' }}</strong></div>
-          <div class="detail-row"><span>状态</span><strong>{{ detailState.data.value.job.status }}</strong></div>
-        </div>
-        <div class="timeline-list" style="margin-top: 16px;">
-          <div
-            v-for="section in detailState.data.value.consumable_sections || []"
-            :key="section.section_type"
-            class="timeline-item"
-          >
-            <strong>{{ section.title }}</strong>
-            <span>{{ section.count }} 条</span>
-            <div class="metric-list">
-              <div
-                v-for="item in section.items.slice(0, 5)"
-                :key="JSON.stringify(item)"
-                class="metric-row"
-              >
-                <span>{{ item.text || item.title || item.reason || '条目' }}</span>
-                <strong>{{ item.page || item.level || item.to_page || '-' }}</strong>
+              
+              <div v-if="state.data.value.quality_overview.issue_buckets?.length" class="mt-4 border-t-subtle pt-4">
+                <span class="eyebrow inline-mr">异常阻断分桶:</span>
+                <div class="tag-row compact-tags mt-2">
+                  <TagPill v-for="bucket in state.data.value.quality_overview.issue_buckets" :key="bucket.code" :label="`${bucket.label} ${bucket.count}`" tone="risk" />
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
-        <div
-          v-if="detailState.data.value.evidence_navigation?.links?.length"
-          class="tag-row"
-          style="margin-top: 16px;"
-        >
-          <RouterLink
-            v-for="link in detailState.data.value.evidence_navigation.links"
-            :key="`${link.path}-${link.label}`"
-            class="inline-link"
-            :to="{ path: link.path, query: link.query || {} }"
-          >
-            {{ link.label }}
-          </RouterLink>
-        </div>
-      </section>
+            </article>
 
-      <section class="split-grid">
-        <article class="panel">
-          <div class="panel-header">
-            <h3>2026 技术雷达</h3>
-          </div>
-          <div class="timeline-list">
-            <div
-              v-for="item in state.data.value.innovation_radar.items"
-              :key="item.id"
-              class="timeline-item"
-            >
-              <strong>{{ item.title }}</strong>
-              <span>{{ item.domain }} · {{ item.source }} · {{ item.year }}</span>
-              <div class="tag-row">
-                <TagPill v-for="point in item.core_points" :key="point" :label="point" />
+            <article class="glass-panel p-panel mt-6">
+              <h3 class="panel-sm-title mb-4">解析引擎与链条</h3>
+              <div class="engine-list">
+                <div class="engine-row">
+                  <span class="muted">版面还原</span>
+                  <strong class="eg-val">{{ state.data.value.document_pipeline.layout_engine }}</strong>
+                </div>
+                <div class="engine-row">
+                  <span class="muted">OCR核心</span>
+                  <strong class="eg-val">{{ state.data.value.document_pipeline.ocr_engine }}</strong>
+                  <span class="tag subtle-tag ml-auto" :class="state.data.value.document_pipeline.ocr_runtime_enabled ? 'text-accent' : ''">{{ state.data.value.document_pipeline.ocr_runtime_enabled ? 'Active' : 'Planned' }}</span>
+                </div>
+                <div class="engine-row">
+                  <span class="muted">跨页拼接拼接</span>
+                  <strong class="eg-val">{{ state.data.value.document_pipeline.cross_page_merge.status }}</strong>
+                </div>
+                <div class="engine-row">
+                  <span class="muted">标题恢复</span>
+                  <strong class="eg-val">{{ state.data.value.document_pipeline.title_hierarchy.status }}</strong>
+                </div>
               </div>
-              <a class="inline-link" :href="item.url" target="_blank" rel="noreferrer">查看论文</a>
-            </div>
-          </div>
-        </article>
+              
+              <div class="mt-4 flex gap-2">
+                <span v-for="item in state.data.value.document_pipeline.coverage" :key="item.label" class="minimal-stat">
+                   {{ item.label }} <strong class="ml-1">{{ item.value }}{{ item.unit }}</strong>
+                </span>
+              </div>
+            </article>
 
-        <article class="panel">
-          <div class="panel-header">
-            <h3>最近运行历史</h3>
-          </div>
-          <div class="timeline-list">
-            <div
-              v-for="run in state.data.value.workspace_runs.runs"
-              :key="run.run_id"
-              class="timeline-item"
-            >
-              <strong>{{ run.company_name || '行业巡检' }}</strong>
-              <span>{{ run.query }}</span>
-              <div class="metric-list">
-                <div class="metric-row"><span>类型</span><strong>{{ run.query_type }}</strong></div>
-                <div class="metric-row"><span>角色</span><strong>{{ run.user_role }}</strong></div>
-                <div class="metric-row"><span>时间</span><strong>{{ run.created_at?.slice(0, 19).replace('T', ' ') }}</strong></div>
+            <article class="glass-panel p-panel mt-6 min-h-[300px]">
+              <h3 class="panel-sm-title mb-4">执行作业队列</h3>
+              <div class="job-list">
+                <div
+                  v-for="item in state.data.value.document_pipeline_jobs.stage_summary"
+                  :key="item.stage"
+                  class="job-card glass-panel-hover"
+                >
+                  <div class="jc-head">
+                    <strong class="jc-stage">{{ item.stage }}</strong>
+                    <button
+                      v-if="item.stage !== 'cell_trace'"
+                      class="button-secondary glow-button-small"
+                      :disabled="runningStage === item.stage"
+                      @click="runStage(item.stage)"
+                    >
+                      {{ runningStage === item.stage ? 'RUNNING' : 'EXECUTE BATCH' }}
+                    </button>
+                    <span v-else class="text-xs muted">AUTO</span>
+                  </div>
+                  <div class="jc-stats">
+                    <span class="text-accent">✔ {{ item.completed }}</span>
+                    <span class="text-[#fbbf24]">⟳ {{ item.pending }}</span>
+                    <span class="risk-text">✖ {{ item.blocked }}</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        </article>
-      </section>
+            </article>
+            
+            <!-- 技术雷达 -->
+             <article class="glass-panel p-panel mt-6">
+               <h3 class="panel-sm-title mb-4">技术雷达 2026</h3>
+               <div class="radar-list">
+                 <div v-for="item in state.data.value.innovation_radar.items" :key="item.id" class="radar-card glass-panel-hover">
+                   <div class="rd-head">
+                     <span class="rd-domain">{{ item.domain }}</span>
+                     <span class="rd-year">{{ item.year }} · {{ item.source }}</span>
+                   </div>
+                   <h4 class="rd-title">{{ item.title }}</h4>
+                   <div class="tag-row compact-tags mb-3">
+                     <TagPill v-for="point in item.core_points" :key="point" :label="point" />
+                   </div>
+                   <a class="inline-glass-link text-center w-full block" :href="item.url" target="_blank" rel="noreferrer">SOURCE CODE / PAPER</a>
+                 </div>
+               </div>
+             </article>
 
-      <section>
-        <div class="page-header" style="margin-top: 32px; margin-bottom: 16px;">
-          <h3>公司覆盖明细</h3>
+          </div>
+
+          <!-- RIGHT COLUMN -->
+          <div class="admin-col">
+
+             <!-- Detail Inspector -->
+             <article v-if="detailState.data.value" class="glass-panel p-panel highlight-panel mb-6">
+                <div class="panel-header flex justify-between items-center mb-4">
+                  <h3 class="panel-sm-title m-0 border-none pb-0">解析调试终端</h3>
+                  <button class="icon-btn" @click="$router.push({ query: {} })">×</button>
+                </div>
+                <div class="inspector-head mb-4">
+                  <div class="ih-row"><span class="muted w-16">STAGE</span><strong class="text-gradient">{{ detailState.data.value.job.stage }}</strong></div>
+                  <div class="ih-row"><span class="muted w-16">CORP</span><strong>{{ detailState.data.value.job.company_name }}</strong></div>
+                  <div class="ih-row"><span class="muted w-16">PERIOD</span><strong>{{ detailState.data.value.job.report_period || '-' }}</strong></div>
+                  <div class="ih-row"><span class="muted w-16">STATUS</span><span class="tag" :class="detailState.data.value.job.status === 'success' ? 'success-tag' : 'subtle-tag'">{{ detailState.data.value.job.status }}</span></div>
+                </div>
+
+                <div class="terminal-view scroll-area">
+                  <div v-for="section in (detailState.data.value.consumable_sections || [])" :key="section.section_type" class="tv-block">
+                     <div class="tv-title">> {{ section.title }} ({{ section.count }})</div>
+                     <div v-for="(item, i) in section.items.slice(0, 5)" :key="i" class="tv-line">
+                       <span class="tv-text">{{ String(item.text || item.title || item.reason || 'ITEM').substring(0, 60) }}...</span>
+                       <span class="tv-page">p.{{ item.page || item.level || item.to_page || '--' }}</span>
+                     </div>
+                  </div>
+                </div>
+                
+                <div class="mt-4 flex gap-2" v-if="detailState.data.value.evidence_navigation?.links?.length">
+                  <RouterLink
+                    v-for="link in detailState.data.value.evidence_navigation.links"
+                    :key="`${link.path}-${link.label}`"
+                    class="button-primary glow-button-small flex-1 text-center"
+                    style="line-height: normal;"
+                    :to="{ path: link.path, query: link.query || {} }"
+                  >{{ link.label }}</RouterLink>
+                </div>
+             </article>
+
+             <!-- Latest Results -->
+             <article class="glass-panel p-panel mb-6">
+               <h3 class="panel-sm-title mb-4">升级结果日志</h3>
+               <div class="logs-grid">
+                  <div v-for="job in (resultsState.data.value?.results || []).slice(0, 16)" :key="`${job.report_id}-${job.stage}`" class="log-card glass-panel-hover">
+                     <div class="lc-head">
+                       <span class="lc-stage">{{ job.stage }}</span>
+                       <span class="status-dot" :class="`is-${job.status}`"></span>
+                     </div>
+                     <h4 class="lc-company">{{ job.company_name }}</h4>
+                     <p class="lc-summary muted">{{ job.artifact_summary || 'No summary generated' }}</p>
+                     <div class="lc-foot">
+                       <span>{{ job.report_period || '-' }}</span>
+                       <RouterLink class="inline-glass-link py-1 px-3" :to="{ path: '/admin', query: { stage: job.stage, report_id: job.report_id } }">INSPECT</RouterLink>
+                     </div>
+                  </div>
+               </div>
+             </article>
+
+             <!-- Company Coverage -->
+             <article class="glass-panel p-panel">
+               <h3 class="panel-sm-title mb-4">公司级覆盖矩阵</h3>
+               <div class="matrix-list">
+                 <div v-for="row in state.data.value.quality_overview.companies.slice(0, 12)" :key="row.company_name" class="matrix-card glass-panel-hover">
+                   <div class="mx-head">
+                     <strong class="mx-company">{{ row.company_name }}</strong>
+                     <span class="mx-period inline-mr">{{ row.latest_silver_period }}</span>
+                   </div>
+                   <div class="mx-stats mt-2">
+                     <div class="mx-stat"><span class="mx-val">{{ row.raw_report_count }}</span><span class="mx-lbl">RAW</span></div>
+                     <div class="mx-stat"><span class="mx-val">{{ row.bronze_report_count }}</span><span class="mx-lbl">BRZ</span></div>
+                     <div class="mx-stat"><span class="mx-val text-accent">{{ row.silver_record_count }}</span><span class="mx-lbl">SLV</span></div>
+                     <div class="mx-stat"><span class="mx-val text-[#60a5fa]">{{ row.research_report_count }}</span><span class="mx-lbl">RSH</span></div>
+                   </div>
+                   <div class="mx-tags mt-3">
+                     <span v-if="row.issues.length === 0" class="tag success-tag text-xs">OK</span>
+                     <span v-for="flag in row.issues" :key="flag" class="tag risk-tag text-xs">{{ flag }}</span>
+                   </div>
+                 </div>
+               </div>
+             </article>
+
+          </div>
         </div>
-        <div class="company-grid">
-          <article v-for="row in state.data.value.quality_overview.companies.slice(0, 18)" :key="row.company_name" class="company-card">
-            <div class="signal-top">
-              <div>
-                <div class="signal-code">{{ row.subindustry }}</div>
-                <h4>{{ row.company_name }}</h4>
-              </div>
-              <div class="signal-subtitle">{{ row.latest_silver_period }}</div>
-            </div>
-            <div class="metric-list">
-              <div class="metric-row"><span>定期报告</span><strong>{{ row.raw_report_count }}</strong></div>
-              <div class="metric-row"><span>页级解析</span><strong>{{ row.bronze_report_count }}</strong></div>
-              <div class="metric-row"><span>结构化记录</span><strong>{{ row.silver_record_count }}</strong></div>
-              <div class="metric-row"><span>研报</span><strong>{{ row.research_report_count }}</strong></div>
-            </div>
-            <div class="tag-row">
-              <TagPill
-                v-if="row.issues.length === 0"
-                label="链路完整"
-                tone="success"
-              />
-              <TagPill v-for="flag in row.issues" :key="flag" :label="flag" tone="risk" />
-            </div>
-          </article>
-        </div>
-      </section>
-    </template>
+
+      </div>
+    </div>
   </AppShell>
 </template>
+
+<style scoped>
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 24px; padding-bottom: 24px; }
+
+/* Metrics Strip */
+.metrics-strip { display: grid; grid-template-columns: repeat(4, 1fr); padding: 16px 24px; border-radius: 16px; flex-shrink: 0; }
+.metric-block { display: flex; flex-direction: column; gap: 6px; border-right: 1px solid rgba(255, 255, 255, 0.08); padding: 0 16px; }
+.metric-block.border-none { border-right: none; }
+.mb-label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: 'JetBrains Mono', monospace; }
+.mb-value { font-size: 26px; line-height: 1; font-weight: 600; }
+.mb-val-wrap { display: flex; align-items: center; gap: 10px; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 10px #10b981; }
+.status-dot.is-failed { background: #f43f5e; box-shadow: 0 0 10px #f43f5e; }
+.status-dot.is-pending { background: #fbbf24; box-shadow: 0 0 10px #fbbf24; }
+.text-accent { color: #10b981; }
+.text-gradient { background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(to right, #60a5fa, #34d399); }
+.muted { color: var(--muted); }
+.text-xs { font-size: 12px; }
+
+/* Dashboard layout */
+.admin-dashboard-grid { display: flex; flex-direction: column; gap: 24px; }
+.admin-cols { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(400px, 1.3fr); gap: 24px; }
+.admin-col { display: flex; flex-direction: column; }
+.scroll-area { overflow-y: auto; overflow-x: hidden; }
+.scroll-area::-webkit-scrollbar { width: 4px; }
+.p-panel { padding: 24px; border-radius: 20px; }
+.mb-4 { margin-bottom: 16px; }
+.mb-6 { margin-bottom: 24px; }
+.mt-4 { margin-top: 16px; }
+.mt-6 { margin-top: 24px; }
+.mt-3 { margin-top: 12px; }
+.mt-2 { margin-top: 8px; }
+
+.panel-sm-title { font-size: 15px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+
+/* Left Col Mini Stats */
+.metrics-grid-compact { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.stat-mini { padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 6px; }
+.sm-label { font-size: 12px; font-family: 'JetBrains Mono', monospace; color: var(--muted); }
+.sm-value { font-size: 20px; font-weight: 600; }
+.border-t-subtle { border-top: 1px solid rgba(255,255,255,0.05); }
+.inline-mr { margin-right: 8px; font-size: 12px; color: var(--muted); }
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Engines */
+.engine-list { display: flex; flex-direction: column; gap: 12px; }
+.engine-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(0,0,0,0.2); border-radius: 10px; font-size: 14px; }
+.eg-val { font-family: 'JetBrains Mono', monospace; color: #f8fafc; }
+.ml-1 { margin-left: 4px; }
+.ml-auto { margin-left: auto; }
+.minimal-stat { background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted); display: inline-flex; align-items: center; }
+
+/* Jobs */
+.min-h-\[300px\] { min-height: 280px; }
+.job-list { display: flex; flex-direction: column; gap: 12px; }
+.job-card { padding: 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 12px; }
+.jc-head { display: flex; justify-content: space-between; align-items: center; }
+.jc-stage { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #fff; }
+.glow-button-small { padding: 4px 12px; height: auto; min-height: 28px; font-size: 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; }
+.jc-stats { display: flex; gap: 16px; font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 8px; }
+.risk-text { color: #f43f5e; }
+
+/* Radar */
+.radar-list { display: flex; flex-direction: column; gap: 12px; }
+.radar-card { padding: 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
+.rd-head { display: flex; justify-content: space-between; font-size: 11px; font-family: 'JetBrains Mono', monospace; margin-bottom: 8px; color: var(--muted); }
+.rd-domain { color: #818cf8; }
+.rd-title { font-size: 15px; color: #fff; margin: 0 0 12px; line-height: 1.4; }
+.w-full { width: 100%; }
+.block { display: block; }
+.text-center { text-align: center; }
+
+/* Terminal View */
+.highlight-panel { border-color: rgba(96, 165, 250, 0.4); box-shadow: 0 0 20px rgba(96, 165, 250, 0.1); background: rgba(15, 23, 42, 0.6); }
+.flex { display: flex; }
+.justify-between { justify-content: space-between; }
+.items-center { align-items: center; }
+.border-none { border: none !important; }
+.pb-0 { padding-bottom: 0 !important; }
+.icon-btn { background: transparent; border: none; color: var(--muted); font-size: 24px; cursor: pointer; line-height: 1; }
+.icon-btn:hover { color: #fff; }
+
+.inspector-head { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: rgba(0,0,0,0.3); padding: 16px; border-radius: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+.ih-row { display: flex; align-items: center; }
+.w-16 { width: 60px; display: inline-block; }
+.success-tag { background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+
+.terminal-view { min-height: 380px; max-height: 500px; background: #000; border-radius: 12px; padding: 20px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #10b981; }
+.tv-block { margin-bottom: 16px; border-left: 2px solid rgba(16,185,129,0.4); padding-left: 14px; }
+.tv-title { color: #60a5fa; margin-bottom: 8px; }
+.tv-line { display: flex; justify-content: space-between; margin-bottom: 4px; opacity: 0.8; }
+.tv-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 16px;}
+.tv-page { color: #f59e0b; flex-shrink: 0;}
+.flex-1 { flex: 1; }
+
+/* Logs Grid */
+.logs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.log-card { padding: 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 8px; }
+.lc-head { display: flex; justify-content: space-between; align-items: center; }
+.lc-stage { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted); background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; }
+.lc-company { margin: 0 0 2px; font-size: 15px; color: #fff; font-weight: 500; }
+.lc-summary { font-size: 13px; margin: 0; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lc-foot { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-family: 'JetBrains Mono', monospace; margin-top: 8px; color: var(--muted); }
+.py-1 { padding-top: 4px; padding-bottom: 4px; }
+.px-3 { padding-left: 12px; padding-right: 12px; }
+.inline-glass-link { font-size: 12px; border-radius: 6px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text); text-decoration: none; transition: all 0.2s; text-align: center;}
+.inline-glass-link:hover { background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); color: #60a5fa; }
+
+/* Matrix */
+.matrix-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.matrix-card { padding: 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; }
+.mx-head { display: flex; justify-content: space-between; align-items: center; }
+.mx-company { font-size: 15px; color: #fff; font-weight: 500;}
+.mx-period { font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.mx-stats { display: flex; justify-content: space-between; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; }
+.mx-stat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.mx-val { font-size: 15px; font-weight: bold; }
+.mx-lbl { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.mx-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+</style>

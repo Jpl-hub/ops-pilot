@@ -1,18 +1,18 @@
 :root {
-  --bg: #141414;
-  --bg-soft: #101010;
-  --surface: #1d1d1d;
-  --surface-strong: #232323;
-  --surface-hover: #272727;
+  --bg: #0a0a0a;
+  --bg-soft: #121212;
+  --surface: rgba(15, 23, 42, 0.4);
+  --surface-strong: rgba(30, 41, 59, 0.6);
+  --surface-hover: rgba(30, 41, 59, 0.8);
   --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(52, 211, 153, 0.34);
-  --text: #f4f7fb;
-  --muted: #8b94a2;
-  --accent: #34d399;
-  --accent-soft: rgba(52, 211, 153, 0.1);
+  --border-strong: rgba(16, 185, 129, 0.34);
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #10b981;
+  --accent-soft: rgba(16, 185, 129, 0.1);
   --danger-soft: rgba(244, 63, 94, 0.14);
   --success-soft: rgba(16, 185, 129, 0.14);
-  --shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
+  --shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   --radius-lg: 18px;
   --radius-md: 12px;
   --text-xs: 12px;
@@ -21,6 +21,46 @@
   --text-lg: 18px;
   --text-xl: 24px;
 }
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.6);
+}
+
+.glass-panel {
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow);
+}
+
+.glass-panel-hover:hover {
+  background: rgba(30, 41, 59, 0.5);
+  border-color: rgba(255, 255, 255, 0.2);
+  transition: all 0.3s;
+}
+
+.shell-bg-pattern {
+  background-image: linear-gradient(to right, rgba(128, 128, 128, 0.04) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(128, 128, 128, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.shell-bg-glow {
+  background: radial-gradient(circle 800px at 50% -30%, rgba(16, 185, 129, 0.05), transparent);
+}
+
 
 * { box-sizing: border-box; }
 
@@ -46,36 +86,40 @@ a { color: inherit; }
   display: flex;
   height: 100vh;
   overflow: hidden;
+  position: relative;
 }
 
 .shell-sidebar {
   width: 260px;
   flex-shrink: 0;
-  position: sticky;
-  top: 0;
+  position: relative;
+  z-index: 40;
   height: 100vh;
   border-right: 1px solid var(--border);
   padding: 24px 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  background: #0c0c0d;
+  background: transparent;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
-  z-index: 6;
 }
 
 .shell-main {
   flex: 1;
   min-width: 0;
-  padding: 20px 24px 24px;
-  min-height: 100vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  background: linear-gradient(180deg, #181818 0%, #141414 100%);
+  min-height: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   position: relative;
-  z-index: 1;
+  z-index: 10;
+  background: rgba(18, 18, 18, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .sidebar-group,
@@ -94,6 +138,13 @@ a { color: inherit; }
   gap: 10px;
 }
 
+.sidebar-group,
+.sidebar-footer,
+.sidebar-utility-stack,
+.sidebar-control {
+  width: 100%;
+}
+
 .sidebar-footer {
   margin-top: auto;
   gap: 14px;
@@ -110,8 +161,8 @@ a { color: inherit; }
 
 .sidebar-collapse {
   width: 100%;
-  min-height: 44px;
-  border-radius: 12px;
+  min-height: 52px;
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   background: #111112;
   color: var(--text);
@@ -119,7 +170,7 @@ a { color: inherit; }
   align-items: center;
   justify-content: space-between;
   padding: 0 14px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -260,6 +311,8 @@ a { color: inherit; }
   display: grid;
   gap: 8px;
   width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
 }
 
 .top-nav-vertical > * { width: 100%; }
@@ -293,7 +346,8 @@ a { color: inherit; }
 .sidebar-nav-item {
   display: flex !important;
   align-items: center;
-  min-height: 56px !important;
+  width: 100% !important;
+  min-height: 52px !important;
   padding: 12px 14px !important;
   background: #111112 !important;
   border: 1px solid rgba(255, 255, 255, 0.05) !important;
@@ -316,7 +370,7 @@ a { color: inherit; }
 }
 
 .sidebar-nav-item-subtle {
-  min-height: 48px !important;
+  min-height: 52px !important;
 }
 
 .button-primary {
@@ -374,7 +428,7 @@ a { color: inherit; }
 }
 
 .sidebar-utility-card-compact {
-  min-height: 44px;
+  min-height: 52px;
   border-radius: 14px;
 }
 
@@ -411,8 +465,8 @@ a { color: inherit; }
 }
 
 .role-switch-card select {
-  min-height: 48px;
-  border-radius: 16px;
+  min-height: 52px;
+  border-radius: 14px;
   background: #111112;
 }
 
