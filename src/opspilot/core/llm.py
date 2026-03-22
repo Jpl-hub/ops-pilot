@@ -110,3 +110,44 @@ async def get_embeddings(texts: list[str], model: str = "text-embedding-3-small"
     except Exception as e:
         logger.error(f"Batch Embedding generation failed: {e}")
         return []
+
+async def rerank_chunks(query: str, chunks: list[dict], top_k: int = 5) -> list[dict]:
+    """
+    Zero-Shot LLM-as-a-Judge Reranker (RankGPT style).
+    Scores chunks from 0-10 on query relevance and returns the top-k sorted chunks.
+    """
+    if not chunks:
+        return []
+    
+    # We only take the top 15 from RRF to prevent massive context windows
+    candidates = chunks[:15]
+    
+    prompt = f"Please act as an objective relevance judge. Rate each chunk's relevance to the query from 0 to 10. You must return a JSON object with a single key 'scores' containing an array of integers in exact order.\n\nQuery: {query}\n\nChunks:\n"
+    for i, c in enumerate(candidates):
+        text_preview = c.get("text", "")[:400].replace('\n', ' ')
+        prompt += f"[Chunk {i}] {text_preview}\n"
+        
+    try:
+        response_text = await generate_completion(
+            prompt=prompt,
+            system_prompt="You are a JSON-only scoring engine. Output exactly a JSON object: {\"scores\": [int, int, ...]}",
+            model="gpt-4o-mini",
+            temperature=0.0,
+            response_format={"type": "json_object"}
+        )
+        import json
+        data = json.loads(response_text)
+        scores = data.get("scores", [])
+        
+        scored_candidates = []
+        for i, c in enumerate(candidates):
+            score = scores[i] if i < len(scores) else 0
+            c["rerank_score"] = score
+            scored_candidates.append((score, c))
+            
+        scored_candidates.sort(key=lambda x: x[0], reverse=True)
+        return [c for score, c in scored_candidates[:top_k]]
+    except Exception as e:
+        logger.error(f"LLM Reranker failed, falling back to RRF: {e}")
+        return candidates[:top_k]
+

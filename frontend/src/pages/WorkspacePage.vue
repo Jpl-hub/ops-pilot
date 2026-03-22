@@ -49,9 +49,17 @@ const workflowLanes = computed(() =>
   })),
 )
 
+// Simulated active speaker detection for video tiles
+const activeAgent = computed(() => {
+  if (!loadingTurn.value) return 'none'
+  const processing = workflowLanes.value.find((l: any) => l.status === 'Processing')
+  if (processing) return processing.agent.toLowerCase()
+  return 'system'
+})
+
 // The latest Answer payload for the Right Sidebar Supporting Info
 const latestAnswer = computed(() => {
-  const ans = messages.value.filter(m => m.kind === 'answer')
+  const ans = messages.value.filter(m => m.kind === 'result')
   return ans.length > 0 ? ans[ans.length - 1].payload : null
 })
 
@@ -76,14 +84,6 @@ function handleEnter(e: KeyboardEvent) {
     runQuery()
   }
 }
-
-// Simulated active speaker detection for video tiles
-const activeAgent = computed(() => {
-  if (!loadingTurn.value) return 'none'
-  const processing = workflowLanes.value.find(l => l.status === 'Processing')
-  if (processing) return processing.agent.toLowerCase()
-  return 'system'
-})
 
 // Time formatter for top bar
 const currentTime = ref(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
@@ -216,7 +216,7 @@ watch(selectedCompany, async (company, previous) => {
                   </div>
                 </div>
 
-                <div v-else-if="message.kind === 'answer'" class="mtg-msg mtg-msg-ai">
+                <div v-else-if="message.kind === 'result'" class="mtg-msg mtg-msg-ai">
                   <div class="mtg-msg-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" class="mtg-icon-sm pt-1"><path d="M12 2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M12 8v14"/><path d="M5.5 14H12"/><path d="M18.5 14H12"/></svg></div>
                   <div class="mtg-msg-content">
                     <div class="mtg-msg-author">Core Engine</div>
@@ -225,8 +225,8 @@ watch(selectedCompany, async (company, previous) => {
                         <strong class="cot-color-emerald">{{ section.title }}</strong><br/>
                         <span v-for="line in section.lines" :key="line" style="display:block; margin-top: 4px;">{{ line }}</span>
                       </section>
-                      <div v-if="(!message.payload?.answer_sections || message.payload.answer_sections.length === 0) && message.text">
-                        {{ message.text }}
+                      <div v-if="(!message.payload?.answer_sections || message.payload.answer_sections.length === 0) && message.payload?.summary">
+                        {{ message.payload.summary }}
                       </div>
                     </div>
                   </div>
@@ -280,7 +280,7 @@ watch(selectedCompany, async (company, previous) => {
                     v-for="item in latestAnswer.action_cards"
                     :key="item.title"
                     :label="`[${item.priority}] ${item.title}`"
-                    :tone="item.priority.toLowerCase() === 'high' ? 'danger' : 'warning'"
+                    :tone="item.priority.toLowerCase() === 'high' ? 'risk' : 'default'"
                   />
                 </div>
               </div>
@@ -294,7 +294,7 @@ watch(selectedCompany, async (company, previous) => {
              <div v-if="charts.length > 0" class="mtg-sb-block mtg-sb-charts">
                 <h3><span class="mtg-dot mtg-dot-blue"></span>实时图表 (Charts)</h3>
                 <div v-for="chart in charts" :key="chart.title" class="mtg-sb-chart">
-                  <ChartPanel :options="chart.options" />
+                  <ChartPanel :title="chart.title" :options="chart.options" />
                 </div>
              </div>
           </div>

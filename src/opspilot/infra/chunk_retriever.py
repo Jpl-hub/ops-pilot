@@ -149,6 +149,11 @@ class LocalChunkRetriever:
             if uid not in lookup_map:
                 lookup_map[uid] = {"text": vr.get("text"), "title": vr.get("title")}
 
-        # 4. Final Sorting
+        # 4. Final Sorting (RRF Top-15)
         sorted_keys = sorted(fused_scores.keys(), key=lambda uid: fused_scores[uid], reverse=True)
-        return [lookup_map[uid] for uid in sorted_keys[:top_k]]
+        top_rrf_chunks = [lookup_map[uid] for uid in sorted_keys[:15]]
+        
+        # 5. LLM Zero-Shot Reranker (Top-15 -> Top-K)
+        # This pushes the architecture to 'Grand Prize' levels
+        from opspilot.core.llm import rerank_chunks
+        return await rerank_chunks(query, top_rrf_chunks, top_k)

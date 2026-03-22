@@ -59,7 +59,7 @@ def run_chat_agent(query: str, company: dict[str, Any] | None, report_period: st
             )
             
             if chunks:
-                context_text = "\n\n".join([f"Excerpt {i+1}:\n{c.get('text', '')}" for i, c in enumerate(chunks)])
+                context_text = "\n\n".join([f"Excerpt {i+1} [Source: {c.get('title', 'Unknown Report')}, Page: {c.get('page_number', c.get('page', 'N/A'))}]:\n{c.get('text', '')}" for i, c in enumerate(chunks)])
             else:
                 context_text = "No relevant official report excerpts found."
         except Exception as e:
