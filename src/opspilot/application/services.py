@@ -2510,33 +2510,16 @@ class OpsPilotService:
             workspace["report_period"],
             user_role=user_role,
         )
-        propagation_steps = _build_stress_propagation_steps(
-            company_name=company_name,
-            scenario=scenario,
-            graph_nodes=graph["nodes"],
-            graph_edges=graph["edges"],
-            top_risks=workspace["top_risks"],
-            alert_items=workspace["alerts"]["items"],
-            task_items=workspace["tasks"]["items"],
-        )
-        severity = _classify_stress_severity(
-            scenario=scenario,
-            risk_count=workspace["score_summary"]["risk_count"],
-            open_tasks=workspace["tasks"]["summary"]["in_progress"],
-            open_alerts=workspace["alerts"]["summary"]["new"]
-            + workspace["alerts"]["summary"]["in_progress"],
-        )
-        transmission_matrix = _build_stress_transmission_matrix(
-            propagation_steps=propagation_steps,
-            severity=severity,
-            workspace=workspace,
-        )
-        simulation_log = _build_stress_simulation_log(
-            company_name=company_name,
-            scenario=scenario,
-            propagation_steps=propagation_steps,
-            workspace=workspace,
-        )
+        from opspilot.application.agents import run_stress_agent
+        agent_data = run_stress_agent(company_name, scenario, workspace["report_period"])
+        
+        propagation_steps = agent_data.get("propagation_steps", [])
+        severity = agent_data.get("severity", {
+            "level": "MEDIUM", "label": "Unknown", "color": "warning"
+        })
+        transmission_matrix = agent_data.get("transmission_matrix", [])
+        simulation_log = agent_data.get("simulation_log", [])
+        
         payload = {
             "company_name": company_name,
             "report_period": workspace["report_period"],
@@ -3255,63 +3238,47 @@ class OpsPilotService:
         user_role: str = "investor",
     ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
-        detected_company = (
+        detected_company_str = (
             company_name
             or self.repository.find_company_from_query(query, period)
             or self.repository.find_company_from_query(query, None)
         )
-        query_type = detect_query_type(query)
-        if query_type == "company_scoring" and detected_company:
-            payload = self.score_company(detected_company, period)
-            workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
-            return self._persist_workspace_run(
-                workspace_payload,
-                query=query,
-                company_name=detected_company,
-                user_role=user_role,
-            )
-        if query_type == "peer_benchmark" and detected_company:
-            payload = self.benchmark_company(detected_company, period)
-            workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
-            return self._persist_workspace_run(
-                workspace_payload,
-                query=query,
-                company_name=detected_company,
-                user_role=user_role,
-            )
-        if query_type == "claim_verification" and detected_company:
-            payload = self.verify_claim(detected_company, report_period)
-            workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
-            return self._persist_workspace_run(
-                workspace_payload,
-                query=query,
-                company_name=detected_company,
-                user_role=user_role,
-            )
-        if query_type == "brief_generation" and detected_company:
-            payload = self.brief_company(detected_company, period)
-            workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
-            return self._persist_workspace_run(
-                workspace_payload,
-                query=query,
-                company_name=detected_company,
-                user_role=user_role,
-            )
-        if query_type == "risk_scan":
-            payload = self.risk_scan(period)
-            workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
-            return self._persist_workspace_run(
-                workspace_payload,
-                query=query,
-                company_name=detected_company,
-                user_role=user_role,
-            )
-        payload = self.metric_query(query=query, company_name=detected_company, report_period=period)
+        
+        company_obj = self.get_company(detected_company_str, period) if detected_company_str else None
+        
+        # Invoke the Agentic Engine
+        from opspilot.application.agents import run_chat_agent
+        agent_data = run_chat_agent(query, company_obj, period)
+        
+        query_type = agent_data.get("query_type", "metric_query")
+        answer_markdown = agent_data.get("summary", "分析已完成，但未能提取有效摘要。")
+        
+        key_numbers = []
+        for m in agent_data.get("metrics", []):
+            key_numbers.append({
+                "label": m.get("name", ""), 
+                "value": m.get("value", ""), 
+                "unit": m.get("unit", "")
+            })
+            
+        payload = {
+            "company_name": detected_company_str or "无指定主体",
+            "report_period": period,
+            "answer_markdown": answer_markdown,
+            "query_type": query_type,
+            "key_numbers": key_numbers,
+            "charts": [],
+            "evidence": [],
+            "calculations": [],
+            "formula_cards": [],
+            "audit": None,
+        }
+        
         workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
         return self._persist_workspace_run(
             workspace_payload,
             query=query,
-            company_name=detected_company,
+            company_name=detected_company_str,
             user_role=user_role,
         )
 

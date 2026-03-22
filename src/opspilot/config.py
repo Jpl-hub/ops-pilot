@@ -24,6 +24,8 @@ class Settings:
     ocr_provider: str = "PaddleOCR-VL"
     ocr_model: str = "PaddleOCR-VL-1.5"
     ocr_runtime_enabled: bool = False
+    openai_api_key: str = "sk-2FfVSZCxiQ83HM0dhrx3w7DOoySKQuvaF8oKbrYBpLTUw569"
+    openai_base_url: str = "https://api.openai-proxy.org/v1"
 
 
 @lru_cache(maxsize=1)
@@ -59,6 +61,14 @@ def get_settings() -> Settings:
         ocr_model=os.getenv("OPS_PILOT_OCR_MODEL", "PaddleOCR-VL-1.5"),
         ocr_runtime_enabled=os.getenv("OPS_PILOT_OCR_RUNTIME_ENABLED", "false").lower()
         in {"1", "true", "yes", "on"},
+        openai_api_key=os.getenv(
+            "OPS_PILOT_OPENAI_API_KEY", 
+            "sk-2FfVSZCxiQ83HM0dhrx3w7DOoySKQuvaF8oKbrYBpLTUw569"
+        ),
+        openai_base_url=os.getenv(
+            "OPS_PILOT_OPENAI_BASE_URL", 
+            "https://api.openai-proxy.org/v1"
+        ),
     )
 
 
