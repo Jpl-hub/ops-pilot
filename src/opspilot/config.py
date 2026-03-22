@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+import logging
 import os
+
+_config_logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -24,15 +27,27 @@ class Settings:
     ocr_provider: str = "PaddleOCR-VL"
     ocr_model: str = "PaddleOCR-VL-1.5"
     ocr_runtime_enabled: bool = False
-    openai_api_key: str = "sk-2FfVSZCxiQ83HM0dhrx3w7DOoySKQuvaF8oKbrYBpLTUw569"
+    openai_api_key: str = ""
     openai_base_url: str = "https://api.openai-proxy.org/v1"
+
+
+def _resolve_data_path(root: Path, value: str) -> Path:
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return candidate.resolve()
+
+    cwd_candidate = (Path.cwd() / candidate).resolve()
+    if cwd_candidate.exists():
+        return cwd_candidate
+
+    return (root / candidate).resolve()
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     root = Path(__file__).resolve().parents[2]
     sample_path = os.getenv("OPS_PILOT_SAMPLE_DATA_PATH", "data/bootstrap")
-    return Settings(
+    settings = Settings(
         app_name="OpsPilot-X",
         env=os.getenv("OPS_PILOT_ENV", "development"),
         host=os.getenv("OPS_PILOT_HOST", "0.0.0.0"),
@@ -61,24 +76,17 @@ def get_settings() -> Settings:
         ocr_model=os.getenv("OPS_PILOT_OCR_MODEL", "PaddleOCR-VL-1.5"),
         ocr_runtime_enabled=os.getenv("OPS_PILOT_OCR_RUNTIME_ENABLED", "false").lower()
         in {"1", "true", "yes", "on"},
-        openai_api_key=os.getenv(
-            "OPS_PILOT_OPENAI_API_KEY", 
-            "sk-2FfVSZCxiQ83HM0dhrx3w7DOoySKQuvaF8oKbrYBpLTUw569"
-        ),
+        openai_api_key=os.getenv("OPS_PILOT_OPENAI_API_KEY", ""),
         openai_base_url=os.getenv(
-            "OPS_PILOT_OPENAI_BASE_URL", 
-            "https://api.openai-proxy.org/v1"
+            "OPS_PILOT_OPENAI_BASE_URL",
+            "https://api.openai-proxy.org/v1",
         ),
     )
 
+    if not settings.openai_api_key:
+        _config_logger.warning(
+            "OPS_PILOT_OPENAI_API_KEY 未设置，LLM 功能将不可用。"
+            " 请通过环境变量或 .env 文件配置。"
+        )
 
-def _resolve_data_path(root: Path, value: str) -> Path:
-    candidate = Path(value)
-    if candidate.is_absolute():
-        return candidate.resolve()
-
-    cwd_candidate = (Path.cwd() / candidate).resolve()
-    if cwd_candidate.exists():
-        return cwd_candidate
-
-    return (root / candidate).resolve()
+    return settings

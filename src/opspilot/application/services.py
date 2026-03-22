@@ -99,6 +99,22 @@ class OpsPilotService:
         self._scoring = ScoringService(repository, settings)
         self._workspace = WorkspaceService(repository, settings)
         self._stress = StressService(repository, settings, facade=self)
+        # TTL 内存缓存 — 避免每次切换页面都重算（TTL=5分钟）
+        self._response_cache: dict[str, tuple[Any, float]] = {}
+        self._cache_ttl: float = 300.0
+
+    def _cache_get(self, key: str) -> Any | None:
+        entry = self._response_cache.get(key)
+        if entry is None:
+            return None
+        value, ts = entry
+        if time.time() - ts < self._cache_ttl:
+            return value
+        del self._response_cache[key]
+        return None
+
+    def _cache_set(self, key: str, value: Any) -> None:
+        self._response_cache[key] = (value, time.time())
 
     def health(self) -> dict[str, Any]:
         preferred_period = self._preferred_period()
@@ -858,15 +874,44 @@ class OpsPilotService:
         return self.repository.list_company_names()
 
     def score_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
-        return self._scoring.score_company(company_name, report_period)
+        ck = f"score:{company_name}:{report_period or ''}"
+        if cached := self._cache_get(ck):
+            return cached
+        result = self._scoring.score_company(company_name, report_period)
+        self._cache_set(ck, result)
+        return result
 
     def benchmark_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
-        return self._scoring.benchmark_company(company_name, report_period)
+        ck = f"benchmark:{company_name}:{report_period or ''}"
+        if cached := self._cache_get(ck):
+            return cached
+        result = self._scoring.benchmark_company(company_name, report_period)
+        self._cache_set(ck, result)
+        return result
 
     def company_timeline(self, company_name: str) -> dict[str, Any]:
-        return self._scoring.company_timeline(company_name)
+        ck = f"timeline:{company_name}"
+        if cached := self._cache_get(ck):
+            return cached
+        result = self._scoring.company_timeline(company_name)
+        self._cache_set(ck, result)
+        return result
 
     def company_workspace(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        ck = f"workspace:{company_name}:{report_period or ''}:{user_role}"
+        if cached := self._cache_get(ck):
+            return cached
+        result = self._company_workspace_compute(company_name, report_period, user_role=user_role)
+        self._cache_set(ck, result)
+        return result
+
+    def _company_workspace_compute(
         self,
         company_name: str,
         report_period: str | None = None,
@@ -5727,6 +5772,40 @@ def _describe_graph_focus_node(node: dict[str, Any], workspace: dict[str, Any]) 
     return "该节点参与当前查询意图的传导路径。"
 
 
+def _classify_intent(intent: str) -> str:
+    “””Classify intent into a primary dimension for varied path generation.”””
+    price_kw = [“价格”, “成本”, “涨价”, “跌价”, “碳酸锂”, “锂”, “铜”, “原材料”]
+    risk_kw = [“风险”, “断供”, “停产”, “下滑”, “压力”, “危机”]
+    growth_kw = [“增长”, “营收”, “市场”, “扩张”, “需求”, “份额”]
+    cash_kw = [“现金”, “流动”, “偿债”, “应收”, “账期”, “融资”]
+    supply_kw = [“供应链”, “上游”, “下游”, “传导”, “产业链”]
+    for kw in price_kw:
+        if kw in intent:
+            return “price”
+    for kw in cash_kw:
+        if kw in intent:
+            return “cash”
+    for kw in growth_kw:
+        if kw in intent:
+            return “growth”
+    for kw in supply_kw:
+        if kw in intent:
+            return “supply”
+    for kw in risk_kw:
+        if kw in intent:
+            return “risk”
+    return “risk”
+
+
+_INTENT_DIMENSION_DESC = {
+    “price”: (“成本传导维度”, “识别关键原材料价格波动对毛利率的压缩路径。”),
+    “cash”: (“现金流维度”, “追踪应收账款、库存占用对经营性现金流净额的拖拽。”),
+    “growth”: (“成长性维度”, “评估营收增速驱动力与市场份额变化的可持续性。”),
+    “supply”: (“供应链维度”, “上游集中度与下游议价能力对利润的双向挤压效应。”),
+    “risk”: (“风险暴露维度”, “聚焦已命中的风险标签，建立从识别到行动的闭环。”),
+}
+
+
 def _build_graph_query_inference_path(
     *,
     company_name: str,
@@ -5735,28 +5814,37 @@ def _build_graph_query_inference_path(
     focal_nodes: list[dict[str, Any]],
     workspace: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    dim = _classify_intent(intent)
+    dim_title, dim_detail = _INTENT_DIMENSION_DESC.get(dim, _INTENT_DIMENSION_DESC[“risk”])
+    score = workspace.get(“score_summary”, {})
     steps: list[dict[str, Any]] = [
         {
-            "step": 1,
-            "title": company_name,
-            "detail": f"锁定 {report_period} 作为当前分析报期。",
-            "type": "company",
-        }
+            “step”: 1,
+            “title”: company_name,
+            “detail”: f”{report_period} | 总分 {score.get('total_score', '-')} / 等级 {score.get('grade', '-')}。”,
+            “type”: “company”,
+        },
+        {
+            “step”: 2,
+            “title”: dim_title,
+            “detail”: dim_detail,
+            “type”: “intent”,
+        },
     ]
-    for index, node in enumerate(focal_nodes[:4], start=2):
+    for index, node in enumerate(focal_nodes[:3], start=3):
         steps.append(
             {
-                "step": index,
-                "title": node["label"],
-                "detail": _describe_graph_focus_node(node, workspace),
-                "type": node.get("type"),
+                “step”: index,
+                “title”: node[“label”],
+                “detail”: _describe_graph_focus_node(node, workspace),
+                “type”: node.get(“type”),
             }
         )
     steps.append(
         {
-            "step": len(steps) + 1,
-            "title": "动作收口",
-            "detail": f"围绕“{intent}”把风险、任务、证据和执行流压成可操作结论。",
+            “step”: len(steps) + 1,
+            “title”: “动作收口”,
+            “detail”: f”围绕”{intent}”把风险、任务、证据和执行流压成可操作结论。”,
             "type": "action",
         }
     )
