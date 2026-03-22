@@ -34,3 +34,13 @@ saiti2.txt
 api_logs.txt
 test_api.py
 *.log
+
+# internal tool configs
+.claude/
+.gemini/
+.idea/
+.vscode/
+
+# redundant submodule
+# ops-pilot/ (only if not intended)
+
