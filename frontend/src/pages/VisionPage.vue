@@ -14,6 +14,7 @@ const visionState = useAsyncState<any>()
 const runtimeState = useAsyncState<any>()
 const runsState = useAsyncState<any>()
 const pipelineRunning = ref(false)
+const selectedJobKey = ref('')
 
 const companies = computed(() => overviewState.data.value?.companies || [])
 const selectedCompany = ref('')
@@ -29,6 +30,11 @@ const analysisLog = computed(() => selectedResult.value?.analysis_log || [])
 const runtimeSummary = computed(() => runtimeState.data.value?.runtime || null)
 const pipelineJobs = computed(() => runtimeState.data.value?.latest_jobs || [])
 const canRunPipeline = computed(() => !!selectedCompany.value)
+const activeJob = computed(() =>
+  pipelineJobs.value.find((item: any) => `${item.stage}-${item.report_id}` === selectedJobKey.value)
+  || pipelineJobs.value[0]
+  || null,
+)
 
 function displayJobStatus(status?: string) {
   const map: Record<string, string> = {
@@ -80,6 +86,10 @@ async function openVisionRun(runId: string) {
   await visionState.execute(() => get(`/vision-analyze/runs/${encodeURIComponent(runId)}`))
 }
 
+function selectJob(job: any) {
+  selectedJobKey.value = `${job.stage}-${job.report_id}`
+}
+
 onMounted(async () => {
   await overviewState.execute(() => get('/workspace/companies'))
   selectedCompany.value = companies.value[0] || ''
@@ -89,6 +99,20 @@ onMounted(async () => {
 
 watch(selectedCompany, async () => { await loadVision() })
 watch(selectedPeriod, async () => { await loadVision() })
+watch(
+  pipelineJobs,
+  (jobs) => {
+    if (!jobs.length) {
+      selectedJobKey.value = ''
+      return
+    }
+    const exists = jobs.some((item: any) => `${item.stage}-${item.report_id}` === selectedJobKey.value)
+    if (!exists) {
+      selectedJobKey.value = `${jobs[0].stage}-${jobs[0].report_id}`
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -153,6 +177,9 @@ watch(selectedPeriod, async () => { await loadVision() })
                 :label="displayArtifactSource(runtimeState.data.value.latest_jobs[0].artifact_source)"
               />
             </div>
+            <p v-if="selectedResult?.source_preview" class="hero-preview muted">
+              {{ selectedResult.source_preview }}
+            </p>
 
             <!-- Phase Track -->
             <div class="phase-track" v-if="phaseTrack.length">
@@ -219,6 +246,8 @@ watch(selectedPeriod, async () => { await loadVision() })
                 v-for="job in pipelineJobs"
                 :key="`${job.stage}-${job.report_id}`"
                 class="job-card glass-panel-hover"
+                :class="{ 'is-active': activeJob && `${job.stage}-${job.report_id}` === `${activeJob.stage}-${activeJob.report_id}` }"
+                @click="selectJob(job)"
               >
                 <div class="job-head">
                   <span class="job-stage">{{ job.stage }}</span>
@@ -229,6 +258,29 @@ watch(selectedPeriod, async () => { await loadVision() })
                 <p class="job-summary muted">{{ displayArtifactSource(job.artifact_source) }}</p>
               </div>
             </div>
+          </article>
+
+          <article class="glass-panel artifact-panel" v-if="activeJob">
+            <h3 class="panel-sm-title">当前核验产物</h3>
+            <div class="artifact-grid">
+              <div class="artifact-kv">
+                <span class="muted">工序</span>
+                <strong>{{ activeJob.stage }}</strong>
+              </div>
+              <div class="artifact-kv">
+                <span class="muted">报文</span>
+                <strong>{{ activeJob.report_id }}</strong>
+              </div>
+              <div class="artifact-kv">
+                <span class="muted">来源</span>
+                <strong>{{ displayArtifactSource(activeJob.artifact_source) }}</strong>
+              </div>
+              <div class="artifact-kv">
+                <span class="muted">状态</span>
+                <strong>{{ displayJobStatus(activeJob.status) }}</strong>
+              </div>
+            </div>
+            <p class="job-summary muted">{{ activeJob.artifact_summary || '当前产物尚无结构摘要。' }}</p>
           </article>
 
           <!-- Analysis Log -->
@@ -346,6 +398,7 @@ watch(selectedPeriod, async () => { await loadVision() })
 .hero-title { font-size: 18px; font-weight: 600; margin: 0; color: #fff; }
 .hero-title.compact { font-size: 16px; }
 .hero-text { font-size: 13px; margin: 0; }
+.hero-preview { font-size: 12px; line-height: 1.6; margin: 0; }
 .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; }
 .status-badge-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .muted { color: var(--muted); }
@@ -384,11 +437,17 @@ watch(selectedPeriod, async () => { await loadVision() })
 .jobs-panel { padding: 20px; border-radius: 20px; flex-shrink: 0; }
 .jobs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .job-card { padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
+.job-card.is-active { border-color: rgba(168,85,247,0.35); background: rgba(168,85,247,0.08); }
 .job-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
 .job-stage { color: #818cf8; font-family: 'JetBrains Mono', monospace; }
 .job-status { }
 .job-company { font-size: 14px; color: #fff; display: block; margin-bottom: 4px; }
 .job-summary { font-size: 12px; margin: 0; line-height: 1.5; }
+
+.artifact-panel { padding: 20px; border-radius: 20px; flex-shrink: 0; }
+.artifact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.artifact-kv { display: flex; flex-direction: column; gap: 4px; }
+.artifact-kv strong { font-size: 13px; color: #fff; word-break: break-word; }
 
 /* Log */
 .log-panel { padding: 20px; border-radius: 20px; }

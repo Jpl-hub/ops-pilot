@@ -4,6 +4,7 @@ import json
 import logging
 import time
 from typing import Any, Callable
+from inspect import isawaitable
 
 from openai import AsyncOpenAI
 
@@ -123,6 +124,8 @@ async def generate_completion(
                 if tool_registry and fn_name in tool_registry:
                     try:
                         raw_result = tool_registry[fn_name](**fn_args)
+                        if isawaitable(raw_result):
+                            raw_result = await raw_result
                         result_content = json.dumps(
                             raw_result, ensure_ascii=False, default=str
                         )

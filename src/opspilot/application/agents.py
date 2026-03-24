@@ -126,12 +126,12 @@ def _make_tool_wrappers(
             "top_companies": rows,
         }
 
-    def tool_stress_test(**kwargs: Any) -> dict:
+    async def tool_stress_test(**kwargs: Any) -> dict:
         name = kwargs.get("company_name") or company_name
         scenario = kwargs.get("scenario", "供应链中断")
         if not name:
             return {"error": "company_name is required"}
-        result = service.company_stress_test(
+        result = await service.company_stress_test(
             name, scenario, kwargs.get("report_period") or report_period, user_role=user_role,
         )
         return {
@@ -150,7 +150,11 @@ def _make_tool_wrappers(
         )
         return {
             "focal_nodes": result.get("focal_nodes", [])[:5],
-            "inference_summary": result.get("inference_path", {}).get("summary", ""),
+            "inference_summary": " -> ".join(
+                item.get("title", "")
+                for item in result.get("inference_path", [])[:4]
+                if item.get("title")
+            ),
         }
 
     def tool_company_timeline(**kwargs: Any) -> dict:
@@ -340,7 +344,14 @@ async def run_orchestrator(
         )
     except Exception as e:
         logger.error("Orchestrator LLM call failed: %s", e)
-        return _fallback_payload(query, company_name, report_period, str(e), [])
+        return await _run_local_orchestrator(
+            query=query,
+            company_name=company_name,
+            report_period=report_period,
+            user_role=user_role,
+            service=service,
+            error_msg=str(e),
+        )
 
     # -- 4) Parse response --
     try:
@@ -482,6 +493,49 @@ async def run_stress_agent(company_name: str, scenario: str, report_period: str 
         return _stress_data_fallback(company_name, scenario)
 
 
+async def _run_local_orchestrator(
+    *,
+    query: str,
+    company_name: str | None,
+    report_period: str | None,
+    user_role: str,
+    service: OpsPilotService,
+    error_msg: str,
+) -> dict[str, Any]:
+    tool_name = _route_local_tool(query=query, company_name=company_name)
+    trace = ToolCallTrace()
+    try:
+        local_payload = await _execute_local_tool(
+            tool_name=tool_name,
+            query=query,
+            company_name=company_name,
+            report_period=report_period,
+            user_role=user_role,
+            service=service,
+        )
+        trace.record(
+            tool_name=tool_name,
+            arguments={
+                "company_name": company_name,
+                "report_period": report_period,
+                "query": query,
+            },
+            result_summary=json.dumps(local_payload, ensure_ascii=False, default=str),
+            elapsed_ms=0.0,
+            success=True,
+        )
+        local_payload["tool_trace"] = trace.records
+        local_payload["runtime_notice"] = {
+            "mode": "local_orchestrator",
+            "status": "degraded",
+            "reason": error_msg,
+        }
+        return local_payload
+    except Exception as exc:
+        logger.error("Local orchestrator failed: %s", exc)
+        return _fallback_payload(query, company_name, report_period, str(exc), trace.records)
+
+
 def _stress_data_fallback(company_name: str, scenario: str) -> dict[str, Any]:
     """Data-driven stress fallback when LLM is unavailable."""
     # Determine severity by keywords in scenario
@@ -525,3 +579,178 @@ def _strip_markdown_fences(text: str) -> str:
     if text.endswith("```"):
         text = text[:-3]
     return text
+
+
+def _route_local_tool(*, query: str, company_name: str | None) -> str:
+    lowered = query.lower()
+    if any(keyword in query for keyword in ("研报", "核验", "观点", "券商", "目标价")):
+        return "tool_verify_claim"
+    if any(keyword in query for keyword in ("对标", "同行", "横向", "比较", "排名")):
+        return "tool_benchmark_company"
+    if any(keyword in query for keyword in ("压力", "冲击", "情景", "stress")):
+        return "tool_stress_test"
+    if any(keyword in query for keyword in ("图谱", "传导", "链路", "关联", "路径")):
+        return "tool_graph_query"
+    if any(keyword in query for keyword in ("时间线", "历年", "回溯", "趋势")):
+        return "tool_company_timeline"
+    if any(keyword in query for keyword in ("行业", "板块", "预警", "扫描")) and not company_name:
+        return "tool_risk_scan"
+    if "risk" in lowered and not company_name:
+        return "tool_risk_scan"
+    return "tool_score_company"
+
+
+async def _execute_local_tool(
+    *,
+    tool_name: str,
+    query: str,
+    company_name: str | None,
+    report_period: str | None,
+    user_role: str,
+    service: OpsPilotService,
+) -> dict[str, Any]:
+    if tool_name == "tool_verify_claim" and company_name:
+        verify = service.verify_claim(company_name, report_period)
+        claim_cards = verify.get("claim_cards", [])
+        matches = sum(1 for item in claim_cards if item.get("status") == "match")
+        mismatches = sum(1 for item in claim_cards if item.get("status") != "match")
+        meta = verify.get("report_meta", {})
+        verify.update(
+            {
+                "query_type": "claim_verification",
+                "answer_markdown": (
+                    f"当前以 `{meta.get('title', '最新研报')}` 为核验对象。"
+                    f"共回溯 {len(claim_cards)} 条关键观点，其中 {matches} 条与财报一致，"
+                    f"{mismatches} 条存在偏差。优先关注偏差项与证据回放。"
+                ),
+                "key_numbers": [
+                    {"label": "核验观点", "value": len(claim_cards), "unit": "条"},
+                    {"label": "一致观点", "value": matches, "unit": "条"},
+                    {"label": "偏差观点", "value": mismatches, "unit": "条"},
+                ],
+            }
+        )
+        return verify
+
+    if tool_name == "tool_benchmark_company" and company_name:
+        benchmark = service.benchmark_company(company_name, report_period)
+        rows = benchmark.get("benchmark", [])
+        leader = rows[0] if rows else {}
+        benchmark.update(
+            {
+                "query_type": "peer_benchmark",
+                "answer_markdown": (
+                    f"已完成 `{company_name}` 的同业对标。"
+                    f"当前最靠前样本为 `{leader.get('company_name', company_name)}`，"
+                    f"建议对照分项得分和整改动作查看差距来源。"
+                ),
+                "key_numbers": benchmark.get("key_numbers", [])[:3],
+            }
+        )
+        return benchmark
+
+    if tool_name == "tool_stress_test" and company_name:
+        stress = await service.company_stress_test(
+            company_name,
+            query if len(query) >= 6 else "供应链中断",
+            report_period,
+            user_role=user_role,
+        )
+        severity = stress.get("severity", {})
+        stress.update(
+            {
+                "query_type": "stress_test",
+                "answer_markdown": (
+                    f"已完成 `{company_name}` 的压力推演。"
+                    f"当前冲击等级为 `{severity.get('level', 'UNKNOWN')}` / {severity.get('label', '待确认')}，"
+                    "请结合传导矩阵、波前轨迹和恢复动作判断是否需要升级处置。"
+                ),
+                "key_numbers": [
+                    {"label": "冲击等级", "value": severity.get("level", "UNKNOWN"), "unit": ""},
+                    {"label": "传导阶段", "value": len(stress.get("transmission_matrix", [])), "unit": "段"},
+                    {"label": "恢复动作", "value": len(stress.get("stress_recovery_sequence", [])), "unit": "项"},
+                ],
+            }
+        )
+        return stress
+
+    if tool_name == "tool_graph_query" and company_name:
+        graph = service.company_graph_query(
+            company_name,
+            query,
+            report_period,
+            user_role=user_role,
+        )
+        focal_labels = "、".join(item.get("label", "") for item in graph.get("focal_nodes", [])[:3] if item.get("label"))
+        graph.update(
+            {
+                "query_type": "graph_query",
+                "answer_markdown": (
+                    f"已完成 `{company_name}` 的图谱路径检索。"
+                    f"当前命中的关键节点包括 {focal_labels or '核心风险与执行节点'}，"
+                    "请结合路径带和执行流定位主传导链。"
+                ),
+                "key_numbers": [
+                    {"label": "焦点节点", "value": len(graph.get("focal_nodes", [])), "unit": "个"},
+                    {"label": "推理路径", "value": len(graph.get("inference_path", [])), "unit": "段"},
+                    {"label": "执行记录", "value": graph.get("summary", {}).get("execution_records", 0), "unit": "条"},
+                ],
+            }
+        )
+        return graph
+
+    if tool_name == "tool_company_timeline" and company_name:
+        timeline = service.company_timeline(company_name)
+        latest = timeline.get("snapshots", [{}])[0]
+        timeline.update(
+            {
+                "query_type": "metric_query",
+                "answer_markdown": (
+                    f"已回放 `{company_name}` 的跨期变化。"
+                    f"最新报期为 `{timeline.get('latest_period', report_period or '-')}`，"
+                    f"总分 {latest.get('total_score', '-')}"
+                    "，建议结合分期变化和风险标签查看拐点。"
+                ),
+                "key_numbers": timeline.get("key_numbers", [])[:3],
+            }
+        )
+        return timeline
+
+    if tool_name == "tool_risk_scan":
+        risk = service.risk_scan(report_period)
+        risk_board = risk.get("risk_board", [])
+        risk.update(
+            {
+                "query_type": "risk_scan",
+                "answer_markdown": (
+                    f"已完成主周期行业风险扫描。当前识别到 {len(risk_board)} 家重点关注企业，"
+                    "请优先查看风险标签密集和预警未闭环的样本。"
+                ),
+                "key_numbers": risk.get("key_numbers", [])[:3],
+            }
+        )
+        return risk
+
+    if company_name:
+        score = service.score_company(company_name, report_period)
+        scorecard = score.get("scorecard", {})
+        top_risk = scorecard.get("risk_labels", [{}])
+        score.update(
+            {
+                "query_type": "company_scoring",
+                "answer_markdown": (
+                    f"已完成 `{company_name}` 的企业体检。"
+                    f"当前总分 {scorecard.get('total_score', '-')}, 评级 {scorecard.get('grade', '-')}"
+                    f"，首要风险为 `{top_risk[0].get('name', '待识别')}`。"
+                    "建议继续查看分项得分、证据链和整改动作。"
+                ),
+                "key_numbers": [
+                    {"label": "总分", "value": scorecard.get("total_score"), "unit": "分"},
+                    {"label": "风险标签", "value": len(scorecard.get("risk_labels", [])), "unit": "项"},
+                    {"label": "整改动作", "value": len(score.get("action_cards", [])), "unit": "项"},
+                ],
+            }
+        )
+        return score
+
+    raise ValueError("当前问题缺少可分析的公司主体，无法执行本地编排。")

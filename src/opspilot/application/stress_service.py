@@ -344,7 +344,7 @@ def _build_stress_command_surface(
 ) -> dict[str, Any]:
     dominant = max(
         transmission_matrix,
-        key=lambda item: int(item.get("impact_score", 0)),
+        key=lambda item: _stress_score_value(item.get("impact_score", 0)),
         default={},
     )
     return {
@@ -354,8 +354,8 @@ def _build_stress_command_surface(
         "severity_label": severity["label"],
         "headline": dominant.get("headline") or "等待冲击传导",
         "impact_label": dominant.get("impact_label") or severity["label"],
-        "impact_score": int(dominant.get("impact_score", 0)),
-        "energy_curve": [int(item.get("impact_score", 0)) for item in transmission_matrix[:3]],
+        "impact_score": _stress_score_value(dominant.get("impact_score", 0)),
+        "energy_curve": [_stress_score_value(item.get("impact_score", 0)) for item in transmission_matrix[:3]],
         "watch_items": [
             {"label": "风险标签", "value": str(workspace["score_summary"]["risk_count"])},
             {"label": "在办任务", "value": str(workspace["tasks"]["summary"]["in_progress"])},
@@ -395,7 +395,7 @@ def _build_stress_test_chart(
     propagation_steps: list[dict[str, Any]],
     transmission_matrix: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    chart_points = [int(item.get("impact_score", 0)) for item in transmission_matrix]
+    chart_points = [_stress_score_value(item.get("impact_score", 0)) for item in transmission_matrix]
     if len(chart_points) < len(propagation_steps):
         tail_value = chart_points[-1] if chart_points else 0
         chart_points.extend([tail_value] * (len(propagation_steps) - len(chart_points)))
@@ -487,7 +487,7 @@ def _build_stress_wavefront(
     for index, step in enumerate(propagation_steps):
         matrix_entry = transmission_matrix[min(index, len(transmission_matrix) - 1)] if transmission_matrix else {}
         log_entry = simulation_log[min(index, len(simulation_log) - 1)] if simulation_log else {}
-        impact_score = int(matrix_entry.get("impact_score", 0))
+        impact_score = _stress_score_value(matrix_entry.get("impact_score", 0))
         frames.append(
             {
                 "frame": index + 1,
@@ -527,7 +527,7 @@ def _build_stress_impact_tape(
     tape: list[dict[str, Any]] = []
     for index, item in enumerate(transmission_matrix):
         log_entry = simulation_log[min(index, len(simulation_log) - 1)] if simulation_log else {}
-        impact_score = int(item.get("impact_score", 0))
+        impact_score = _stress_score_value(item.get("impact_score", 0))
         tape.append(
             {
                 "step": index + 1,
@@ -618,3 +618,16 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _utcnow_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def _stress_score_value(raw_value: Any) -> int:
+    if isinstance(raw_value, bool):
+        return 0
+    if isinstance(raw_value, (int, float)):
+        return int(round(abs(float(raw_value))))
+    if isinstance(raw_value, str):
+        match = re.search(r"-?\d+(?:\.\d+)?", raw_value.strip())
+        if match is None:
+            return 0
+        return int(round(abs(float(match.group(0)))))
+    return 0

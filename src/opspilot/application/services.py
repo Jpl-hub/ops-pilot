@@ -2105,6 +2105,8 @@ class OpsPilotService:
                 "summary": graph["summary"],
                 "node_count": len(graph["nodes"]),
                 "edge_count": len(graph["edges"]),
+                "nodes": graph["nodes"],
+                "edges": graph["edges"],
             },
         }
         run_id = _build_graph_query_run_id(company_name)
@@ -6717,10 +6719,10 @@ def _research_report_bucket(report: dict[str, Any], available_periods: set[str] 
 
 
 def _build_research_report_insight(report: dict[str, Any]) -> dict[str, Any] | None:
-    local_path = report.get("local_path")
-    if not local_path or not Path(local_path).exists():
+    local_path = _resolve_report_local_path(report.get("local_path"))
+    if local_path is None or not local_path.exists():
         return None
-    report_html = Path(local_path).read_text(encoding="utf-8", errors="ignore")
+    report_html = local_path.read_text(encoding="utf-8", errors="ignore")
     payload = _extract_research_payload(report_html)
     report_meta = _build_research_meta(report, payload)
     report_body = _extract_research_body(report_html, payload)
@@ -6741,6 +6743,15 @@ def _build_research_report_insight(report: dict[str, Any]) -> dict[str, Any] | N
         "forecast_cards": forecast_cards,
         "claim_signal_count": claim_signal_count,
     }
+
+
+def _resolve_report_local_path(raw_path: Any) -> Path | None:
+    if not raw_path:
+        return None
+    normalized = Path(str(raw_path).replace("\\", "/"))
+    if normalized.is_absolute():
+        return normalized
+    return (Path.cwd() / normalized).resolve()
 
 
 def _research_report_content_score(report: dict[str, Any]) -> tuple[int, int]:

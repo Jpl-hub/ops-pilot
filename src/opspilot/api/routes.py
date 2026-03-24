@@ -144,7 +144,7 @@ def admin_overview(_: dict = Depends(require_current_user)) -> dict:
     return get_service().admin_overview()
 
 
-@router.get("/admin/delivery-report")
+@router.get("/admin/delivery-report", response_model=None)
 def admin_delivery_report(
     format: str = "json",
     _: dict = Depends(require_current_user),

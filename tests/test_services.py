@@ -347,6 +347,106 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             detail = service.stress_test_run_detail(payload["run_id"])
             self.assertEqual(detail["run_meta"]["company_name"], "测试公司")
 
+    async def test_company_stress_test_accepts_percent_impact_scores(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                return {
+                    "company_name": "测试公司",
+                    "report_period": "2025Q3",
+                    "subindustry": "储能",
+                    "metrics": {"G1": -6.0, "G2": -8.0, "C3": 12.5, "S4": 0.78, "S1": 1.04},
+                    "history": [],
+                    "metric_evidence": {},
+                    "formula_context": {},
+                    "label_evidence": {},
+                }
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    self.get_company("测试公司", "2025Q3"),
+                    {
+                        "company_name": "对标公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 8.0, "G2": 9.0, "C3": 2.1, "S4": 1.2, "S1": 1.4},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                ]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def find_company_from_query(self, query: str, report_period: str | None = None) -> str | None:
+                return "测试公司" if "测试公司" in query else None
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bronze" / "manifests").mkdir(parents=True, exist_ok=True)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            with patch(
+                "opspilot.application.agents.run_stress_agent",
+                new=AsyncMock(
+                    return_value={
+                        "severity": {"level": "HIGH", "label": "高风险冲击", "color": "risk"},
+                        "propagation_steps": [
+                            {"step": 1, "title": "冲击启动", "detail": "外部冲击触发"},
+                            {"step": 2, "title": "上游传导", "detail": "材料价格抬升"},
+                            {"step": 3, "title": "生产环节", "detail": "产线排期受压"},
+                        ],
+                        "transmission_matrix": [
+                            {"stage": "upstream", "headline": "原材料成本抬升", "impact_score": "-8%", "impact_label": "采购压力", "tone": "risk"},
+                            {"stage": "midstream", "headline": "产能利用率下降", "impact_score": "-5%", "impact_label": "营收波动", "tone": "warning"},
+                            {"stage": "downstream", "headline": "回款账期延长", "impact_score": "-3%", "impact_label": "现金流压力", "tone": "warning"},
+                        ],
+                        "simulation_log": [
+                            {"step": 1, "title": "系统预警触发", "detail": "开始评估"},
+                            {"step": 2, "title": "风险识别完成", "detail": "完成识别"},
+                            {"step": 3, "title": "影响估算", "detail": "输出估算"},
+                        ],
+                    }
+                ),
+            ):
+                payload = await service.company_stress_test(
+                    "测试公司",
+                    "关键供应商停产两周导致交付延迟",
+                    user_role="management",
+                )
+
+            self.assertEqual(payload["stress_command_surface"]["impact_score"], 8)
+            self.assertEqual(payload["stress_command_surface"]["energy_curve"], [8, 5, 3])
+            self.assertEqual(payload["chart"]["series"][0]["data"][:3], [8, 5, 3])
+            self.assertEqual(payload["stress_wavefront"][0]["impact_score"], 8)
+            self.assertEqual(payload["stress_impact_tape"][0]["intensity"], 26)
+
     def test_company_graph_query_returns_intent_driven_path(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
@@ -432,6 +532,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["inference_path"][0]["title"], "测试公司")
             self.assertIn("动作收口", payload["inference_path"][-1]["title"])
             self.assertIn("links", payload["evidence_navigation"])
+            self.assertTrue(payload["graph"]["nodes"])
+            self.assertTrue(payload["graph"]["edges"])
             self.assertTrue((root / "bronze" / "manifests" / "graph_query_runs.json").exists())
 
             runs = service.graph_query_runs(
@@ -601,6 +703,89 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["agent_flow"][3]["tool"], "action_planner")
             self.assertIn("run_id", payload)
             self.assertTrue((root / "bronze" / "manifests" / "workspace_runs.json").exists())
+
+    async def test_chat_turn_uses_local_orchestrator_when_llm_unavailable(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                return {
+                    "company_name": "测试公司",
+                    "report_period": "2025Q3",
+                    "subindustry": "储能",
+                    "metrics": {"G1": 12.0, "P2": 8.0, "C3": 11.2, "S4": 0.72, "S1": 1.08},
+                    "history": [],
+                    "metric_evidence": {},
+                    "formula_context": {},
+                    "label_evidence": {},
+                }
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    self.get_company("测试公司", "2025Q3"),
+                    {
+                        "company_name": "对标公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 15.0, "P2": 9.5, "C3": 2.0, "S4": 1.25, "S1": 1.42},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                ]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def find_company_from_query(self, query: str, report_period: str | None = None) -> str | None:
+                return "测试公司" if "测试公司" in query else None
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bronze" / "manifests").mkdir(parents=True, exist_ok=True)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                openai_api_key = "invalid"
+                postgres_dsn = "postgresql://user:pass@localhost:5432/test"
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            with patch(
+                "opspilot.application.agents.generate_completion",
+                new=AsyncMock(side_effect=RuntimeError("401 invalid token")),
+            ):
+                payload = await service.chat_turn(
+                    query="请分析测试公司的经营表现和风险",
+                    company_name="测试公司",
+                    user_role="management",
+                )
+
+            self.assertEqual(payload["company_name"], "测试公司")
+            self.assertFalse(payload["answer_markdown"].startswith("分析执行异常"))
+            self.assertEqual(payload["runtime_notice"]["mode"], "local_orchestrator")
+            self.assertEqual(payload["tool_trace"][0]["tool_name"], "tool_score_company")
+            self.assertEqual(payload["ai_assurance"]["tool_call_count"], 1)
 
     async def test_workspace_runs_persist_and_can_be_read_back(self) -> None:
         class StubRepository:

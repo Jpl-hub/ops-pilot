@@ -14,32 +14,69 @@ import { buildEvidenceLink } from '@/lib/format'
 const companies = ref<string[]>([])
 const reports = ref<any[]>([])
 const selectedCompany = ref('')
+const selectedPeriod = ref('')
 const selectedReportTitle = ref<string | null>(null)
 const state = useAsyncState<any>()
 const route = useRoute()
 const syncingFromRoute = ref(false)
 const verifyCommandSurface = ref<any | null>(null)
 const verifyDeltaTape = ref<any[]>([])
+const availablePeriods = ref<string[]>([])
+const reportStatusMessage = ref('')
+const reportCatalogReady = ref(false)
 
 async function loadCompanies() {
   const data = await get<any>('/workspace/companies')
   companies.value = data.companies
+  availablePeriods.value = data.available_periods || []
+  selectedPeriod.value = selectedPeriod.value || data.preferred_period || ''
 }
 
-async function loadReports() {
+async function requestReports(companyName: string) {
+  return get<any>(`/company/research-reports?company_name=${encodeURIComponent(companyName)}`)
+}
+
+async function loadReports(options?: { allowAutoSwitch?: boolean }) {
   if (!selectedCompany.value) {
     reports.value = []
     selectedReportTitle.value = null
+    reportCatalogReady.value = true
     return
   }
   try {
-    const payload = await get<any>(`/company/research-reports?company_name=${encodeURIComponent(selectedCompany.value)}`)
+    const payload = await requestReports(selectedCompany.value)
     reports.value = payload.reports
-    selectedReportTitle.value = reports.value[0]?.title ?? null
-  } catch {
+    if (!reports.value.some((item) => item.title === selectedReportTitle.value)) {
+      selectedReportTitle.value = reports.value[0]?.title ?? null
+    }
+    reportStatusMessage.value = ''
+  } catch (error) {
     reports.value = []
     selectedReportTitle.value = null
+    reportStatusMessage.value = error instanceof Error ? error.message : '当前公司暂无可核验研报。'
+    if (options?.allowAutoSwitch) {
+      for (const company of companies.value) {
+        if (company === selectedCompany.value) {
+          continue
+        }
+        try {
+          const payload = await requestReports(company)
+          if (payload.reports?.length) {
+            syncingFromRoute.value = true
+            selectedCompany.value = company
+            syncingFromRoute.value = false
+            reports.value = payload.reports
+            selectedReportTitle.value = payload.reports[0]?.title ?? null
+            reportStatusMessage.value = ''
+            break
+          }
+        } catch {
+          continue
+        }
+      }
+    }
   }
+  reportCatalogReady.value = true
 }
 
 async function loadVerify() {
@@ -49,7 +86,13 @@ async function loadVerify() {
     state.loading.value = false
     return
   }
-  await state.execute(() => post('/claim/verify', { company_name: selectedCompany.value, report_title: selectedReportTitle.value }))
+  await state.execute(() =>
+    post('/claim/verify', {
+      company_name: selectedCompany.value,
+      report_period: selectedPeriod.value || null,
+      report_title: selectedReportTitle.value,
+    }),
+  )
   verifyCommandSurface.value = state.data.value?.verify_command_surface || null
   verifyDeltaTape.value = state.data.value?.verify_delta_tape || []
 }
@@ -72,7 +115,7 @@ onMounted(async () => {
   if (!selectedCompany.value) {
     selectedCompany.value = companies.value[0] || ''
   }
-  await loadReports()
+  await loadReports({ allowAutoSwitch: true })
   applyQuerySelection()
   await loadVerify()
 })
@@ -83,6 +126,15 @@ watch(selectedCompany, async (_, oldValue) => {
   }
   if (oldValue && selectedCompany.value !== oldValue) {
     await loadReports()
+    await loadVerify()
+  }
+})
+
+watch(selectedPeriod, async (value, oldValue) => {
+  if (syncingFromRoute.value) {
+    return
+  }
+  if (value !== oldValue) {
     await loadVerify()
   }
 })
@@ -145,6 +197,13 @@ watch(
             </select>
           </label>
           <label class="field inline-field">
+            <span class="subtle-label">报期</span>
+            <select v-model="selectedPeriod" class="glass-select">
+              <option value="">默认主周期</option>
+              <option v-for="period in availablePeriods" :key="period" :value="period">{{ period }}</option>
+            </select>
+          </label>
+          <label class="field inline-field">
             <span class="subtle-label">研报</span>
             <select v-model="selectedReportTitle" class="glass-select" style="max-width:300px;">
               <option v-for="report in reports" :key="report.title" :value="report.title">{{ report.title }} | {{ report.publish_date }}</option>
@@ -163,10 +222,10 @@ watch(
         </div>
       </section>
       
-      <section v-else-if="reports.length === 0" class="glass-panel empty-panel">
+      <section v-else-if="reportCatalogReady && reports.length === 0" class="glass-panel empty-panel">
         <div class="empty-content">
           <h3 class="text-gradient mb-2">研报缺失</h3>
-          <p class="muted">当前公司没有可供核验的结构化报告。</p>
+          <p class="muted">{{ reportStatusMessage || '当前公司没有可供核验的结构化报告。' }}</p>
         </div>
       </section>
 

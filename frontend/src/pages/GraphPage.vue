@@ -10,6 +10,8 @@ import { get, post } from '@/lib/api'
 
 type GraphInferenceStep = { step: number; title: string; detail: string }
 type GraphFocalNode = { id: string; label: string; type: string }
+type GraphNode = { id: string; label: string; type: string; meta?: Record<string, unknown> }
+type GraphEdge = { source: string; target: string; label: string }
 
 const overviewState = useAsyncState<any>()
 const graphState = useAsyncState<any>()
@@ -29,55 +31,99 @@ const canSubmitIntent = computed(() => !!selectedCompany.value && !!graphIntentD
 const focalNodes = computed<GraphFocalNode[]>(() => graphState.data.value?.focal_nodes || [])
 const inferencePath = computed<GraphInferenceStep[]>(() => graphState.data.value?.inference_path || [])
 const activePathId = computed(() => inferencePath.value[activePathStep.value]?.step ?? null)
+const rawGraphNodes = computed<GraphNode[]>(() => graphState.data.value?.graph?.nodes || [])
+const rawGraphEdges = computed<GraphEdge[]>(() => graphState.data.value?.graph?.edges || [])
+
+function groupRank(type: string) {
+  const map: Record<string, number> = {
+    company: 0,
+    report_period: 1,
+    risk_label: 2,
+    research_report: 3,
+    document_artifact: 4,
+    artifact_evidence: 5,
+    alert: 6,
+    task: 7,
+    workspace_run: 8,
+    execution_stream: 9,
+    watchboard: 10,
+  }
+  return map[type] ?? 99
+}
+
+function nodeKind(type: string) {
+  if (type === 'company') return 'source'
+  if (type === 'report_period') return 'core'
+  if (['risk_label', 'alert'].includes(type)) return 'risk'
+  if (['document_artifact', 'artifact_evidence', 'research_report'].includes(type)) return 'impact'
+  return 'support'
+}
+
+function nodeDetail(node: GraphNode) {
+  const meta = node.meta || {}
+  if (typeof meta.summary === 'string' && meta.summary) return meta.summary
+  if (typeof meta.path === 'string' && meta.path) return meta.path
+  if (typeof meta.status === 'string' && meta.status) return `状态：${meta.status}`
+  if (typeof meta.priority === 'string' && meta.priority) return `优先级：${meta.priority}`
+  if (typeof meta.grade === 'string' && meta.grade) return `评级：${meta.grade}`
+  if (typeof meta.query_type === 'string' && meta.query_type) return `分析类型：${meta.query_type}`
+  return node.type
+}
 
 const graphCanvasNodes = computed(() => {
-  const pathLen = Math.max(1, inferencePath.value.length - 1)
-  const pathNodes = inferencePath.value.map((item: GraphInferenceStep, index: number) => ({
-    id: `path-${item.step}`,
-    label: item.title,
-    detail: item.detail,
-    kind: index === 0 ? 'source' : index === inferencePath.value.length - 1 ? 'impact' : 'core',
-    x: 20 + (index / pathLen) * 60,
-    y: 25 + (index / pathLen) * 50,
-    step: item.step,
-  }))
+  const groups = new Map<number, GraphNode[]>()
+  rawGraphNodes.value
+    .slice()
+    .sort((a, b) => groupRank(a.type) - groupRank(b.type) || a.label.localeCompare(b.label, 'zh-CN'))
+    .forEach((node) => {
+      const rank = groupRank(node.type)
+      groups.set(rank, [...(groups.get(rank) || []), node])
+    })
 
-  const supportNodes = focalNodes.value.map((node: GraphFocalNode, index: number) => {
-    const total = Math.max(1, focalNodes.value.length)
-    const angle = (index / total) * Math.PI * 2 - Math.PI / 4
-    const rx = 35 + (index % 2) * 5
-    const ry = 25 + (index % 2) * 10
-    return {
-      id: node.id,
-      label: node.label,
-      detail: node.type,
-      kind: ['risk_label', 'alert'].includes(node.type) ? 'risk' : 'support',
-      x: 50 + Math.cos(angle) * rx,
-      y: 50 + Math.sin(angle) * ry,
-      step: null,
-    }
+  const columns = Array.from(groups.entries()).sort((a, b) => a[0] - b[0])
+  const focalIds = new Set(focalNodes.value.map((item) => item.id))
+  return columns.flatMap(([_, nodes], columnIndex) => {
+    const x = columns.length === 1 ? 50 : 12 + columnIndex * (76 / Math.max(1, columns.length - 1))
+    return nodes.map((node, rowIndex) => {
+      const y = nodes.length === 1 ? 50 : 18 + rowIndex * (64 / Math.max(1, nodes.length - 1))
+      return {
+        id: node.id,
+        label: node.label,
+        detail: nodeDetail(node),
+        kind: nodeKind(node.type),
+        x,
+        y,
+        type: node.type,
+        isFocal: focalIds.has(node.id),
+      }
+    })
   })
-
-  return [...pathNodes, ...supportNodes]
 })
 
 const graphCanvasLinks = computed(() =>
-  inferencePath.value.slice(0, -1).map((item: GraphInferenceStep, index: number) => {
-    const n1 = graphCanvasNodes.value.find(n => n.id === `path-${item.step}`)
-    const n2 = graphCanvasNodes.value.find(n => n.id === `path-${inferencePath.value[index + 1]?.step}`)
+  rawGraphEdges.value.map((edge: GraphEdge, index: number) => {
+    const n1 = graphCanvasNodes.value.find(n => n.id === edge.source)
+    const n2 = graphCanvasNodes.value.find(n => n.id === edge.target)
     if (!n1 || !n2) return null
-    const x1 = n1.x, y1 = n1.y, x2 = n2.x, y2 = n2.y
-    const cp1x = x1 + (x2 - x1) * 0.6, cp1y = y1
-    const cp2x = x1 + (x2 - x1) * 0.4, cp2y = y2
-    return { id: `link-${item.step}`, pathData: `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}` }
+    const x1 = n1.x
+    const y1 = n1.y
+    const x2 = n2.x
+    const y2 = n2.y
+    const bend = Math.max(8, Math.abs(x2 - x1) * 0.18)
+    const cp1x = x1 + bend
+    const cp1y = y1
+    const cp2x = x2 - bend
+    const cp2y = y2
+    return {
+      id: `edge-${index}-${edge.source}-${edge.target}`,
+      pathData: `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`,
+      label: edge.label,
+    }
   }).filter(Boolean),
 )
 
 async function loadGraph() {
   if (!selectedCompany.value) return
-  const params = new URLSearchParams({ company_name: selectedCompany.value })
-  if (selectedPeriod.value) params.set('report_period', selectedPeriod.value)
-
   await graphState.execute(() =>
     post('/company/graph-query', {
       company_name: selectedCompany.value,
@@ -195,7 +241,7 @@ function submitIntent() {
           v-for="node in graphCanvasNodes"
           :key="node.id"
           class="graph-node"
-          :class="[`node-${node.kind}`, { 'is-active': node.step !== null && node.step === activePathId }]"
+          :class="[`node-${node.kind}`, { 'is-active': node.isFocal }]"
           :style="{ left: `${node.x}%`, top: `${node.y}%` }"
         >
           <div class="node-dot"></div>
@@ -204,7 +250,7 @@ function submitIntent() {
         </div>
 
         <!-- Empty State -->
-        <div v-if="!inferencePath.length && !graphState.loading.value" class="canvas-empty">
+        <div v-if="!graphCanvasNodes.length && !graphState.loading.value" class="canvas-empty">
           <p class="muted">输入检索意图后点击「图谱检索」开始推理</p>
         </div>
 
