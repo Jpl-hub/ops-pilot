@@ -203,6 +203,10 @@ function toggleIssueFilter(issueCode: string) {
                   <strong>{{ state.data.value.delivery_readiness.research_ratio }}%</strong>
                 </div>
                 <div class="readiness-stat">
+                  <span>OCR Contract</span>
+                  <strong>{{ state.data.value.delivery_readiness.contract_ratio }}%</strong>
+                </div>
+                <div class="readiness-stat">
                   <span>可直接交付</span>
                   <strong>{{ state.data.value.delivery_readiness.ready_company_count }}</strong>
                 </div>

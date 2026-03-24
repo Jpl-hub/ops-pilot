@@ -6848,18 +6848,26 @@ def _build_delivery_readiness(
     preferred_period_ready = coverage.get("preferred_period_ready", 0) or 0
     silver_ready = coverage.get("silver_ready", 0) or 0
     research_ready = coverage.get("research_ready", 0) or 0
+    contract_audit = document_pipeline.get("cell_trace", {}).get("contract_audit", {})
+    contract_total = contract_audit.get("total", 0) or 0
+    contract_ready = contract_audit.get("ready", 0) or 0
+    contract_invalid = contract_audit.get("invalid", 0) or 0
+    contract_missing = contract_audit.get("missing", 0) or 0
     blocker_companies = [row for row in companies if row.get("issues")]
     ready_companies = [row for row in companies if not row.get("issues")]
 
     coverage_ratio = round((preferred_period_ready / pool_companies) * 100) if pool_companies else 0
     silver_ratio = round((silver_ready / pool_companies) * 100) if pool_companies else 0
     research_ratio = round((research_ready / pool_companies) * 100) if pool_companies else 0
+    contract_ratio = round((contract_ready / contract_total) * 100) if contract_total else 100
 
     if pool_companies == 0:
         stage = "bootstrapping"
     elif not ready_companies:
         stage = "blocked"
-    elif coverage_ratio >= 85 and silver_ratio >= 85 and research_ratio >= 70:
+    elif contract_invalid > 0 or contract_missing > 0:
+        stage = "hardening"
+    elif coverage_ratio >= 85 and silver_ratio >= 85 and research_ratio >= 70 and contract_ratio >= 85:
         stage = "ready"
     else:
         stage = "hardening"
@@ -6873,6 +6881,15 @@ def _build_delivery_readiness(
         }
         for item in top_blockers
     ]
+    if contract_invalid or contract_missing:
+        priority_actions.insert(
+            0,
+            {
+                "title": "OCR Contract 验收",
+                "summary": f"{contract_ready}/{contract_total or 0} 份 contract 达标，{contract_missing} 份缺失，{contract_invalid} 份不合格。",
+                "companies": [item.get("company_name") for item in contract_audit.get("samples", []) if item.get("status") != "ready"][:5],
+            },
+        )
     return {
         "stage": stage,
         "preferred_period": health.get("preferred_period"),
@@ -6881,12 +6898,17 @@ def _build_delivery_readiness(
         "coverage_ratio": coverage_ratio,
         "silver_ratio": silver_ratio,
         "research_ratio": research_ratio,
+        "contract_ratio": contract_ratio,
         "priority_actions": priority_actions[:4],
         "summary": {
             "pool_companies": pool_companies,
             "preferred_period_ready": preferred_period_ready,
             "silver_ready": silver_ready,
             "research_ready": research_ready,
+            "contract_ready": contract_ready,
+            "contract_total": contract_total,
+            "contract_invalid": contract_invalid,
+            "contract_missing": contract_missing,
         },
     }
 

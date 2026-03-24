@@ -2034,6 +2034,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertIn("delivery_readiness", payload)
             self.assertIn("runtime_readiness", payload)
             self.assertEqual(payload["delivery_readiness"]["stage"], "bootstrapping")
+            self.assertEqual(payload["delivery_readiness"]["contract_ratio"], 100)
             self.assertEqual(payload["runtime_readiness"]["status"], "ready")
             self.assertIn("innovation_radar", payload)
             self.assertIn("workspace_history", payload)
@@ -2531,6 +2532,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["delivery_readiness"]["ready_company_count"], 1)
             self.assertEqual(payload["delivery_readiness"]["blocked_company_count"], 1)
             self.assertEqual(payload["delivery_readiness"]["coverage_ratio"], 50)
+            self.assertEqual(payload["delivery_readiness"]["contract_ratio"], 100)
             self.assertEqual(payload["runtime_readiness"]["status"], "ready")
 
     def test_admin_overview_audits_ocr_contract_statuses(self) -> None:
@@ -2679,6 +2681,9 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(audit["invalid"], 1)
             self.assertEqual(audit["missing"], 1)
             self.assertEqual(audit["status"], "blocked")
+            self.assertEqual(payload["delivery_readiness"]["contract_ratio"], 33)
+            self.assertEqual(payload["delivery_readiness"]["stage"], "bootstrapping")
+            self.assertEqual(payload["delivery_readiness"]["priority_actions"][0]["title"], "OCR Contract 验收")
 
     def test_runtime_check_blocks_when_ocr_assets_missing(self) -> None:
         with TemporaryDirectory() as temp_dir:
