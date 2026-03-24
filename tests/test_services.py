@@ -1300,6 +1300,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(detail["artifact"]["headings"])
             self.assertTrue(detail["consumable_sections"])
             self.assertEqual(detail["consumable_sections"][0]["section_type"], "heading_outline")
+            self.assertEqual(detail["artifact_locations"][0]["kind"], "artifact")
+            self.assertTrue(detail["remediation"])
 
     def test_document_pipeline_result_detail_handles_malformed_artifact(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -2307,6 +2309,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(detail["job"]["artifact_source"], "standard_ocr")
             self.assertEqual(detail["consumable_sections"][0]["section_type"], "artifact_provenance")
             self.assertEqual(detail["consumable_sections"][0]["items"][0]["source"], "standard_ocr")
+            self.assertEqual(detail["artifact_locations"][1]["kind"], "ocr_artifact")
+            self.assertIn("contract", detail["remediation"][0]["detail"])
 
     def test_document_pipeline_cell_trace_rejects_invalid_standard_ocr_artifact(self) -> None:
         class StubRepository:
@@ -2402,6 +2406,9 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             artifact_path = Path(payload["results"][0]["artifact_path"])
             artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
             self.assertEqual(artifact_payload["source"], "geometric_fallback")
+            detail = service.document_pipeline_result_detail("cell_trace", "demo-invalid-ocr")
+            self.assertEqual(detail["job"]["artifact_source"], "geometric_fallback")
+            self.assertIn("补齐标准 OCR", detail["remediation"][0]["title"])
 
     def test_admin_overview_reports_company_coverage_gaps(self) -> None:
         class StubRepository:

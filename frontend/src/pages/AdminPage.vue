@@ -363,6 +363,33 @@ function toggleIssueFilter(issueCode: string) {
                   <div class="ih-row"><span class="muted w-16">SOURCE</span><span class="tag subtle-tag">{{ detailState.data.value.job.artifact_source || detailState.data.value.artifact?.source || '-' }}</span></div>
                 </div>
 
+                <div class="runtime-check-list mb-4" v-if="detailState.data.value.artifact_locations?.length">
+                  <div
+                    v-for="location in detailState.data.value.artifact_locations"
+                    :key="`${location.kind}-${location.path}`"
+                    class="runtime-check-card is-ready"
+                  >
+                    <div class="runtime-check-head">
+                      <strong>{{ location.label }}</strong>
+                      <span class="tag subtle-tag">{{ location.kind }}</span>
+                    </div>
+                    <code>{{ location.path }}</code>
+                  </div>
+                </div>
+
+                <div class="runtime-check-list mb-4" v-if="detailState.data.value.remediation?.length">
+                  <div
+                    v-for="item in detailState.data.value.remediation"
+                    :key="item.title"
+                    class="runtime-check-card is-blocked"
+                  >
+                    <div class="runtime-check-head">
+                      <strong>{{ item.title }}</strong>
+                    </div>
+                    <p class="runtime-remediation">{{ item.detail }}</p>
+                  </div>
+                </div>
+
                 <div class="terminal-view scroll-area">
                   <div v-for="section in (detailState.data.value.consumable_sections || [])" :key="section.section_type" class="tv-block">
                      <div class="tv-title">> {{ section.title }} ({{ section.count }})</div>

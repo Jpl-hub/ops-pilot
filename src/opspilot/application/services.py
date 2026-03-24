@@ -2622,6 +2622,7 @@ class OpsPilotService:
             report_period=job.get("report_period"),
             artifact=artifact,
         )
+        artifact_source = job.get("artifact_source") or artifact.get("source")
         return {
             "job": {
                 "stage": job["stage"],
@@ -2633,9 +2634,15 @@ class OpsPilotService:
                 "artifact_path": job["artifact_path"],
                 "completed_at": job.get("completed_at"),
                 "artifact_summary": job.get("artifact_summary"),
-                "artifact_source": job.get("artifact_source"),
+                "artifact_source": artifact_source,
             },
             "artifact": artifact,
+            "artifact_locations": _build_document_artifact_locations(job, artifact),
+            "remediation": _build_document_artifact_remediation(
+                stage=job["stage"],
+                artifact_source=artifact_source,
+                artifact=artifact,
+            ),
             "evidence_navigation": evidence_navigation,
             "consumable_sections": _build_document_consumable_sections(artifact),
         }
@@ -5623,6 +5630,52 @@ def _build_document_consumable_sections(artifact: dict[str, Any]) -> list[dict[s
             }
         )
     return sections
+
+
+def _build_document_artifact_locations(
+    job: dict[str, Any], artifact: dict[str, Any]
+) -> list[dict[str, Any]]:
+    locations = [
+        {
+            "label": "当前交付产物",
+            "kind": "artifact",
+            "path": job.get("artifact_path"),
+        }
+    ]
+    if artifact.get("ocr_artifact_path"):
+        locations.append(
+            {
+                "label": "标准 OCR 上游产物",
+                "kind": "ocr_artifact",
+                "path": artifact.get("ocr_artifact_path"),
+            }
+        )
+    return [item for item in locations if item.get("path")]
+
+
+def _build_document_artifact_remediation(
+    *, stage: str, artifact_source: str | None, artifact: dict[str, Any]
+) -> list[dict[str, Any]]:
+    if stage != "cell_trace":
+        return [
+            {
+                "title": "继续核验当前阶段产物",
+                "detail": "确认摘要、证据导航和页码定位与原报告一致，再推进后续工序。",
+            }
+        ]
+    if artifact_source == "standard_ocr":
+        return [
+            {
+                "title": "抽检标准 OCR contract",
+                "detail": "优先核对 ocr_cell_trace contract 中 tables/cells 的页码、行列号和上游 OCR 产物路径，确保结构产物可复算。",
+            }
+        ]
+    return [
+        {
+            "title": "补齐标准 OCR 结构产物",
+            "detail": "当前仍在使用几何恢复链。应在 ocr_cell_trace contract 目录写入合法 tables/cells JSON，再重新运行 cell_trace。",
+        }
+    ]
 
 
 def _build_document_evidence_navigation(
