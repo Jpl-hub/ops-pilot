@@ -7,13 +7,15 @@ import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { get, post } from '@/lib/api'
+import { get, getText, post } from '@/lib/api'
 
 const state = useAsyncState<any>()
+const deliveryReportState = useAsyncState<any>()
 const pipelineRunState = useAsyncState<any>()
 const resultsState = useAsyncState<any>()
 const detailState = useAsyncState<any>()
 const runningStage = ref('')
+const exportingReport = ref<'markdown' | 'json' | ''>('')
 const selectedIssueCode = ref('')
 const selectedCompanyName = ref('')
 const selectedArtifactSource = ref('')
@@ -68,8 +70,10 @@ const selectedCompanyIssueGuide = computed(() => {
   }))
 })
 
+const deliveryReport = computed(() => deliveryReportState.data.value)
+
 onMounted(() => {
-  void state.execute(() => get('/admin/overview'))
+  void refreshAdminState()
   void loadResults()
 })
 
@@ -109,9 +113,16 @@ async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_tr
       contract_status: stage === 'cell_trace' && selectedContractStatus.value ? selectedContractStatus.value : null,
     }),
   )
-  await state.execute(() => get('/admin/overview'))
+  await refreshAdminState()
   await loadResults(stage)
   runningStage.value = ''
+}
+
+async function refreshAdminState() {
+  await Promise.all([
+    state.execute(() => get('/admin/overview')),
+    deliveryReportState.execute(() => get('/admin/delivery-report')),
+  ])
 }
 
 function toggleIssueFilter(issueCode: string) {
@@ -191,6 +202,27 @@ function displayHistoryType(historyType?: string) {
   }
   return map[historyType || ''] || historyType || '-'
 }
+
+async function exportDeliveryReport(format: 'markdown' | 'json') {
+  exportingReport.value = format
+  try {
+    const content =
+      format === 'markdown'
+        ? await getText('/admin/delivery-report?format=markdown')
+        : JSON.stringify(await get('/admin/delivery-report'), null, 2)
+    const blob = new Blob([content], { type: format === 'markdown' ? 'text/markdown;charset=utf-8' : 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = format === 'markdown' ? 'delivery_report.md' : 'delivery_report.json'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  } finally {
+    exportingReport.value = ''
+  }
+}
 </script>
 
 <template>
@@ -264,6 +296,36 @@ function displayHistoryType(historyType?: string) {
                   >
                     <TagPill :label="`${bucket.label} ${bucket.count}`" tone="risk" />
                   </button>
+                </div>
+              </div>
+            </article>
+
+            <article class="glass-panel p-panel mt-6">
+              <div class="panel-head-compact">
+                <h3 class="panel-sm-title mb-4">交付报告</h3>
+                <div class="flex gap-2">
+                  <button
+                    class="inline-glass-link py-1 px-3"
+                    type="button"
+                    :disabled="deliveryReportState.loading.value || exportingReport !== ''"
+                    @click="exportDeliveryReport('markdown')"
+                  >{{ exportingReport === 'markdown' ? '导出中' : '导出 Markdown' }}</button>
+                  <button
+                    class="inline-glass-link py-1 px-3"
+                    type="button"
+                    :disabled="deliveryReportState.loading.value || exportingReport !== ''"
+                    @click="exportDeliveryReport('json')"
+                  >{{ exportingReport === 'json' ? '导出中' : '导出 JSON' }}</button>
+                </div>
+              </div>
+              <div v-if="deliveryReport" class="runtime-check-list">
+                <div class="runtime-check-card" :class="deliveryReport.overall_status === 'ready' ? 'is-ready' : 'is-blocked'">
+                  <div class="runtime-check-head">
+                    <strong>{{ deliveryReport.overall_label }}</strong>
+                    <span class="tag" :class="deliveryReport.overall_status === 'ready' ? 'success-tag' : 'risk-tag'">{{ deliveryReport.summary_cards.acceptance_passed }}/{{ deliveryReport.summary_cards.acceptance_total }}</span>
+                  </div>
+                  <p v-for="line in deliveryReport.executive_summary" :key="line">{{ line }}</p>
+                  <code>{{ deliveryReport.generated_at }} · 主周期 {{ deliveryReport.preferred_period || '-' }}</code>
                 </div>
               </div>
             </article>

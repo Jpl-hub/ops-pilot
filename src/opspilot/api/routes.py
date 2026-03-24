@@ -6,6 +6,7 @@ import asyncio
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, status
+from fastapi.responses import PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.websockets import WebSocketDisconnect
 
@@ -29,6 +30,7 @@ from opspilot.api.schemas import (
     VisionPipelineRequest,
 )
 from opspilot.application.services import OpsPilotService
+from opspilot.delivery_report import build_delivery_report_markdown
 from opspilot.config import get_settings
 from opspilot.infra.auth_store import AuthStore
 from opspilot.infra.hybrid_repository import HybridRepository
@@ -143,8 +145,20 @@ def admin_overview(_: dict = Depends(require_current_user)) -> dict:
 
 
 @router.get("/admin/delivery-report")
-def admin_delivery_report(_: dict = Depends(require_current_user)) -> dict:
-    return get_service().delivery_report()
+def admin_delivery_report(
+    format: str = "json",
+    _: dict = Depends(require_current_user),
+) -> dict | PlainTextResponse:
+    report = get_service().delivery_report()
+    if format == "markdown":
+        return PlainTextResponse(
+            build_delivery_report_markdown(report),
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="delivery_report.md"',
+            },
+        )
+    return report
 
 
 @router.get("/admin/innovation-radar")

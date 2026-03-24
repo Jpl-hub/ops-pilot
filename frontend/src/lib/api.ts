@@ -42,12 +42,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+async function requestText(path: string, init?: RequestInit): Promise<string> {
+  const token = loadAccessToken()
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers || {}),
+    },
+    ...init,
+  })
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearAuth()
+      if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+        window.location.assign(`/login?redirect=${encodeURIComponent(window.location.pathname)}`)
+      }
+    }
+    const detail = await response.text()
+    throw new Error(detail || `Request failed: ${response.status}`)
+  }
+  return response.text()
+}
+
 export function get<T>(path: string): Promise<T> {
   return request<T>(path)
 }
 
 export function post<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export function getText(path: string): Promise<string> {
+  return requestText(path)
 }
 
 export function saveAuth(payload: AuthPayload) {
