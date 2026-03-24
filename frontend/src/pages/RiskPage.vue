@@ -15,6 +15,7 @@ const state = useAsyncState<any>()
 const selectedAlertCompany = ref('')
 const alertFilter = ref<'all' | 'delta'>('all')
 const route = useRoute()
+const industryResearchMetrics = computed(() => state.data.value?.industry_research?.key_numbers || [])
 
 const alertBoard = computed(() => {
   const alerts = state.data.value?.alert_board || []
@@ -83,11 +84,11 @@ watch(
         </div>
         <div class="metric-block">
           <span class="mb-label">行业研究</span>
-          <strong class="mb-value">{{ state.data.value.industry_research.key_numbers[0].value }}</strong>
+          <strong class="mb-value">{{ industryResearchMetrics[0]?.value || 0 }}</strong>
         </div>
         <div class="metric-block border-none">
           <span class="mb-label">行业研报</span>
-          <strong class="mb-value text-accent">{{ state.data.value.industry_research.key_numbers[1].value }}</strong>
+          <strong class="mb-value text-accent">{{ industryResearchMetrics[1]?.value || 0 }}</strong>
         </div>
       </section>
 
@@ -206,9 +207,11 @@ watch(
                   <div class="rc-meta">
                     <span class="muted">{{ group.latest_report.source_name }}</span>
                     <span class="muted">{{ group.latest_report.publish_date }}</span>
-                    <a :href="group.latest_report.source_url" target="_blank" class="rc-link text-accent">阅读全文</a>
+                    <a v-if="group.latest_report.source_url" :href="group.latest_report.source_url" target="_blank" class="rc-link text-accent">阅读全文</a>
+                    <span v-else class="muted">无外部链接</span>
                   </div>
                 </article>
+                <div v-if="!state.data.value.industry_research.groups.length" class="empty-state">当前无行业研报</div>
               </div>
             </div>
           </div>

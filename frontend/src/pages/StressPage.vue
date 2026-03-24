@@ -16,6 +16,7 @@ const route = useRoute()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
 const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
+const hasCompanies = computed(() => companies.value.length > 0)
 const selectedCompany = ref('')
 const selectedPeriod = ref('')
 const scenario = ref('欧盟对动力电池临时加征关税并限制关键材料进口')
@@ -36,6 +37,7 @@ const simulationLog = computed(() => stressState.data.value?.simulation_log || [
 const stressWavefront = computed(() => stressState.data.value?.stress_wavefront || [])
 const activeWavefront = computed(() => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null)
 const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.value] || null)
+const canRunStress = computed(() => !!selectedCompany.value && !!scenarioDraft.value.trim())
 
 async function runStress() {
   if (!selectedCompany.value || !scenarioDraft.value.trim()) return
@@ -95,6 +97,7 @@ function selectPreset(item: string) {
           <label class="inline-field">
             <span class="subtle-label">公司</span>
             <select v-model="selectedCompany" class="glass-select">
+              <option v-if="!companies.length" value="">暂无公司</option>
               <option v-for="c in companies" :key="c" :value="c">{{ c }}</option>
             </select>
           </label>
@@ -116,27 +119,33 @@ function selectPreset(item: string) {
         <input
           v-model="scenarioDraft"
           class="scenario-input"
-          placeholder="输入压力场景，例如：上游核心矿产断供…"
-          :disabled="stressState.loading.value"
+          :placeholder="selectedCompany ? '输入压力场景，例如：上游核心矿产断供…' : '当前无可推演企业，请先完成公司池接入'"
+          :disabled="stressState.loading.value || !selectedCompany"
           @keydown.enter="runStress"
         />
         <div v-if="stressState.data.value?.severity" class="severity-badge" :class="`tone-${stressState.data.value.severity.color || 'warning'}`">
           {{ stressState.data.value.severity.level }} {{ stressState.data.value.severity.label }}
         </div>
-        <button class="button-primary scenario-btn" :disabled="stressState.loading.value || !selectedCompany" @click="runStress">
+        <button class="button-primary scenario-btn" :disabled="stressState.loading.value || !canRunStress" @click="runStress">
           {{ stressState.loading.value ? '推演中…' : '启动推演' }}
         </button>
       </section>
 
       <!-- Preset Pills -->
       <div class="preset-row">
-        <button v-for="item in presetScenarios" :key="item" class="preset-pill" @click="selectPreset(item)">
+        <button v-for="item in presetScenarios" :key="item" class="preset-pill" :disabled="!selectedCompany" @click="selectPreset(item)">
           {{ item }}
         </button>
       </div>
 
       <LoadingState v-if="overviewState.loading.value || stressState.loading.value" class="state-container" />
       <ErrorState v-else-if="stressState.error.value" :message="String(stressState.error.value)" class="state-container" />
+      <section v-else-if="!hasCompanies" class="glass-panel empty-panel">
+        <div class="empty-content">
+          <h3 class="text-gradient mb-2">公司池为空</h3>
+          <p class="muted">当前环境还没有可推演企业，请先完成正式公司池和产业链数据接入。</p>
+        </div>
+      </section>
 
       <!-- Main Content -->
       <div v-else class="content-grid">

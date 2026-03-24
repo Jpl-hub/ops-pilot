@@ -24,6 +24,8 @@ let graphTicker: number | null = null
 
 const companies = computed(() => overviewState.data.value?.companies || [])
 const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
+const hasCompanies = computed(() => companies.value.length > 0)
+const canSubmitIntent = computed(() => !!selectedCompany.value && !!graphIntentDraft.value.trim())
 const focalNodes = computed<GraphFocalNode[]>(() => graphState.data.value?.focal_nodes || [])
 const inferencePath = computed<GraphInferenceStep[]>(() => graphState.data.value?.inference_path || [])
 const activePathId = computed(() => inferencePath.value[activePathStep.value]?.step ?? null)
@@ -131,6 +133,7 @@ function submitIntent() {
           <label class="inline-field">
             <span class="subtle-label">公司</span>
             <select v-model="selectedCompany" class="glass-select">
+              <option v-if="!companies.length" value="">暂无公司</option>
               <option v-for="c in companies" :key="c" :value="c">{{ c }}</option>
             </select>
           </label>
@@ -152,8 +155,8 @@ function submitIntent() {
         <input
           v-model="graphIntentDraft"
           class="intent-input"
-          placeholder="输入检索意图，例如：碳酸锂价格下跌对下游的影响传导"
-          :disabled="graphState.loading.value"
+          :placeholder="selectedCompany ? '输入检索意图，例如：碳酸锂价格下跌对下游的影响传导' : '当前无可检索企业，请先完成公司池接入'"
+          :disabled="graphState.loading.value || !selectedCompany"
           @keydown.enter="submitIntent"
         />
         <div class="intent-stats">
@@ -161,13 +164,18 @@ function submitIntent() {
           <span class="stat-div">|</span>
           <span class="stat-item">边 <strong>{{ (graphState.data.value?.graph?.edge_count ?? 0).toLocaleString() }}</strong></span>
         </div>
-        <button class="button-primary intent-btn" :disabled="graphState.loading.value" @click="submitIntent">
+        <button class="button-primary intent-btn" :disabled="graphState.loading.value || !canSubmitIntent" @click="submitIntent">
           {{ graphState.loading.value ? '检索中…' : '图谱检索' }}
         </button>
       </section>
 
       <LoadingState v-if="overviewState.loading.value || graphState.loading.value" class="state-container" />
       <ErrorState v-else-if="graphState.error.value" :message="String(graphState.error.value)" class="state-container" />
+      <section v-else-if="!hasCompanies" class="canvas-panel glass-panel">
+        <div class="canvas-empty">
+          <p class="muted">当前无可检索企业，请先完成正式公司池和图谱数据接入。</p>
+        </div>
+      </section>
 
       <!-- Graph Canvas -->
       <div v-else class="canvas-panel glass-panel">
