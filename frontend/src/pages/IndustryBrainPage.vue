@@ -47,8 +47,24 @@ function displayExecutionStatus(status?: string) {
     running: '处理中',
     completed: '已完成',
     blocked: '已阻断',
+    pending: '待处理',
+    high: '高冲击',
+    medium: '中冲击',
+    low: '低冲击',
   }
   return map[(status || '').toLowerCase()] || status || '已记录'
+}
+
+function displayExecutionSummary(summary?: string) {
+  const map: Record<string, string> = {
+    task: '任务执行',
+    analysis_run: '协同分析',
+    graph_query: '图谱检索',
+    stress_test: '压力测试',
+    vision_analyze: '多模态解析',
+    document_pipeline: '文档升级',
+  }
+  return map[(summary || '').toLowerCase()] || summary || '系统动作'
 }
 
 function liveEventTone(status?: string) {
@@ -215,38 +231,60 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <!-- Right Feed: Runtime Anomalies -->
-            <div class="ib-glass p-5 flex flex-col min-h-[380px] ib-col-span-1 border-white-5 shadow-xl">
-              <h3 class="ib-panel-title flex justify-between">
+            <div class="ib-side-stack">
+              <div class="ib-glass p-5 flex flex-col min-h-[184px] border-white-5 shadow-xl">
+                <h3 class="ib-panel-title flex justify-between">
                   <div class="flex items-center gap-2">
                     <div class="ib-dot bg-amber-500 animate-pulse"></div>
-                  异常事件流
-                </div>
-                <span class="ib-auto-refresh">自动刷新</span>
-              </h3>
-              <div class="ib-feed-list custom-scrollbar">
-                <div v-if="liveEvents.length === 0" class="ib-empty-feed">
-                   <svg class="opacity-20 mb-2" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-                   正在监听事件流...
-                </div>
-                <div
-                  v-for="event in liveEvents"
-                  :key="`${event.company_name}-${event.headline}`"
-                  class="ib-anomaly-item"
-                  :class="liveEventTone(event.status)"
-                >
-                  <div class="flex items-start gap-2 relative z-10">
-                    <svg class="ib-alert-icon" :class="liveEventIconTone(event.status)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                    <span class="ib-anomaly-text">{{ event.headline }} ({{ event.company_name }})</span>
+                    风险事件
                   </div>
-                  <div class="ib-anomaly-time">{{ event.status || '持续监测' }}</div>
-                </div>
-                <div v-for="flash in executionFlash" :key="`${flash.title}-${flash.status}`" class="ib-anomaly-item low-risk">
-                  <div class="flex items-start gap-2 relative z-10">
-                    <svg class="ib-alert-icon text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                    <span class="ib-anomaly-text">{{ flash.title }}</span>
+                  <span class="ib-auto-refresh">自动刷新</span>
+                </h3>
+                <div class="ib-feed-list custom-scrollbar">
+                  <div v-if="liveEvents.length === 0" class="ib-empty-feed">
+                    <svg class="opacity-20 mb-2" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                    当前没有新增风险事件
                   </div>
-                  <div class="ib-anomaly-time">{{ displayExecutionStatus(flash.status) }}</div>
+                  <div
+                    v-for="event in liveEvents"
+                    :key="`${event.company_name}-${event.headline}`"
+                    class="ib-anomaly-item"
+                    :class="liveEventTone(event.status)"
+                  >
+                    <div class="flex items-start gap-2 relative z-10">
+                      <svg class="ib-alert-icon" :class="liveEventIconTone(event.status)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                      <div class="ib-feed-copy">
+                        <span class="ib-anomaly-text">{{ event.headline }}</span>
+                        <span class="ib-feed-company">{{ event.company_name }}</span>
+                      </div>
+                    </div>
+                    <div class="ib-anomaly-time">{{ event.status || '持续监测' }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="ib-glass p-5 flex flex-col min-h-[184px] border-white-5 shadow-xl">
+                <h3 class="ib-panel-title flex justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="ib-dot bg-blue-500 animate-pulse"></div>
+                    最近系统动作
+                  </div>
+                  <span class="ib-auto-refresh">真实运行记录</span>
+                </h3>
+                <div class="ib-feed-list custom-scrollbar">
+                  <div v-if="executionFlash.length === 0" class="ib-empty-feed">
+                    当前没有新的系统动作
+                  </div>
+                  <div v-for="flash in executionFlash" :key="`${flash.title}-${flash.status}`" class="ib-anomaly-item low-risk">
+                    <div class="flex items-start gap-2 relative z-10">
+                      <svg class="ib-alert-icon text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                      <div class="ib-feed-copy">
+                        <span class="ib-anomaly-text">{{ flash.title }}</span>
+                        <span class="ib-feed-company">{{ displayExecutionSummary(flash.summary) }}</span>
+                      </div>
+                    </div>
+                    <div class="ib-anomaly-time">{{ displayExecutionStatus(flash.status) }}</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -355,6 +393,7 @@ onBeforeUnmount(() => {
 @media (min-width: 1280px) { .ib-grid-main { grid-template-columns: repeat(3, 1fr); } }
 .ib-col-span-2 { grid-column: span 2 / span 2; }
 .ib-col-span-1 { grid-column: span 1 / span 1; }
+.ib-side-stack { display: flex; flex-direction: column; gap: 24px; }
 
 .ib-grid-bottom { display: grid; grid-template-columns: 1fr; gap: 24px; }
 @media (min-width: 1280px) { .ib-grid-bottom { grid-template-columns: repeat(2, 1fr); } }
@@ -382,6 +421,8 @@ onBeforeUnmount(() => {
 .med-risk .ib-alert-icon { color: #fbbf24; }
 .low-risk { background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); color: #bfdbfe; }
 .ib-alert-icon { width: 14px; height: 14px; flex-shrink: 0; margin-top: 2px; }
+.ib-feed-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ib-feed-company { font-size: 10px; color: #94a3b8; }
 .ib-anomaly-text { line-height: 1.6; }
 .ib-anomaly-time { margin-top: 8px; font-size: 9px; opacity: 0.5; text-align: right; }
 

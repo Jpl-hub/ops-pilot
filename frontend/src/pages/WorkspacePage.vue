@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 
 import AppShell from '@/components/AppShell.vue'
@@ -30,16 +30,28 @@ const starterQueries = computed(
   () => latestPayload.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries,
 )
 
-// Agent 流程状态（用于内联展示，不再是视频格）
-const agentSteps = computed(() =>
-  agentFlow.value.map((item: any) => ({
-    key: `${item.step}-${item.agent_key}`,
-    agent_key: item.agent_key,
-    agent_label: item.agent_label ?? item.agent,
-    title: item.title,
-    summary: item.summary,
-    status: item.status, // 'completed' | 'processing'
-  })),
+const agentBlueprint = [
+  { step: 1, agent_key: 'router', agent_label: 'Router', title: '识别问题类型', hint: '锁定问题意图、公司主体和目标报期' },
+  { step: 2, agent_key: 'data', agent_label: 'Data Agent', title: '拉取真实数据与工具', hint: '调取评分、图谱、压力、研报、多模态等真实服务' },
+  { step: 3, agent_key: 'risk', agent_label: 'Risk Agent', title: '校验证据与风险', hint: '回放页级证据、公式链与风险标签' },
+  { step: 4, agent_key: 'strategy', agent_label: 'Strategy Agent', title: '生成角色动作', hint: '按投资者、管理层、监管方视角输出下一步' },
+]
+
+const agentLane = computed(() =>
+  agentBlueprint.map((blueprint, index) => {
+    const matched = agentFlow.value.find((item: any) => item.agent_key === blueprint.agent_key)
+    const status = loadingTurn.value
+      ? 'processing'
+      : matched
+      ? 'completed'
+      : 'idle'
+    return {
+      ...blueprint,
+      summary: matched?.summary || blueprint.hint,
+      status,
+      isCurrent: loadingTurn.value && index === 1,
+    }
+  }),
 )
 
 // 最新一条 AI 回答
@@ -65,17 +77,6 @@ const roleDot = computed(() => {
   const map: Record<string, string> = { investor: '#60a5fa', management: '#a78bfa', regulator: '#f59e0b' }
   return map[session.activeRole.value || 'investor'] ?? '#60a5fa'
 })
-
-// ------------------------------------------------------------------
-// Agent icon colors
-// ------------------------------------------------------------------
-const agentColor: Record<string, { icon: string; dot: string }> = {
-  router:   { icon: '#10b981', dot: '#10b981' },
-  data:     { icon: '#60a5fa', dot: '#3b82f6' },
-  risk:     { icon: '#f59e0b', dot: '#f59e0b' },
-  strategy: { icon: '#a78bfa', dot: '#7c3aed' },
-}
-function agentStyle(key: string) { return agentColor[key] ?? { icon: '#9ca3af', dot: '#6b7280' } }
 
 function displayPriority(priority?: string) {
   const map: Record<string, string> = {
@@ -116,21 +117,12 @@ async function runQuery(inputQuery?: string) {
   }
 }
 
-// ------------------------------------------------------------------
-// Lifecycle
-// ------------------------------------------------------------------
-let _timer: ReturnType<typeof setInterval> | null = null
-
 onMounted(async () => {
   workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
   await workspace.loadOverview(session.activeRole.value || 'investor')
   if (!companies.value.includes(selectedCompany.value)) {
     selectedCompany.value = companies.value[0] || ''
   }
-})
-
-onBeforeUnmount(() => {
-  if (_timer) clearInterval(_timer)
 })
 
 watch(
@@ -189,6 +181,21 @@ watch(selectedCompany, async (company, previous) => {
 
         <!-- LEFT/CENTER: messages + input ─────────────────── -->
         <div class="chat-main">
+          <section class="chat-agent-lane">
+            <div
+              v-for="item in agentLane"
+              :key="item.agent_key"
+              class="chat-agent-card"
+              :class="`is-${item.status}`"
+            >
+              <div class="chat-agent-card-head">
+                <span class="chat-agent-step">0{{ item.step }}</span>
+                <span class="chat-agent-name">{{ item.agent_label }}</span>
+              </div>
+              <strong class="chat-agent-title">{{ item.title }}</strong>
+              <p class="chat-agent-summary">{{ item.summary }}</p>
+            </div>
+          </section>
 
           <!-- messages scroll area -->
           <div class="chat-messages" ref="chatScrollRef">
@@ -273,32 +280,6 @@ watch(selectedCompany, async (company, previous) => {
                     </span>
                   </div>
 
-                  <!-- agent flow (collapsible thinking block) -->
-                  <details
-                    v-if="message.payload?.agent_flow?.length"
-                    class="chat-thinking"
-                  >
-                    <summary class="chat-thinking-summary">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                      分析过程 · {{ message.payload.agent_flow.length }} 步
-                    </summary>
-                    <div class="chat-thinking-grid">
-                      <div
-                        v-for="step in message.payload.agent_flow"
-                        :key="step.step"
-                        class="chat-think-item"
-                        :style="{ '--dot': agentStyle(step.agent_key ?? '').dot }"
-                      >
-                        <span class="chat-think-dot"/>
-                        <div class="chat-think-body">
-                          <span class="chat-think-agent">{{ step.agent_label }}</span>
-                          <span class="chat-think-title">{{ step.title }}</span>
-                        </div>
-                        <span class="chat-think-status done">✓</span>
-                      </div>
-                    </div>
-                  </details>
-
                   <!-- follow-up suggestions -->
                   <div v-if="message.payload?.follow_up_questions?.length" class="chat-followup">
                     <span class="chat-followup-label">追问</span>
@@ -322,29 +303,16 @@ watch(selectedCompany, async (company, previous) => {
                 </svg>
               </div>
               <div class="chat-bubble-ai chat-bubble-loading">
-                <div v-if="agentSteps.length" class="chat-live-flow">
+                <div class="chat-live-flow">
                   <div class="chat-live-header">
                     <span class="chat-live-spinner"/>
-                    正在推理中…
+                    正在执行真实分析服务，请查看上方协同工作流
                   </div>
-                  <div class="chat-thinking-grid">
-                    <div
-                      v-for="step in agentSteps"
-                      :key="step.key"
-                      class="chat-think-item"
-                      :style="{ '--dot': agentStyle(step.agent_key).dot }"
-                    >
-                      <span class="chat-think-dot" :class="step.status === 'completed' ? 'done' : 'active'"/>
-                      <div class="chat-think-body">
-                        <span class="chat-think-agent">{{ step.agent_label }}</span>
-                        <span class="chat-think-title">{{ step.title }}</span>
-                      </div>
-                      <span v-if="step.status === 'completed'" class="chat-think-status done">✓</span>
-                      <span v-else class="chat-think-status pending">…</span>
-                    </div>
+                  <div class="chat-typing">
+                    <span/><span/><span/>
                   </div>
                 </div>
-                <div v-else class="chat-typing">
+                <div v-if="!agentLane.length" class="chat-typing">
                   <span/><span/><span/>
                 </div>
               </div>
@@ -551,6 +519,71 @@ watch(selectedCompany, async (company, previous) => {
 /* ── MAIN (chat + input) ─────────────────────────────────────── */
 .chat-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 
+.chat-agent-lane {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px 18px 12px;
+  background: #171717;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.chat-agent-card {
+  min-height: 106px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-agent-card.is-idle {
+  opacity: 0.88;
+}
+
+.chat-agent-card.is-processing {
+  border-color: rgba(16,185,129,0.34);
+  box-shadow: 0 0 0 1px rgba(16,185,129,0.14), inset 0 0 18px rgba(16,185,129,0.06);
+}
+
+.chat-agent-card.is-completed {
+  border-color: rgba(59,130,246,0.26);
+}
+
+.chat-agent-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-agent-step {
+  font-size: 11px;
+  color: #10b981;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.chat-agent-name {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.chat-agent-title {
+  font-size: 13px;
+  color: #f8fafc;
+}
+
+.chat-agent-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #94a3b8;
+}
+
 /* ── MESSAGES ────────────────────────────────────────────────── */
 .chat-messages {
   flex: 1;
@@ -663,24 +696,6 @@ watch(selectedCompany, async (company, previous) => {
 .chat-kn-value { font-size: 14px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
 .chat-kn-value em { font-style: normal; font-size: 11px; color: #9ca3af; margin-left: 2px; }
 
-/* agent thinking (collapsible) */
-.chat-thinking {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255,255,255,0.07);
-}
-.chat-thinking-summary {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 11px;
-  color: #6b7280;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-  transition: color .2s;
-}
-.chat-thinking-summary:hover { color: #9ca3af; }
-.chat-thinking-summary::-webkit-details-marker { display: none; }
-
 /* live flow (while loading) */
 .chat-live-flow { display: flex; flex-direction: column; gap: 10px; }
 .chat-live-header {
@@ -697,45 +712,6 @@ watch(selectedCompany, async (company, previous) => {
   animation: spin 0.9s linear infinite;
   flex-shrink: 0;
 }
-
-/* 2-col thinking grid */
-.chat-thinking-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 10px;
-}
-.chat-think-item {
-  display: flex; align-items: flex-start; gap: 8px;
-  background: rgba(0,0,0,0.25);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 8px;
-  padding: 8px 10px;
-  position: relative;
-  overflow: hidden;
-}
-.chat-think-item::before {
-  content: '';
-  position: absolute; left: 0; top: 0; bottom: 0;
-  width: 2px;
-  background: var(--dot, #6b7280);
-}
-.chat-think-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--dot, #6b7280);
-  flex-shrink: 0;
-  margin-top: 4px;
-}
-.chat-think-dot.active { animation: dot-pulse 1.2s ease-in-out infinite; }
-.chat-think-dot.done   { background: #10b981; }
-@keyframes dot-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(1.3)} }
-
-.chat-think-body { flex: 1; min-width: 0; }
-.chat-think-agent { display: block; font-size: 11px; font-weight: 600; color: #9ca3af; margin-bottom: 2px; font-family: monospace; }
-.chat-think-title { display: block; font-size: 12px; color: #d1d5db; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chat-think-status { font-size: 11px; flex-shrink: 0; }
-.chat-think-status.done    { color: #10b981; }
-.chat-think-status.pending { color: #6b7280; }
 
 /* typing dots */
 .chat-typing { display: flex; align-items: center; gap: 5px; padding: 4px 0; }
@@ -958,9 +934,9 @@ watch(selectedCompany, async (company, previous) => {
   .chat-panel { display: none; }
 }
 @media (max-width: 720px) {
+  .chat-agent-lane { grid-template-columns: 1fr; padding: 12px 14px 10px; }
   .chat-messages { padding: 16px; }
   .chat-footer { padding: 10px 14px 12px; }
   .chat-row { max-width: 100%; }
-  .chat-thinking-grid { grid-template-columns: 1fr; }
 }
 </style>
