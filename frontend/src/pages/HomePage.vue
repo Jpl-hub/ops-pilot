@@ -40,7 +40,7 @@ onMounted(async () => {
           <div class="splash-header">
             <div class="eyebrow splash-eyebrow">2026 全国大学生计算机设计大赛 · 大数据主题</div>
             <h1 class="splash-title text-gradient">新能源企业运营分析与决策支持系统</h1>
-            <p class="splash-subtitle muted">OpsPilot-X · Multi-Agent × Hybrid RAG × 19-Indicator Scoring Engine</p>
+            <p class="splash-subtitle muted">OpsPilot-X · 多角色协同分析 × 混合检索增强 × 19 维经营评分</p>
           </div>
 
           <!-- Stats Row -->
@@ -61,8 +61,8 @@ onMounted(async () => {
             </div>
             <div class="stat-div"></div>
             <div class="stat-item">
-              <strong class="stat-val text-gradient">Hybrid RAG</strong>
-              <span class="stat-lbl">BM25 + pgvector</span>
+              <strong class="stat-val text-gradient">混合检索</strong>
+              <span class="stat-lbl">BM25 + 向量召回</span>
             </div>
           </div>
 
@@ -72,7 +72,7 @@ onMounted(async () => {
               <div class="fc-icon fc-icon-blue">智</div>
               <div class="fc-body">
                 <h4 class="fc-title">协同分析</h4>
-                <p class="fc-desc">多角色 Agent 编排 · Tool Calling · 实时溯源</p>
+                <p class="fc-desc">多角色协同分析 · 工具联动 · 实时溯源</p>
               </div>
             </RouterLink>
             <RouterLink class="feature-card glass-panel-hover" to="/score">

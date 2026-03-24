@@ -39,6 +39,9 @@ const blockerSummary = computed(() => {
         : 0,
   }))
 })
+const issueLabelMap = computed(() => {
+  return Object.fromEntries(issueBuckets.value.map((bucket: any) => [bucket.code, bucket.label]))
+})
 const selectedCompanyDetail = computed(() => {
   const companies = filteredCompanies.value
   if (!companies.length) {
@@ -687,10 +690,10 @@ function displayHistoryType(historyType?: string) {
 
              <!-- Company Coverage -->
              <article class="glass-panel p-panel">
-               <div class="matrix-header">
+              <div class="matrix-header">
                  <h3 class="panel-sm-title mb-4">公司级覆盖矩阵</h3>
                  <span class="muted text-xs">
-                   {{ selectedIssueCode ? `已筛选: ${selectedIssueCode}` : `展示全部 ${filteredCompanies.length} 家` }}
+                   {{ selectedIssueCode ? `已筛选: ${issueLabelMap[selectedIssueCode] || selectedIssueCode}` : `展示全部 ${filteredCompanies.length} 家` }}
                  </span>
                </div>
                <div class="matrix-list">
@@ -707,13 +710,13 @@ function displayHistoryType(historyType?: string) {
                      <span class="mx-period inline-mr">{{ row.latest_silver_period }}</span>
                    </div>
                    <div class="mx-stats mt-2">
-                     <div class="mx-stat"><span class="mx-val">{{ row.raw_report_count }}</span><span class="mx-lbl">RAW</span></div>
-                     <div class="mx-stat"><span class="mx-val">{{ row.bronze_report_count }}</span><span class="mx-lbl">BRZ</span></div>
-                     <div class="mx-stat"><span class="mx-val text-accent">{{ row.silver_record_count }}</span><span class="mx-lbl">SLV</span></div>
-                     <div class="mx-stat"><span class="mx-val text-[#60a5fa]">{{ row.research_report_count }}</span><span class="mx-lbl">RSH</span></div>
+                     <div class="mx-stat"><span class="mx-val">{{ row.raw_report_count }}</span><span class="mx-lbl">原始</span></div>
+                     <div class="mx-stat"><span class="mx-val">{{ row.bronze_report_count }}</span><span class="mx-lbl">页级</span></div>
+                     <div class="mx-stat"><span class="mx-val text-accent">{{ row.silver_record_count }}</span><span class="mx-lbl">指标</span></div>
+                     <div class="mx-stat"><span class="mx-val text-[#60a5fa]">{{ row.research_report_count }}</span><span class="mx-lbl">研报</span></div>
                    </div>
                    <div class="mx-tags mt-3">
-                     <span v-if="row.issues.length === 0" class="tag success-tag text-xs">OK</span>
+                     <span v-if="row.issues.length === 0" class="tag success-tag text-xs">已打通</span>
                      <span v-for="flag in row.issues" :key="flag" class="tag risk-tag text-xs">{{ flag }}</span>
                    </div>
                  </button>

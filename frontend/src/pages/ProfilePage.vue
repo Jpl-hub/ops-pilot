@@ -59,6 +59,23 @@ const activeRoleLabel = computed(() => {
   return roleCards.find((item) => item.value === session.activeRole.value)?.label || session.activeRole.value
 })
 
+function displayRole(role: UserRole | string | null | undefined): string {
+  if (!role) {
+    return '-'
+  }
+  return roleCards.find((item) => item.value === role)?.label || role
+}
+
+function displayHealthStatus(status: string | null | undefined): string {
+  const map: Record<string, string> = {
+    ok: '正常',
+    ready: '就绪',
+    blocked: '阻断',
+    degraded: '降级',
+  }
+  return map[status || ''] || status || '-'
+}
+
 function formatTime(value: string | null | undefined): string {
   if (!value) {
     return '未记录'
@@ -87,7 +104,7 @@ function formatTime(value: string | null | undefined): string {
         <div class="profile-identity">
           <div class="profile-avatar">{{ state.data.value.me.display_name.slice(0, 1) }}</div>
           <div class="profile-copy">
-            <div class="signal-code">Current Account</div>
+            <div class="signal-code">当前账户</div>
             <h2>{{ state.data.value.me.display_name }}</h2>
             <p>{{ state.data.value.me.username }}</p>
           </div>
@@ -106,7 +123,7 @@ function formatTime(value: string | null | undefined): string {
           <div class="metric-card">
             <span>系统环境</span>
             <strong>{{ state.data.value.health.env }}</strong>
-            <small>{{ state.data.value.health.status }}</small>
+            <small>{{ displayHealthStatus(state.data.value.health.status) }}</small>
           </div>
         </div>
       </article>
@@ -115,7 +132,7 @@ function formatTime(value: string | null | undefined): string {
         <article class="panel profile-section">
           <div class="panel-head">
             <div>
-              <div class="eyebrow">Role Surface</div>
+              <div class="eyebrow">角色切换</div>
               <h3>角色工作面</h3>
             </div>
           </div>
@@ -137,14 +154,14 @@ function formatTime(value: string | null | undefined): string {
         <article class="panel profile-section">
           <div class="panel-head">
             <div>
-              <div class="eyebrow">Account Meta</div>
-              <h3>账户元信息</h3>
+              <div class="eyebrow">账户信息</div>
+              <h3>账户元数据</h3>
             </div>
           </div>
           <div class="meta-list">
             <div class="meta-row">
               <span>注册角色</span>
-              <strong>{{ state.data.value.me.role }}</strong>
+              <strong>{{ displayRole(state.data.value.me.role) }}</strong>
             </div>
             <div class="meta-row">
               <span>创建时间</span>
@@ -160,7 +177,7 @@ function formatTime(value: string | null | undefined): string {
         <article class="panel profile-section">
           <div class="panel-head">
             <div>
-              <div class="eyebrow">Coverage Snapshot</div>
+              <div class="eyebrow">覆盖快照</div>
               <h3>数据接入快照</h3>
             </div>
           </div>
@@ -191,7 +208,7 @@ function formatTime(value: string | null | undefined): string {
         <article class="panel profile-section">
           <div class="panel-head">
             <div>
-              <div class="eyebrow">Runtime Window</div>
+              <div class="eyebrow">运行窗口</div>
               <h3>运行窗口</h3>
             </div>
           </div>
