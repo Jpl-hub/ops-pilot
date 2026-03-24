@@ -903,6 +903,10 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             ocr_provider = "PaddleOCR-VL"
             ocr_model = "PaddleOCR-VL-1.5"
             ocr_runtime_enabled = False
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
 
             def __init__(self, root: Path) -> None:
                 self.sample_data_path = root / "bootstrap"
@@ -1989,6 +1993,10 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             ocr_provider = "PaddleOCR-VL"
             ocr_model = "PaddleOCR-VL-1.5"
             ocr_runtime_enabled = False
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
 
             def __init__(self, root: Path) -> None:
                 self.sample_data_path = root / "bootstrap"
@@ -2015,7 +2023,9 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertIn("企业评分", payload["capabilities"])
             self.assertIn("document_pipeline_jobs", payload)
             self.assertIn("delivery_readiness", payload)
+            self.assertIn("runtime_readiness", payload)
             self.assertEqual(payload["delivery_readiness"]["stage"], "bootstrapping")
+            self.assertEqual(payload["runtime_readiness"]["status"], "ready")
             self.assertIn("innovation_radar", payload)
             self.assertIn("workspace_history", payload)
             self.assertGreaterEqual(payload["innovation_radar"]["summary"]["total"], 1)
@@ -2040,6 +2050,10 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             ocr_provider = "PaddleOCR-VL"
             ocr_model = "PaddleOCR-VL-1.5"
             ocr_runtime_enabled = False
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
 
             def __init__(self, root: Path) -> None:
                 self.sample_data_path = root / "bootstrap"
@@ -2126,6 +2140,10 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             ocr_provider = "PaddleOCR-VL"
             ocr_model = "PaddleOCR-VL-1.5"
             ocr_runtime_enabled = False
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
 
             def __init__(self, root: Path) -> None:
                 self.sample_data_path = root / "bootstrap"
@@ -2220,6 +2238,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["delivery_readiness"]["ready_company_count"], 1)
             self.assertEqual(payload["delivery_readiness"]["blocked_company_count"], 1)
             self.assertEqual(payload["delivery_readiness"]["coverage_ratio"], 50)
+            self.assertEqual(payload["runtime_readiness"]["status"], "ready")
 
     def test_build_label_cards_links_formula_metrics_and_evidence(self) -> None:
         company = {

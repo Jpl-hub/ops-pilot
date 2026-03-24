@@ -225,6 +225,30 @@ function toggleIssueFilter(issueCode: string) {
               </div>
             </article>
 
+            <article class="glass-panel p-panel mt-6">
+              <div class="panel-head-compact">
+                <h3 class="panel-sm-title mb-4">运行时检查</h3>
+                <span class="readiness-badge" :class="`is-${state.data.value.runtime_readiness.status}`">
+                  {{ state.data.value.runtime_readiness.status.toUpperCase() }}
+                </span>
+              </div>
+              <div class="runtime-check-list">
+                <div
+                  v-for="item in state.data.value.runtime_readiness.checks"
+                  :key="item.key"
+                  class="runtime-check-card"
+                  :class="`is-${item.status}`"
+                >
+                  <div class="runtime-check-head">
+                    <strong>{{ item.label }}</strong>
+                    <span class="tag" :class="item.status === 'ready' ? 'success-tag' : 'risk-tag'">{{ item.status }}</span>
+                  </div>
+                  <p>{{ item.summary }}</p>
+                  <code>{{ item.detail }}</code>
+                </div>
+              </div>
+            </article>
+
             <article v-if="blockerSummary.length" class="glass-panel p-panel mt-6">
               <h3 class="panel-sm-title mb-4">阻断分布</h3>
               <div class="bucket-list">
@@ -543,6 +567,13 @@ function toggleIssueFilter(issueCode: string) {
 .readiness-action-card { border: 1px solid rgba(255,255,255,0.06); background: rgba(0,0,0,0.16); border-radius: 12px; padding: 14px; }
 .readiness-action-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
 .readiness-action-card p { margin: 0 0 10px; color: #cbd5e1; font-size: 13px; line-height: 1.5; }
+.runtime-check-list { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.runtime-check-card { border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.03); border-radius: 12px; padding: 14px; }
+.runtime-check-card.is-blocked { border-color: rgba(244,63,94,0.28); background: rgba(244,63,94,0.06); }
+.runtime-check-card.is-ready { border-color: rgba(16,185,129,0.24); background: rgba(16,185,129,0.05); }
+.runtime-check-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.runtime-check-card p { margin: 0 0 8px; color: #cbd5e1; font-size: 13px; line-height: 1.5; }
+.runtime-check-card code { display: block; font-size: 11px; color: #94a3b8; word-break: break-all; font-family: 'JetBrains Mono', monospace; }
 
 /* Engines */
 .engine-list { display: flex; flex-direction: column; gap: 12px; }

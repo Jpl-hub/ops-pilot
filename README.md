@@ -46,6 +46,16 @@ docker compose up --build
 - 前端：`http://127.0.0.1:8080`
 - PostgreSQL：`127.0.0.1:5432`
 
+### 交付验收建议
+
+启动后建议按以下顺序验收：
+
+1. 打开 `http://127.0.0.1:8080`，确认登录、工作台、管理台都可访问。
+2. 访问 `http://127.0.0.1:8000/api/v1/healthz`，确认 API 返回 `status=ok`。
+3. 在管理台检查“交付就绪度”和“运行时检查”面板。
+4. 确认 `OPS_PILOT_OPENAI_API_KEY`、`OPS_PILOT_POSTGRES_DSN`、数据目录路径都已配置。
+5. 确认主评估周期、silver 指标覆盖和研报覆盖满足演示/交付范围。
+
 ## 配置
 
 示例环境变量见 `.env.example`。关键配置项：

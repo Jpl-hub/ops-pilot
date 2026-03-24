@@ -166,6 +166,7 @@ class OpsPilotService:
             document_pipeline=document_pipeline,
             health=health,
         )
+        runtime_readiness = _build_runtime_readiness(self.settings)
         innovation_radar = self.innovation_radar()
         workspace_runs = self.workspace_runs(limit=8)
         workspace_history = self.workspace_history(user_role="management", report_period=health["preferred_period"], limit=12)
@@ -175,6 +176,7 @@ class OpsPilotService:
             "quality_overview": quality_overview,
             "document_pipeline": document_pipeline,
             "delivery_readiness": delivery_readiness,
+            "runtime_readiness": runtime_readiness,
             "document_pipeline_jobs": self.document_pipeline_jobs(),
             "innovation_radar": innovation_radar,
             "workspace_runs": workspace_runs,
@@ -6812,6 +6814,66 @@ def _build_delivery_readiness(
             "silver_ready": silver_ready,
             "research_ready": research_ready,
         },
+    }
+
+
+def _build_runtime_readiness(settings: Settings) -> dict[str, Any]:
+    openai_api_key = getattr(settings, "openai_api_key", "")
+    openai_base_url = getattr(settings, "openai_base_url", "missing")
+    postgres_dsn = getattr(settings, "postgres_dsn", "")
+    cors_allowed_origins = tuple(getattr(settings, "cors_allowed_origins", ()) or ())
+    checks = [
+        {
+            "key": "llm",
+            "label": "LLM 运行时",
+            "status": "ready" if bool(openai_api_key) else "blocked",
+            "summary": "已配置 API Key，可启用智能问答与编排。"
+            if openai_api_key
+            else "未配置 API Key，问答与多智能体编排不可用。",
+            "detail": openai_base_url,
+        },
+        {
+            "key": "database",
+            "label": "数据库连接",
+            "status": "ready" if bool(postgres_dsn) else "blocked",
+            "summary": "会话、登录与运行记录依赖 PostgreSQL。"
+            if postgres_dsn
+            else "未配置 PostgreSQL DSN，登录与会话不可用。",
+            "detail": postgres_dsn.split("@")[-1] if postgres_dsn else "missing",
+        },
+        {
+            "key": "official_data",
+            "label": "原始数据目录",
+            "status": "ready" if settings.official_data_path.exists() else "blocked",
+            "summary": "原始 PDF / 研报目录存在。"
+            if settings.official_data_path.exists()
+            else "原始数据目录不存在，数据抓取与核验链路会中断。",
+            "detail": str(settings.official_data_path),
+        },
+        {
+            "key": "silver_data",
+            "label": "银层目录",
+            "status": "ready" if settings.silver_data_path.exists() else "blocked",
+            "summary": "结构化指标目录存在。"
+            if settings.silver_data_path.exists()
+            else "银层目录不存在，评分与对比能力不可交付。",
+            "detail": str(settings.silver_data_path),
+        },
+        {
+            "key": "cors",
+            "label": "前端跨域",
+            "status": "ready" if len(cors_allowed_origins) > 0 else "blocked",
+            "summary": f"已配置 {len(cors_allowed_origins)} 个前端来源。 "
+            if cors_allowed_origins
+            else "未配置任何前端来源，浏览器访问会失败。",
+            "detail": ", ".join(cors_allowed_origins) if cors_allowed_origins else "missing",
+        },
+    ]
+    blocked = sum(1 for item in checks if item["status"] == "blocked")
+    return {
+        "status": "ready" if blocked == 0 else "blocked",
+        "blocked_count": blocked,
+        "checks": checks,
     }
 
 
