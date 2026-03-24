@@ -51,6 +51,18 @@ function displayExecutionStatus(status?: string) {
   return map[(status || '').toLowerCase()] || status || '已记录'
 }
 
+function liveEventTone(status?: string) {
+  if (status === '新增预警') return 'high-risk'
+  if (status === '任务处理中') return 'med-risk'
+  return 'low-risk'
+}
+
+function liveEventIconTone(status?: string) {
+  if (status === '新增预警') return 'text-red-400'
+  if (status === '任务处理中') return 'text-amber-400'
+  return 'text-blue-400'
+}
+
 function connectStream() {
   const token = loadAccessToken()
   if (!token) {
@@ -192,7 +204,7 @@ onBeforeUnmount(() => {
               </div>
               <h3 class="ib-panel-title">
                 <div class="ib-dot bg-emerald-500 animate-pulse"></div>
-                产业核心全局监测走势 (WebSocket 流数据)
+                产业核心全局监测走势（实时订阅）
               </h3>
               <div class="ib-chart-container" v-if="payload.charts && payload.charts[0]">
                 <ChartPanel
@@ -203,7 +215,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <!-- Right Feed: Live Anomalies -->
+            <!-- Right Feed: Runtime Anomalies -->
             <div class="ib-glass p-5 flex flex-col min-h-[380px] ib-col-span-1 border-white-5 shadow-xl">
               <h3 class="ib-panel-title flex justify-between">
                   <div class="flex items-center gap-2">
@@ -217,12 +229,17 @@ onBeforeUnmount(() => {
                    <svg class="opacity-20 mb-2" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
                    正在监听事件流...
                 </div>
-                <div v-for="event in liveEvents" :key="`${event.company_name}-${event.headline}`" class="ib-anomaly-item" :class="event.status === 'Alert' ? 'high-risk' : 'med-risk'">
+                <div
+                  v-for="event in liveEvents"
+                  :key="`${event.company_name}-${event.headline}`"
+                  class="ib-anomaly-item"
+                  :class="liveEventTone(event.status)"
+                >
                   <div class="flex items-start gap-2 relative z-10">
-                    <svg class="ib-alert-icon" :class="event.status === 'Alert' ? 'text-red-400' : 'text-amber-400'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                    <svg class="ib-alert-icon" :class="liveEventIconTone(event.status)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                     <span class="ib-anomaly-text">{{ event.headline }} ({{ event.company_name }})</span>
                   </div>
-                  <div class="ib-anomaly-time">实时</div>
+                  <div class="ib-anomaly-time">{{ event.status || '持续监测' }}</div>
                 </div>
                 <div v-for="flash in executionFlash" :key="`${flash.title}-${flash.status}`" class="ib-anomaly-item low-risk">
                   <div class="flex items-start gap-2 relative z-10">
@@ -254,7 +271,7 @@ onBeforeUnmount(() => {
             <div class="ib-glass p-5 min-h-[340px] flex flex-col">
               <h3 class="ib-panel-title">
                 <div class="ib-dot bg-purple-500 animate-pulse"></div>
-                全球政策与技术雷达 (Global Radar)
+                全球政策与技术雷达
               </h3>
               <div class="ib-radar-grid">
                 <RouterLink v-for="matrix in attentionMatrix" :key="matrix.company_name" :to="{ path: matrix.route.path, query: matrix.route.query || {} }" class="ib-radar-card group relative">
