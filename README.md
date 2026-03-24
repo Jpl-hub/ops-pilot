@@ -72,6 +72,7 @@ docker compose up --build
 | `OPS_PILOT_DEFAULT_PERIOD` | 默认分析报期 | `2025Q3` |
 
 Colab 验证和 Docker 交付作业书见 [docs/ocr_delivery_runbook.md](/D:/code/ops-pilot/docs/ocr_delivery_runbook.md)。
+Colab 最小操作说明见 [docs/colab_quickstart.md](/D:/code/ops-pilot/docs/colab_quickstart.md)。
 
 ## 数据流水线
 
