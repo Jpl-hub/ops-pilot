@@ -25,7 +25,7 @@ const {
 const chatScrollRef = ref<HTMLElement | null>(null)
 const { roleCopy } = useWorkspaceRole(() => session.activeRole.value || 'investor')
 
-// 快捷问题来自后端 role_profile 或本地 fallback
+// 快捷问题来自后端 role_profile，缺省时回到角色默认问题集
 const starterQueries = computed(
   () => latestPayload.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries,
 )
@@ -90,8 +90,7 @@ function displayPriority(priority?: string) {
 function displayAssuranceStatus(status?: string) {
   const map: Record<string, string> = {
     grounded: '强支撑',
-    review: '待补证',
-    degraded: '回退分析',
+    review: '待复核',
   }
   return map[status || ''] || status || '未判定'
 }
@@ -388,7 +387,7 @@ watch(selectedCompany, async (company, previous) => {
                     />
                   </div>
                   <p v-if="aiAssurance.failed_tool_count" class="panel-assurance-warning">
-                    本轮有 {{ aiAssurance.failed_tool_count }} 个工具未成功返回。
+                    本轮有 {{ aiAssurance.failed_tool_count }} 个工具执行失败，本轮结果需要复核。
                   </p>
                   <p v-if="aiAssurance.retrieval_attempted" class="panel-assurance-foot">
                     文本检索补证 {{ aiAssurance.retrieval_enriched_count }} 条，状态 {{ aiAssurance.retrieval_status || '已记录' }}。
@@ -871,7 +870,6 @@ watch(selectedCompany, async (company, previous) => {
 }
 .panel-assurance-card.is-grounded { border-color: rgba(16,185,129,0.28); background: rgba(16,185,129,0.06); }
 .panel-assurance-card.is-review { border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.06); }
-.panel-assurance-card.is-degraded { border-color: rgba(244,63,94,0.28); background: rgba(244,63,94,0.06); }
 .panel-assurance-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .panel-assurance-head strong { font-size: 13px; color: #f8fafc; }
 .panel-assurance-badge {

@@ -191,7 +191,7 @@ async def get_embedding(text: str, model: str = "text-embedding-3-small") -> lis
         return response.data[0].embedding
     except Exception as e:
         logger.error("Embedding generation failed: %s", e)
-        return []
+        raise RuntimeError(f"Embedding 生成失败：{e}") from e
 
 
 async def get_embeddings(texts: list[str], model: str = "text-embedding-3-small") -> list[list[float]]:
@@ -202,7 +202,7 @@ async def get_embeddings(texts: list[str], model: str = "text-embedding-3-small"
         return [item.embedding for item in response.data]
     except Exception as e:
         logger.error("Batch Embedding generation failed: %s", e)
-        return []
+        raise RuntimeError(f"批量 Embedding 生成失败：{e}") from e
 
 
 # ---------------------------------------------------------------------------
@@ -246,5 +246,5 @@ async def rerank_chunks(query: str, chunks: list[dict], top_k: int = 5) -> list[
         scored.sort(key=lambda x: x[0], reverse=True)
         return [c for _, c in scored[:top_k]]
     except Exception as e:
-        logger.error("LLM Reranker failed, falling back to RRF order: %s", e)
-        return candidates[:top_k]
+        logger.error("LLM Reranker failed: %s", e)
+        raise RuntimeError(f"检索重排失败：{e}") from e

@@ -71,7 +71,7 @@ function displayHealthStatus(status: string | null | undefined): string {
     ok: '正常',
     ready: '就绪',
     blocked: '阻断',
-    degraded: '降级',
+    degraded: '证据不足',
   }
   return map[status || ''] || status || '-'
 }

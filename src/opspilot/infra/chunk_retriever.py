@@ -133,26 +133,15 @@ class LocalChunkRetriever:
             embeddings: list[list[float]] = []
             for i in range(0, len(texts), 100):
                 batch = await get_embeddings(texts[i : i + 100])
-                if not batch:
-                    logger.warning(
-                        "Hybrid dense retrieval skipped for %s/%s because embeddings are unavailable.",
-                        security_code,
-                        period_key,
-                    )
-                    return self._bm25_rank(chunks, query, top_k)
                 embeddings.extend(batch)
                 if i + 100 < len(texts):
                     await asyncio.sleep(0.05)
 
             if len(embeddings) != len(chunks):
-                logger.warning(
-                    "Hybrid dense retrieval skipped for %s/%s because embedding count %d does not match chunk count %d.",
-                    security_code,
-                    period_key,
-                    len(embeddings),
-                    len(chunks),
+                raise RuntimeError(
+                    "Hybrid RAG 向量构建失败：embedding 数量与 chunk 数量不一致 "
+                    f"({len(embeddings)} != {len(chunks)})。"
                 )
-                return self._bm25_rank(chunks, query, top_k)
 
             for c, emb in zip(chunks, embeddings):
                 c["embedding"] = emb
@@ -164,13 +153,6 @@ class LocalChunkRetriever:
 
         # ---- Stage 2: Dense ANN retrieval ----
         q_emb = await get_embedding(query)
-        if not q_emb:
-            logger.warning(
-                "Hybrid dense retrieval skipped for %s/%s because query embedding is unavailable.",
-                security_code,
-                period_key,
-            )
-            return bm25_results[:top_k]
         v_results = v_store.search(
             security_code, q_emb, report_period=period_key, top_k=20
         )

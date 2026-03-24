@@ -128,38 +128,32 @@ class WorkspaceService:
         query_type = payload.get("query_type", "")
         current_evidence = payload.get("evidence", [])
         openai_api_key = getattr(self.settings, "openai_api_key", "")
-        if detected_company and openai_api_key and (
+        retrieval_required = detected_company and (
             query_type == "metric_query"
             or len(current_evidence) < self.settings.audit_min_evidence
-        ):
-            try:
-                extra_chunks = await self.repository.hybrid_evidence_search(
-                    company_name=detected_company,
-                    query=query,
-                    report_period=period,
-                    dsn=self.settings.postgres_dsn,
-                    top_k=4,
-                )
-                if extra_chunks:
-                    payload["evidence"] = deduplicate(current_evidence + extra_chunks)
-                payload["retrieval_meta"] = {
-                    "attempted": True,
-                    "enriched_count": len(extra_chunks),
-                    "status": "augmented" if extra_chunks else "no_hit",
-                }
-            except Exception as exc:
-                logger.warning("Hybrid RAG enrichment failed (non-fatal): %s", exc)
-                payload["retrieval_meta"] = {
-                    "attempted": True,
-                    "enriched_count": 0,
-                    "status": "failed",
-                    "error": str(exc),
-                }
+        )
+        if retrieval_required:
+            if not openai_api_key:
+                raise RuntimeError("文本补证依赖的模型鉴权未配置，无法生成可核验分析结果。")
+            extra_chunks = await self.repository.hybrid_evidence_search(
+                company_name=detected_company,
+                query=query,
+                report_period=period,
+                dsn=self.settings.postgres_dsn,
+                top_k=4,
+            )
+            if extra_chunks:
+                payload["evidence"] = deduplicate(current_evidence + extra_chunks)
+            payload["retrieval_meta"] = {
+                "attempted": True,
+                "enriched_count": len(extra_chunks),
+                "status": "augmented" if extra_chunks else "no_hit",
+            }
         else:
             payload["retrieval_meta"] = {
                 "attempted": False,
                 "enriched_count": 0,
-                "status": "skipped",
+                "status": "not_required",
             }
 
         # Stage 3 — Build structured workspace payload
@@ -618,17 +612,11 @@ def _build_ai_assurance(payload: dict[str, Any]) -> dict[str, Any]:
     retrieval_meta = payload.get("retrieval_meta", {})
     retrieval_attempted = bool(retrieval_meta.get("attempted"))
     retrieval_enriched_count = int(retrieval_meta.get("enriched_count", 0) or 0)
-    fallback_triggered = payload.get("answer_markdown", "").startswith("分析执行异常")
 
-    if fallback_triggered:
-        status = "degraded"
-        label = "回退分析"
-        summary = "当前轮未形成稳定工具链，结论只可作为排查线索，不能直接作为交付结论。"
-        tone = "risk"
-    elif not successful_tools:
+    if not successful_tools:
         status = "review"
-        label = "待补证"
-        summary = "当前轮已有结构化结果，但工具执行轨迹未完整保留，适合先复核再用于正式输出。"
+        label = "待复核"
+        summary = "当前轮已有结构化结果，但工具执行轨迹未完整保留，不能直接作为正式交付结论。"
         tone = "warning"
     elif evidence_count >= 2 or evidence_group_count >= 1 or formula_count >= 1:
         status = "grounded"
@@ -657,7 +645,6 @@ def _build_ai_assurance(payload: dict[str, Any]) -> dict[str, Any]:
         "retrieval_attempted": retrieval_attempted,
         "retrieval_enriched_count": retrieval_enriched_count,
         "retrieval_status": retrieval_meta.get("status"),
-        "fallback_triggered": fallback_triggered,
     }
 
 

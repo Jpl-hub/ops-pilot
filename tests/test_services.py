@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from opspilot.application.agents import _route_local_tool
 from opspilot.application.services import (
     OpsPilotService,
     _build_claim_cards,
@@ -705,7 +704,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertIn("run_id", payload)
             self.assertTrue((root / "bronze" / "manifests" / "workspace_runs.json").exists())
 
-    async def test_chat_turn_uses_local_orchestrator_when_llm_unavailable(self) -> None:
+    async def test_chat_turn_fails_fast_when_llm_unavailable(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
                 return "2025Q3"
@@ -776,37 +775,14 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 "opspilot.application.agents.generate_completion",
                 new=AsyncMock(side_effect=RuntimeError("401 invalid token")),
             ):
-                payload = await service.chat_turn(
-                    query="请分析测试公司的经营表现和风险",
-                    company_name="测试公司",
-                    user_role="management",
-                )
+                with self.assertRaisesRegex(RuntimeError, "协同分析依赖的大模型调用失败"):
+                    await service.chat_turn(
+                        query="请分析测试公司的经营表现和风险",
+                        company_name="测试公司",
+                        user_role="management",
+                    )
 
-            self.assertEqual(payload["company_name"], "测试公司")
-            self.assertFalse(payload["answer_markdown"].startswith("分析执行异常"))
-            self.assertEqual(payload["runtime_notice"]["mode"], "local_orchestrator")
-            self.assertEqual(payload["tool_trace"][0]["tool_name"], "tool_score_company")
-            self.assertEqual(payload["ai_assurance"]["tool_call_count"], 1)
-
-    def test_local_tool_router_separates_query_intents(self) -> None:
-        self.assertEqual(
-            _route_local_tool(query="请分析测试公司的图谱传导路径", company_name="测试公司"),
-            "tool_graph_query",
-        )
-        self.assertEqual(
-            _route_local_tool(query="请做测试公司的断供压力测试", company_name="测试公司"),
-            "tool_stress_test",
-        )
-        self.assertEqual(
-            _route_local_tool(query="请回放测试公司近几期时间线变化", company_name="测试公司"),
-            "tool_company_timeline",
-        )
-        self.assertEqual(
-            _route_local_tool(query="请核验测试公司最新研报目标价", company_name="测试公司"),
-            "tool_verify_claim",
-        )
-
-    async def test_chat_turn_keeps_distinct_query_types_when_llm_unavailable(self) -> None:
+    async def test_chat_turn_fails_fast_when_hybrid_rag_unavailable(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
                 return "2025Q3"
@@ -861,63 +837,35 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                     self.silver_data_path = root / "silver"
 
             service = OpsPilotService(StubRepository(), StubSettings())
-            service.company_graph_query = lambda *args, **kwargs: {
-                "company_name": "测试公司",
-                "report_period": "2025Q3",
-                "focal_nodes": [{"label": "应收账款", "type": "risk"}],
-                "inference_path": [{"step": 1, "title": "回款承压", "detail": "客户付款延后"}],
-                "graph": {"node_count": 8, "edge_count": 7, "nodes": [], "edges": []},
-                "summary": {"execution_records": 3},
-            }
-            service.company_stress_test = AsyncMock(return_value={
-                "company_name": "测试公司",
-                "report_period": "2025Q3",
-                "scenario": "供应链断供",
-                "severity": {"level": "HIGH", "label": "高冲击"},
-                "transmission_matrix": [{"stage": "upstream", "headline": "原料断供", "impact_label": "产能承压", "impact_score": -8}],
-                "stress_recovery_sequence": [{"step": 1, "action": "锁定备份供应商"}],
-            })
-            service.company_timeline = lambda *args, **kwargs: {
-                "company_name": "测试公司",
-                "latest_period": "2025Q3",
-                "report_period": "2025Q3",
-                "snapshots": [{"report_period": "2025Q3", "total_score": 72, "grade": "B+"}],
-                "charts": [{"title": "历史评分"}],
-                "key_numbers": [{"label": "报期数", "value": 1, "unit": "期"}],
-            }
-
             with patch(
-                "opspilot.application.agents.generate_completion",
-                new=AsyncMock(side_effect=RuntimeError("401 invalid token")),
+                "opspilot.application.agents.run_orchestrator",
+                new=AsyncMock(
+                    return_value={
+                        **service.score_company("测试公司", "2025Q3"),
+                        "query_type": "metric_query",
+                        "tool_trace": [
+                            {
+                                "tool_name": "tool_score_company",
+                                "arguments": {"company_name": "测试公司", "report_period": "2025Q3"},
+                                "result_summary": "{}",
+                                "elapsed_ms": 10.0,
+                                "success": True,
+                            }
+                        ],
+                    }
+                ),
+            ), patch.object(
+                service.repository,
+                "hybrid_evidence_search",
+                new=AsyncMock(side_effect=RuntimeError("embedding provider unavailable")),
+                create=True,
             ):
-                graph_payload = await service.chat_turn(
-                    query="请分析测试公司的图谱传导路径",
-                    company_name="测试公司",
-                    user_role="management",
-                )
-                stress_payload = await service.chat_turn(
-                    query="请做测试公司的断供压力测试",
-                    company_name="测试公司",
-                    user_role="management",
-                )
-                timeline_payload = await service.chat_turn(
-                    query="请回放测试公司近几期时间线变化",
-                    company_name="测试公司",
-                    user_role="management",
-                )
-
-            self.assertEqual(graph_payload["runtime_notice"]["mode"], "local_orchestrator")
-            self.assertEqual(graph_payload["tool_trace"][0]["tool_name"], "tool_graph_query")
-            self.assertEqual(graph_payload["control_plane"]["query_type"], "graph_query")
-            self.assertEqual(graph_payload["answer_sections"][0]["title"], "图谱结论")
-
-            self.assertEqual(stress_payload["tool_trace"][0]["tool_name"], "tool_stress_test")
-            self.assertEqual(stress_payload["control_plane"]["query_type"], "stress_test")
-            self.assertEqual(stress_payload["answer_sections"][0]["title"], "压力结论")
-
-            self.assertEqual(timeline_payload["tool_trace"][0]["tool_name"], "tool_company_timeline")
-            self.assertEqual(timeline_payload["control_plane"]["query_type"], "company_timeline")
-            self.assertEqual(timeline_payload["answer_sections"][0]["title"], "时间线结论")
+                with self.assertRaisesRegex(RuntimeError, "embedding provider unavailable"):
+                    await service.chat_turn(
+                        query="请分析测试公司的经营表现和风险",
+                        company_name="测试公司",
+                        user_role="management",
+                    )
 
     async def test_workspace_runs_persist_and_can_be_read_back(self) -> None:
         class StubRepository:

@@ -14,7 +14,7 @@ def build_audit(
     numeric_consistency = bool(key_numbers) and all(
         item.get("value") is not None for item in key_numbers
     )
-    policy = "pass" if evidence_coverage >= min_evidence else "degraded"
+    policy = "pass" if evidence_coverage >= min_evidence else "insufficient_evidence"
     insufficient = evidence_coverage < min_evidence
     return {
         "numeric_consistency": numeric_consistency,

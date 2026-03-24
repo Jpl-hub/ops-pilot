@@ -473,6 +473,8 @@ async def chat_turn(request: ChatTurnRequest, _: dict = Depends(require_current_
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/company/score")
@@ -728,6 +730,8 @@ async def company_stress_test(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/stress-test/runs")
