@@ -1777,9 +1777,26 @@ class OpsPilotService:
         limit: int = 20,
     ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
-        document_results = self.document_pipeline_results(limit=300)
+        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
         upgrade_items = _filter_document_results_for_company(
-            document_results["results"], company_name, period
+            [
+                {
+                    "stage": item["stage"],
+                    "report_id": item["report_id"],
+                    "company_name": item["company_name"],
+                    "security_code": item["security_code"],
+                    "report_period": item.get("report_period"),
+                    "status": item["status"],
+                    "artifact_path": item.get("artifact_path"),
+                    "artifact_summary": item.get("artifact_summary"),
+                    "artifact_source": item.get("artifact_source"),
+                    "contract_status": _resolve_document_contract_status(self.settings, item),
+                    "completed_at": item.get("completed_at"),
+                }
+                for item in jobs_manifest["records"]
+            ],
+            company_name,
+            period,
         )
         enriched_items: list[dict[str, Any]] = []
         stage_summary: dict[str, int] = {}
@@ -1787,11 +1804,23 @@ class OpsPilotService:
             stage = item["stage"]
             stage_summary[stage] = stage_summary.get(stage, 0) + 1
             artifact_preview = None
+            artifact_summary = item.get("artifact_summary")
+            artifact_source = item.get("artifact_source")
             if item.get("status") == "completed":
                 try:
                     detail = self.document_pipeline_result_detail(stage, item["report_id"])
                     artifact_preview = _build_document_artifact_preview(detail["artifact"])
                     evidence_navigation = detail.get("evidence_navigation")
+                    artifact_summary = (
+                        artifact_summary
+                        or detail["job"].get("artifact_summary")
+                        or detail["artifact"].get("summary")
+                    )
+                    artifact_source = (
+                        artifact_source
+                        or detail["job"].get("artifact_source")
+                        or detail["artifact"].get("source")
+                    )
                 except ValueError:
                     artifact_preview = None
                     evidence_navigation = None
@@ -1800,6 +1829,8 @@ class OpsPilotService:
             enriched_items.append(
                 {
                     **item,
+                    "artifact_summary": artifact_summary,
+                    "artifact_source": artifact_source,
                     "artifact_preview": artifact_preview,
                     "evidence_navigation": evidence_navigation,
                     "route": {
@@ -2318,7 +2349,26 @@ class OpsPilotService:
                 reverse=True,
             )
             job = stage_jobs[0] if stage_jobs else None
-            latest_jobs.extend(stage_jobs[:1])
+            if job and job.get("status") == "completed":
+                try:
+                    detail = self.document_pipeline_result_detail(stage, job["report_id"])
+                    job = {
+                        **job,
+                        "artifact_summary": (
+                            job.get("artifact_summary")
+                            or detail["job"].get("artifact_summary")
+                            or detail["artifact"].get("summary")
+                        ),
+                        "artifact_source": (
+                            job.get("artifact_source")
+                            or detail["job"].get("artifact_source")
+                            or detail["artifact"].get("source")
+                        ),
+                    }
+                except ValueError:
+                    pass
+            if job:
+                latest_jobs.append(job)
             status = job.get("status", "missing") if job else "missing"
             stages.append(
                 {
@@ -2743,6 +2793,15 @@ class OpsPilotService:
                     },
                 }
             )
+        filtered.sort(
+            key=lambda item: (
+                item.get("completed_at") or "",
+                item.get("report_period") or "",
+                item.get("stage") or "",
+                item.get("report_id") or "",
+            ),
+            reverse=True,
+        )
         return {
             "stage": stage,
             "status": status,
