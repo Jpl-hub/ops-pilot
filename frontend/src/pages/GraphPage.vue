@@ -23,11 +23,7 @@ const activePathStep = ref(0)
 let graphTicker: number | null = null
 
 const companies = computed(() => overviewState.data.value?.companies || [])
-const availablePeriods = computed(() => {
-  const preferred = overviewState.data.value?.preferred_period
-  const base = preferred ? [preferred] : []
-  return [...new Set([...base, '2025Q3', '2025Q2', '2025Q1', '2024Q4', '2024Q3'])]
-})
+const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
 const focalNodes = computed<GraphFocalNode[]>(() => graphState.data.value?.focal_nodes || [])
 const inferencePath = computed<GraphInferenceStep[]>(() => graphState.data.value?.inference_path || [])
 const activePathId = computed(() => inferencePath.value[activePathStep.value]?.step ?? null)
@@ -161,9 +157,9 @@ function submitIntent() {
           @keydown.enter="submitIntent"
         />
         <div class="intent-stats">
-          <span class="stat-item">节点 <strong>{{ (graphState.data.value?.graph?.node_count || 18245).toLocaleString() }}</strong></span>
+          <span class="stat-item">节点 <strong>{{ (graphState.data.value?.graph?.node_count ?? 0).toLocaleString() }}</strong></span>
           <span class="stat-div">|</span>
-          <span class="stat-item">边 <strong>{{ (graphState.data.value?.graph?.edge_count || 45192).toLocaleString() }}</strong></span>
+          <span class="stat-item">边 <strong>{{ (graphState.data.value?.graph?.edge_count ?? 0).toLocaleString() }}</strong></span>
         </div>
         <button class="button-primary intent-btn" :disabled="graphState.loading.value" @click="submitIntent">
           {{ graphState.loading.value ? '检索中…' : '图谱检索' }}

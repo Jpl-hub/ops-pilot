@@ -1,5 +1,25 @@
 <script setup lang="ts">
 import AppShell from '@/components/AppShell.vue'
+import { computed, onMounted } from 'vue'
+
+import LoadingState from '@/components/LoadingState.vue'
+import { useAsyncState } from '@/composables/useAsyncState'
+import { get } from '@/lib/api'
+
+const overviewState = useAsyncState<any>()
+
+const homeMetrics = computed(() => {
+  const data = overviewState.data.value
+  return {
+    companies: data?.quality_overview?.coverage?.pool_companies ?? null,
+    reports: data?.data_status?.periodic_reports?.record_count ?? null,
+    dimensions: 19,
+  }
+})
+
+onMounted(async () => {
+  await overviewState.execute(() => get('/admin/overview'))
+})
 </script>
 
 <template>
@@ -10,8 +30,10 @@ import AppShell from '@/components/AppShell.vue'
     compact
   >
     <div class="home-wrapper">
+      <LoadingState v-if="overviewState.loading.value" class="home-loading" />
+
       <!-- Hero Card -->
-      <section class="glass-panel splash-card">
+      <section v-else class="glass-panel splash-card">
         <div class="splash-inner">
           <div class="glow-icon-splash">OP</div>
 
@@ -24,17 +46,17 @@ import AppShell from '@/components/AppShell.vue'
           <!-- Stats Row -->
           <div class="stats-row">
             <div class="stat-item">
-              <strong class="stat-val text-accent">50+</strong>
+              <strong class="stat-val text-accent">{{ homeMetrics.companies ?? '—' }}</strong>
               <span class="stat-lbl">新能源企业</span>
             </div>
             <div class="stat-div"></div>
             <div class="stat-item">
-              <strong class="stat-val">349</strong>
+              <strong class="stat-val">{{ homeMetrics.reports ?? '—' }}</strong>
               <span class="stat-lbl">真实财报</span>
             </div>
             <div class="stat-div"></div>
             <div class="stat-item">
-              <strong class="stat-val">19</strong>
+              <strong class="stat-val">{{ homeMetrics.dimensions }}</strong>
               <span class="stat-lbl">评分维度</span>
             </div>
             <div class="stat-div"></div>
@@ -114,6 +136,7 @@ import AppShell from '@/components/AppShell.vue'
   height: 100%;
   overflow-y: auto;
 }
+.home-loading { width: 100%; max-width: 780px; min-height: 420px; }
 .home-wrapper::-webkit-scrollbar { width: 4px; }
 .home-wrapper::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 

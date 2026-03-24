@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 const TOKEN_KEY = 'ops-pilot-access-token'
 const USER_KEY = 'ops-pilot-user'
 
@@ -73,4 +73,13 @@ export function loadCurrentUser(): AuthUser | null {
     clearAuth()
     return null
   }
+}
+
+export function buildWebSocketUrl(path: string): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  if (API_BASE.startsWith('http://') || API_BASE.startsWith('https://')) {
+    const base = new URL(API_BASE)
+    return `${protocol}//${base.host}${base.pathname}${path}`
+  }
+  return `${protocol}//${window.location.host}${API_BASE}${path}`
 }

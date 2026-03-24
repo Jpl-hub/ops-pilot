@@ -32,40 +32,90 @@ class SilverMetricsTestCase(unittest.TestCase):
 
     def test_derive_metric_codes_builds_core_scoring_metrics(self) -> None:
         row_values = {
-            "revenue": {"current": 100.0, "previous": 80.0, "change_pct": 25.0, "tokens": []},
-            "profit_total": {"current": 25.0, "previous": 20.0, "change_pct": 25.0, "tokens": []},
-            "net_profit": {"current": 12.0, "previous": 8.0, "change_pct": 50.0, "tokens": []},
+            "revenue": {
+                "current": 100000000.0,
+                "previous": 80000000.0,
+                "change_pct": 25.0,
+                "tokens": [],
+            },
+            "profit_total": {
+                "current": 25000000.0,
+                "previous": 20000000.0,
+                "change_pct": 25.0,
+                "tokens": [],
+            },
+            "net_profit": {
+                "current": 12000000.0,
+                "previous": 8000000.0,
+                "change_pct": 50.0,
+                "tokens": [],
+            },
             "deducted_net_profit": {
-                "current": 10.0,
-                "previous": 9.0,
+                "current": 10000000.0,
+                "previous": 9000000.0,
                 "change_pct": 11.11,
                 "tokens": [],
             },
             "operating_cash_flow": {
-                "current": 15.0,
-                "previous": 5.0,
+                "current": 15000000.0,
+                "previous": 5000000.0,
                 "change_pct": 200.0,
                 "tokens": [],
             },
-            "operating_revenue": {"current": 100.0, "previous": 80.0, "change_pct": None, "tokens": []},
-            "operating_cost": {"current": 70.0, "previous": 60.0, "change_pct": None, "tokens": []},
-            "sales_expense": {"current": 5.0, "previous": 4.0, "change_pct": None, "tokens": []},
-            "admin_expense": {"current": 3.0, "previous": 2.0, "change_pct": None, "tokens": []},
-            "rd_expense": {"current": 4.0, "previous": 3.0, "change_pct": None, "tokens": []},
-            "finance_expense": {"current": 1.0, "previous": 0.5, "change_pct": None, "tokens": []},
+            "operating_revenue": {
+                "current": 100000000.0,
+                "previous": 80000000.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "operating_cost": {
+                "current": 70000000.0,
+                "previous": 60000000.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "sales_expense": {
+                "current": 5000000.0,
+                "previous": 4000000.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "admin_expense": {
+                "current": 3000000.0,
+                "previous": 2000000.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "rd_expense": {
+                "current": 4000000.0,
+                "previous": 3000000.0,
+                "change_pct": None,
+                "tokens": [],
+            },
+            "finance_expense": {
+                "current": 1000000.0,
+                "previous": 500000.0,
+                "change_pct": None,
+                "tokens": [],
+            },
             "interest_expense": {
-                "current": 5.0,
-                "previous": 4.0,
+                "current": 5000000.0,
+                "previous": 4000000.0,
                 "change_pct": None,
                 "tokens": [],
             },
             "accounts_receivable": {
-                "current": 30.0,
-                "previous": 20.0,
+                "current": 30000000.0,
+                "previous": 20000000.0,
                 "change_pct": None,
                 "tokens": [],
             },
-            "inventory": {"current": 40.0, "previous": 20.0, "change_pct": None, "tokens": []},
+            "inventory": {
+                "current": 40000000.0,
+                "previous": 20000000.0,
+                "change_pct": None,
+                "tokens": [],
+            },
             "_meta": {"report_period": "2025H1"},
         }
         derived = derive_metric_codes(row_values)
@@ -103,16 +153,28 @@ class SilverMetricsTestCase(unittest.TestCase):
     def test_apply_period_selection_uses_cumulative_values_for_q3(self) -> None:
         row_values = {
             "revenue": {
-                "current": 80.0,
-                "previous": 20.0,
+                "current": 80000000.0,
+                "previous": 20000000.0,
                 "change_pct": 30.0,
-                "tokens": ["80.0", "20.0%", "200.0", "40.0%"],
+                "tokens": ["80000000.0", "20.0%", "200000000.0", "40.0%"],
             }
         }
         adjusted = apply_period_selection(row_values, "2025Q3")
-        self.assertEqual(adjusted["revenue"]["current"], 200.0)
+        self.assertEqual(adjusted["revenue"]["current"], 200000000.0)
         self.assertIsNone(adjusted["revenue"]["previous"])
         self.assertEqual(adjusted["revenue"]["change_pct"], 40.0)
+
+    def test_derive_metric_codes_rejects_implausible_revenue_outputs(self) -> None:
+        row_values = {
+            "revenue": {"current": -19.39, "previous": 80.0, "change_pct": -830.0, "tokens": []},
+            "operating_cash_flow": {"current": 15.0, "previous": 5.0, "change_pct": 200.0, "tokens": []},
+            "net_profit": {"current": 12.0, "previous": 8.0, "change_pct": 50.0, "tokens": []},
+        }
+        derived = derive_metric_codes(row_values)
+        self.assertNotIn("RAW_REVENUE", derived)
+        self.assertNotIn("G1", derived)
+        self.assertNotIn("C2", derived)
+        self.assertNotIn("P2", derived)
 
     def test_detect_and_apply_unit_scale(self) -> None:
         unit_text, unit_scale = detect_unit_scale("单位：千元 项目 2025年 2024年")

@@ -17,15 +17,21 @@ export default defineConfig({
       '/api': {
         target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8000',
         changeOrigin: true,
+        ws: true,
       },
     },
   },
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          vue: ['vue', 'vue-router'],
-          charts: ['echarts'],
+        manualChunks(id) {
+          if (id.includes('node_modules/vue') || id.includes('node_modules/@vue') || id.includes('vue-router')) {
+            return 'vue'
+          }
+          if (id.includes('node_modules/zrender')) {
+            return 'zrender'
+          }
+          return undefined
         },
       },
     },

@@ -22,6 +22,7 @@ class Settings:
     silver_data_path: Path
     postgres_dsn: str
     auth_session_days: int
+    cors_allowed_origins: tuple[str, ...]
     audit_min_evidence: int = 2
     doc_layout_engine: str = "PP-DocLayout-V3 + PyMuPDF"
     ocr_provider: str = "PaddleOCR-VL"
@@ -68,6 +69,14 @@ def get_settings() -> Settings:
             "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot",
         ),
         auth_session_days=int(os.getenv("OPS_PILOT_AUTH_SESSION_DAYS", "7")),
+        cors_allowed_origins=tuple(
+            origin.strip()
+            for origin in os.getenv(
+                "OPS_PILOT_CORS_ALLOWED_ORIGINS",
+                "http://127.0.0.1:8080,http://localhost:8080",
+            ).split(",")
+            if origin.strip()
+        ),
         doc_layout_engine=os.getenv(
             "OPS_PILOT_DOC_LAYOUT_ENGINE",
             "PP-DocLayout-V3 + PyMuPDF",

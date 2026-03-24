@@ -15,11 +15,7 @@ const runsState = useAsyncState<any>()
 const route = useRoute()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
-const availablePeriods = computed(() => {
-  const preferred = overviewState.data.value?.preferred_period
-  const base = preferred ? [preferred] : []
-  return [...new Set([...base, '2025Q3', '2025Q2', '2025Q1', '2024Q4', '2024Q3'])]
-})
+const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
 const selectedCompany = ref('')
 const selectedPeriod = ref('')
 const scenario = ref('欧盟对动力电池临时加征关税并限制关键材料进口')

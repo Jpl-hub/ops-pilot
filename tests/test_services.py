@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 import sys
 import unittest
 import json
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -22,7 +23,7 @@ from opspilot.application.services import (
 from opspilot.infra.sample_repository import SampleRepository
 
 
-class ServicesTestCase(unittest.TestCase):
+class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
     def test_industry_brain_returns_realtime_payload(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -244,7 +245,7 @@ class ServicesTestCase(unittest.TestCase):
         self.assertIsNotNone(payload["snapshots"][1]["score_delta"])
         self.assertEqual(payload["charts"][0]["title"], "报期总分变化")
 
-    def test_company_stress_test_returns_real_propagation_payload(self) -> None:
+    async def test_company_stress_test_returns_real_propagation_payload(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
                 return "2025Q3"
@@ -309,11 +310,15 @@ class ServicesTestCase(unittest.TestCase):
                     self.silver_data_path = root / "silver"
 
             service = OpsPilotService(StubRepository(), StubSettings())
-            payload = service.company_stress_test(
-                "测试公司",
-                "欧盟对动力电池临时加征关税并限制关键材料进口",
-                user_role="management",
-            )
+            with patch(
+                "opspilot.application.agents.run_stress_agent",
+                new=AsyncMock(return_value={}),
+            ):
+                payload = await service.company_stress_test(
+                    "测试公司",
+                    "欧盟对动力电池临时加征关税并限制关键材料进口",
+                    user_role="management",
+                )
 
             self.assertEqual(payload["company_name"], "测试公司")
             self.assertEqual(payload["report_period"], "2025Q3")
@@ -492,7 +497,7 @@ class ServicesTestCase(unittest.TestCase):
             self.assertEqual(payload["total"], 0)
             self.assertEqual(payload["results"], [])
 
-    def test_chat_turn_returns_role_driven_workspace_payload(self) -> None:
+    async def test_chat_turn_returns_role_driven_workspace_payload(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
                 return "2025Q3"
@@ -565,11 +570,16 @@ class ServicesTestCase(unittest.TestCase):
                     self.bronze_data_path = root / "bronze"
                     self.silver_data_path = root / "silver"
 
-            payload = OpsPilotService(StubRepository(), StubSettings()).chat_turn(
-                query="请给测试公司做一份经营体检评分",
-                company_name="测试公司",
-                user_role="management",
-            )
+            service = OpsPilotService(StubRepository(), StubSettings())
+            with patch(
+                "opspilot.application.agents.run_orchestrator",
+                new=AsyncMock(return_value=service.score_company("测试公司", "2025Q3")),
+            ):
+                payload = await service.chat_turn(
+                    query="请给测试公司做一份经营体检评分",
+                    company_name="测试公司",
+                    user_role="management",
+                )
 
             self.assertEqual(payload["role_profile"]["label"], "企业管理者")
             self.assertEqual(len(payload["agent_flow"]), 4)
@@ -587,7 +597,7 @@ class ServicesTestCase(unittest.TestCase):
             self.assertIn("run_id", payload)
             self.assertTrue((root / "bronze" / "manifests" / "workspace_runs.json").exists())
 
-    def test_workspace_runs_persist_and_can_be_read_back(self) -> None:
+    async def test_workspace_runs_persist_and_can_be_read_back(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
                 return "2025Q3"
@@ -652,11 +662,15 @@ class ServicesTestCase(unittest.TestCase):
                     self.silver_data_path = root / "silver"
 
             service = OpsPilotService(StubRepository(), StubSettings())
-            payload = service.chat_turn(
-                query="请给测试公司做一份经营体检评分",
-                company_name="测试公司",
-                user_role="management",
-            )
+            with patch(
+                "opspilot.application.agents.run_orchestrator",
+                new=AsyncMock(return_value=service.score_company("测试公司", "2025Q3")),
+            ):
+                payload = await service.chat_turn(
+                    query="请给测试公司做一份经营体检评分",
+                    company_name="测试公司",
+                    user_role="management",
+                )
 
             runs = service.workspace_runs(limit=5)
             detail = service.workspace_run_detail(payload["run_id"])

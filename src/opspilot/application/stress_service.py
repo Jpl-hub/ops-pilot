@@ -171,7 +171,10 @@ class StressService:
             "evidence_navigation": {
                 "links": _build_stress_evidence_links(workspace),
             },
-            "chart": _build_stress_test_chart(propagation_steps),
+            "chart": _build_stress_test_chart(
+                propagation_steps=propagation_steps,
+                transmission_matrix=transmission_matrix,
+            ),
         }
         run_id = _build_stress_test_run_id(company_name)
         detail_path = _stress_test_run_detail_path(self.settings, run_id)
@@ -387,16 +390,24 @@ def _build_stress_evidence_links(workspace: dict[str, Any]) -> list[dict[str, An
     return links[:4]
 
 
-def _build_stress_test_chart(steps: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_stress_test_chart(
+    *,
+    propagation_steps: list[dict[str, Any]],
+    transmission_matrix: list[dict[str, Any]],
+) -> dict[str, Any]:
+    chart_points = [int(item.get("impact_score", 0)) for item in transmission_matrix]
+    if len(chart_points) < len(propagation_steps):
+        tail_value = chart_points[-1] if chart_points else 0
+        chart_points.extend([tail_value] * (len(propagation_steps) - len(chart_points)))
     return {
         "tooltip": {"trigger": "axis"},
-        "xAxis": {"type": "category", "data": [item["title"] for item in steps]},
+        "xAxis": {"type": "category", "data": [item["title"] for item in propagation_steps]},
         "yAxis": {"type": "value", "max": 100},
         "series": [
             {
                 "type": "line",
                 "smooth": True,
-                "data": [28, 46, 72, 84][: len(steps)],
+                "data": chart_points[: len(propagation_steps)],
                 "areaStyle": {},
             }
         ],

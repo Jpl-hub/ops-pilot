@@ -32,12 +32,13 @@ services:
       OPS_PILOT_BRONZE_DATA_PATH: data/bronze/official
       OPS_PILOT_SILVER_DATA_PATH: data/silver/official
       OPS_PILOT_POSTGRES_DSN: postgresql+psycopg://ops_pilot:ops_pilot@postgres:5432/ops_pilot
+      OPS_PILOT_CORS_ALLOWED_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
       OPS_PILOT_OPENAI_API_KEY: ${OPS_PILOT_OPENAI_API_KEY:-}
       OPS_PILOT_OPENAI_BASE_URL: ${OPS_PILOT_OPENAI_BASE_URL:-https://api.openai-proxy.org/v1}
       PYTHONPATH: /app/src
     volumes:
       - ./:/app
-    command: ["python", "-m", "uvicorn", "opspilot.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["ops-pilot-api"]
     ports:
       - "8000:8000"
     depends_on:

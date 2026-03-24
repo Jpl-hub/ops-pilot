@@ -127,13 +127,10 @@ class WorkspaceService:
         # → LLM zero-shot reranker → top-k chunks.
         query_type = payload.get("query_type", "")
         current_evidence = payload.get("evidence", [])
-        if (
-            detected_company
-            and self.settings.openai_api_key
-            and (
-                query_type == "metric_query"
-                or len(current_evidence) < self.settings.audit_min_evidence
-            )
+        openai_api_key = getattr(self.settings, "openai_api_key", "")
+        if detected_company and openai_api_key and (
+            query_type == "metric_query"
+            or len(current_evidence) < self.settings.audit_min_evidence
         ):
             try:
                 extra_chunks = await self.repository.hybrid_evidence_search(

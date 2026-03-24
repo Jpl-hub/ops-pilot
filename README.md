@@ -68,6 +68,12 @@ ops-pilot-parse-official-reports --codes 601012,002129,300750
 
 # 结构化指标提取 → silver metrics
 ops-pilot-build-silver-metrics --codes 601012,002129,300750
+
+# 公司快照 → snapshot silver
+ops-pilot-build-snapshot-silver --codes 601012,002129,300750
+
+# 构建向量索引
+ops-pilot-build-embeddings
 ```
 
 数据目录结构：

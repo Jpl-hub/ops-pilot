@@ -1,16 +1,6 @@
 <script setup lang="ts">
-import { CanvasRenderer } from 'echarts/renderers'
-import { BarChart, LineChart, RadarChart } from 'echarts/charts'
-import {
-  GridComponent,
-  LegendComponent,
-  RadarComponent,
-  TitleComponent,
-  TooltipComponent,
-} from 'echarts/components'
-import { init, use } from 'echarts/core'
 import type { ECharts } from 'echarts/core'
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps<{
   title: string
@@ -19,20 +9,38 @@ const props = defineProps<{
 
 const root = ref<HTMLElement | null>(null)
 let instance: ECharts | null = null
+let chartRuntimePromise: Promise<{ init: (element: HTMLElement) => ECharts }> | null = null
 
-use([
-  CanvasRenderer,
-  BarChart,
-  LineChart,
-  RadarChart,
-  GridComponent,
-  LegendComponent,
-  RadarComponent,
-  TitleComponent,
-  TooltipComponent,
-])
+async function loadChartRuntime() {
+  if (!chartRuntimePromise) {
+    chartRuntimePromise = (async () => {
+      const [{ init, use }, charts, components, renderers] = await Promise.all([
+        import('echarts/core'),
+        import('echarts/charts'),
+        import('echarts/components'),
+        import('echarts/renderers'),
+      ])
+      use([
+        renderers.CanvasRenderer,
+        charts.BarChart,
+        charts.LineChart,
+        charts.RadarChart,
+        components.GridComponent,
+        components.LegendComponent,
+        components.RadarComponent,
+        components.TitleComponent,
+        components.TooltipComponent,
+      ])
+      return { init }
+    })()
+  }
+  return chartRuntimePromise
+}
 
-function renderChart() {
+async function renderChart() {
+  await nextTick()
+  if (!root.value) return
+  const { init } = await loadChartRuntime()
   if (!root.value) return
   if (!instance) {
     instance = init(root.value)
@@ -45,11 +53,17 @@ function resizeChart() {
 }
 
 onMounted(() => {
-  renderChart()
+  void renderChart()
   window.addEventListener('resize', resizeChart)
 })
 
-watch(() => props.options, renderChart, { deep: true })
+watch(
+  () => props.options,
+  () => {
+    void renderChart()
+  },
+  { deep: true },
+)
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeChart)

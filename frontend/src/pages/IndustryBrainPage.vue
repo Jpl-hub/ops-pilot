@@ -5,7 +5,7 @@ import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { get, loadAccessToken } from '@/lib/api'
+import { buildWebSocketUrl, get, loadAccessToken } from '@/lib/api'
 
 const state = useAsyncState<any>()
 const historyState = useAsyncState<any>()
@@ -33,8 +33,7 @@ function connectStream() {
     wsStatus.value = 'disconnected'
     return
   }
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const url = `${protocol}://${window.location.hostname}:8000/api/v1/ws/industry-brain?token=${encodeURIComponent(token)}`
+  const url = `${buildWebSocketUrl('/ws/industry-brain')}?token=${encodeURIComponent(token)}`
   socket = new WebSocket(url)
   wsStatus.value = 'connecting'
 
@@ -172,7 +171,11 @@ onBeforeUnmount(() => {
                 产业核心全局监测走势 (WebSocket 流数据)
               </h3>
               <div class="ib-chart-container" v-if="payload.charts && payload.charts[0]">
-                <ChartPanel :options="payload.charts[0].options" class="ib-naked-chart" />
+                <ChartPanel
+                  :title="payload.charts[0].title || '产业核心全局监测走势'"
+                  :options="payload.charts[0].options"
+                  class="ib-naked-chart"
+                />
               </div>
             </div>
 
@@ -216,7 +219,11 @@ onBeforeUnmount(() => {
                 核心板块对比与深度下钻
               </h3>
               <div class="ib-chart-container" v-if="payload.charts && payload.charts[1]">
-                <ChartPanel :options="payload.charts[1].options" class="ib-naked-chart" />
+                <ChartPanel
+                  :title="payload.charts[1].title || '核心板块对比与深度下钻'"
+                  :options="payload.charts[1].options"
+                  class="ib-naked-chart"
+                />
               </div>
             </div>
             

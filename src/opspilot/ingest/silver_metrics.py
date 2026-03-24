@@ -176,6 +176,9 @@ UNIT_SCALE_BY_TEXT = {
     "(百万元)": 1_000_000.0,
 }
 
+MIN_VALID_REVENUE = 1_000_000.0
+VALID_REVENUE_YOY_RANGE = (-100.0, 500.0)
+
 
 def build_parser() -> ArgumentParser:
     parser = ArgumentParser(description="Extract silver financial metrics from bronze page text.")
@@ -843,7 +846,13 @@ def apply_period_selection(
         if value is None:
             continue
         tokens = value["tokens"]
-        if len(tokens) >= 4 and tokens[1].endswith("%") and not tokens[2].endswith("%") and tokens[3].endswith("%"):
+        if (
+            len(tokens) >= 4
+            and not tokens[0].endswith("%")
+            and tokens[1].endswith("%")
+            and not tokens[2].endswith("%")
+            and tokens[3].endswith("%")
+        ):
             value["current"] = parse_numeric_token(tokens[2])
             value["previous"] = None
             value["change_pct"] = parse_numeric_token(tokens[3])
@@ -890,6 +899,7 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
     derived: dict[str, float] = {}
 
     revenue = current_value(row_values, "revenue")
+    revenue_is_valid = revenue is not None and revenue >= MIN_VALID_REVENUE
     net_profit = current_value(row_values, "net_profit")
     deducted_net_profit = current_value(row_values, "deducted_net_profit")
     operating_cash_flow = current_value(row_values, "operating_cash_flow")
@@ -905,7 +915,11 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
     asset_impairment_loss = current_value(row_values, "asset_impairment_loss")
 
     revenue_yoy = change_value(row_values, "revenue")
-    if revenue_yoy is not None:
+    if (
+        revenue_is_valid
+        and revenue_yoy is not None
+        and VALID_REVENUE_YOY_RANGE[0] <= revenue_yoy <= VALID_REVENUE_YOY_RANGE[1]
+    ):
         derived["G1"] = round(revenue_yoy, 2)
 
     profit_yoy = change_value(row_values, "deducted_net_profit")
@@ -914,7 +928,7 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
     if profit_yoy is not None:
         derived["G2"] = round(profit_yoy, 2)
 
-    if revenue is not None and net_profit is not None and revenue != 0:
+    if revenue_is_valid and net_profit is not None and revenue != 0:
         derived["P2"] = round(net_profit / revenue * 100.0, 2)
 
     if operating_revenue not in (None, 0) and rd_expense is not None:
@@ -935,10 +949,10 @@ def derive_metric_codes(row_values: dict[str, dict[str, Any]]) -> dict[str, floa
     if net_profit not in (None, 0) and operating_cash_flow is not None:
         derived["C1"] = round(operating_cash_flow / net_profit, 4)
 
-    if revenue not in (None, 0) and operating_cash_flow is not None:
+    if revenue_is_valid and revenue != 0 and operating_cash_flow is not None:
         derived["C2"] = round(operating_cash_flow / revenue, 4)
 
-    if revenue is not None:
+    if revenue_is_valid:
         derived["RAW_REVENUE"] = round(revenue, 2)
     if net_profit is not None:
         derived["RAW_NET_PROFIT"] = round(net_profit, 2)

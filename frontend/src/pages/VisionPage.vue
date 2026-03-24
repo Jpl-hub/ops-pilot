@@ -19,14 +19,7 @@ const companies = computed(() => overviewState.data.value?.companies || [])
 const selectedCompany = ref('')
 const selectedPeriod = ref('')
 
-// 可选报期：从 runtime 里取，回退到 overview 的 preferred_period + 常见周期
-const availablePeriods = computed(() => {
-  const preferred = overviewState.data.value?.preferred_period
-  const base = preferred ? [preferred] : []
-  const extras = ['2025Q3', '2025Q2', '2025Q1', '2024Q4', '2024Q3', '2024Q2', '2024Q1']
-  const all = [...new Set([...base, ...extras])]
-  return all
-})
+const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
 
 const resultItems = computed(() => visionState.data.value?.result?.items || runtimeState.data.value?.vision?.items || [])
 const selectedResult = computed(() => visionState.data.value?.result || runtimeState.data.value?.vision || null)

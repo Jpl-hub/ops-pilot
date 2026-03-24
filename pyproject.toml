@@ -7,7 +7,7 @@ name = "ops-pilot"
 version = "0.1.0"
 description = "OpsPilot-X: 新能源企业运营分析与决策支持系统"
 readme = "README.md"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1.0",
   "uvicorn[standard]>=0.30,<1.0",
@@ -16,7 +16,6 @@ dependencies = [
   "sqlalchemy>=2.0,<3.0",
   "psycopg[binary]>=3.2,<4.0",
   "PyMuPDF>=1.24,<2.0",
-  "nicegui>=2.0,<3.0",
   "openai>=1.50,<2.0",
   "httpx>=0.27,<1.0",
 ]
@@ -33,6 +32,8 @@ ops-pilot-ui = "opspilot.main:run_ui"
 ops-pilot-fetch-real-data = "opspilot.ingest.fetch_real_data:main"
 ops-pilot-parse-official-reports = "opspilot.ingest.parse_official_reports:main"
 ops-pilot-build-silver-metrics = "opspilot.ingest.silver_metrics:main"
+ops-pilot-build-snapshot-silver = "opspilot.ingest.snapshot_silver:main"
+ops-pilot-build-embeddings = "opspilot.ingest.build_embeddings:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

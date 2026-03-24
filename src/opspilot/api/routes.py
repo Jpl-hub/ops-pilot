@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from functools import lru_cache
 import asyncio
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -37,6 +38,16 @@ from opspilot.infra.sample_repository import SampleRepository
 
 router = APIRouter(prefix="/api/v1")
 auth_scheme = HTTPBearer(auto_error=False)
+
+
+def _period_order_key(period: str | None) -> tuple[int, int]:
+    if not period:
+        return (0, 0)
+    match = re.fullmatch(r"(\d{4})(Q1|H1|Q3|FY)", period)
+    if match is None:
+        return (0, 0)
+    suffix_rank = {"Q1": 1, "H1": 2, "Q3": 3, "FY": 4}
+    return (int(match.group(1)), suffix_rank[match.group(2)])
 
 
 @lru_cache(maxsize=1)
@@ -201,7 +212,17 @@ def workspace_companies(_: dict = Depends(require_current_user)) -> dict:
     """轻量接口：仅返回公司列表和主周期，不触发风险扫描。"""
     svc = get_service()
     preferred = svc._preferred_period()
-    companies = [c["company_name"] for c in svc.repository.list_companies()]
+    company_records = svc.repository.list_companies()
+    companies = [c["company_name"] for c in company_records]
+    available_periods = sorted(
+        {
+            company.get("report_period")
+            for company in company_records
+            if company.get("report_period")
+        },
+        key=_period_order_key,
+        reverse=True,
+    )
     # deduplicate, preserve order
     seen: set[str] = set()
     unique: list[str] = []
@@ -209,7 +230,11 @@ def workspace_companies(_: dict = Depends(require_current_user)) -> dict:
         if name not in seen:
             seen.add(name)
             unique.append(name)
-    return {"companies": unique, "preferred_period": preferred}
+    return {
+        "companies": unique,
+        "preferred_period": preferred,
+        "available_periods": available_periods,
+    }
 
 
 @router.get("/workspace/overview")

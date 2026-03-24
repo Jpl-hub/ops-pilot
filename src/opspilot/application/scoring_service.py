@@ -13,6 +13,7 @@ Architecture:
 from __future__ import annotations
 
 from typing import Any
+import re
 
 from opspilot.config import Settings
 from opspilot.domain.audit import build_audit
@@ -588,8 +589,24 @@ def _build_score_signal_tape(
 
 def _list_company_periods(repository: Any, company_name: str) -> list[str]:
     if hasattr(repository, "list_company_periods"):
-        return repository.list_company_periods(company_name)
-    return []
+        periods = repository.list_company_periods(company_name)
+        return sorted(set(periods), key=_period_order_key, reverse=True)
+    periods = {
+        company.get("report_period")
+        for company in repository.list_companies()
+        if company.get("company_name") == company_name and company.get("report_period")
+    }
+    return sorted(periods, key=_period_order_key, reverse=True)
+
+
+def _period_order_key(period: str | None) -> tuple[int, int]:
+    if not period:
+        return (0, 0)
+    match = re.fullmatch(r"(\d{4})(Q1|H1|Q3|FY)", period)
+    if match is None:
+        return (0, 0)
+    suffix_rank = {"Q1": 1, "H1": 2, "Q3": 3, "FY": 4}
+    return (int(match.group(1)), suffix_rank[match.group(2)])
 
 
 def _format_number(value: float | None) -> str:
