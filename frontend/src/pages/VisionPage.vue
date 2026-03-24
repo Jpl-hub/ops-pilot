@@ -30,6 +30,26 @@ const runtimeSummary = computed(() => runtimeState.data.value?.runtime || null)
 const pipelineJobs = computed(() => runtimeState.data.value?.latest_jobs || [])
 const canRunPipeline = computed(() => !!selectedCompany.value)
 
+function displayJobStatus(status?: string) {
+  const map: Record<string, string> = {
+    done: '已完成',
+    completed: '已完成',
+    pending: '待执行',
+    blocked: '已阻断',
+    ready: '就绪',
+    running: '处理中',
+  }
+  return map[status || ''] || status || '-'
+}
+
+function displayArtifactSource(source?: string) {
+  const map: Record<string, string> = {
+    standard_ocr: '标准 OCR',
+    geometric_fallback: '几何恢复',
+  }
+  return map[source || ''] || source || '来源未识别'
+}
+
 async function loadVision() {
   if (!selectedCompany.value) return
   visionState.data.value = null
@@ -130,7 +150,7 @@ watch(selectedPeriod, async () => { await loadVision() })
               <TagPill v-if="selectedResult.company_name" :label="selectedResult.company_name" />
               <TagPill
                 v-if="runtimeState.data.value?.latest_jobs?.[0]?.artifact_source"
-                :label="runtimeState.data.value.latest_jobs[0].artifact_source"
+                :label="displayArtifactSource(runtimeState.data.value.latest_jobs[0].artifact_source)"
               />
             </div>
 
@@ -146,7 +166,7 @@ watch(selectedPeriod, async () => { await loadVision() })
                 <div class="phase-body">
                   <span class="phase-label">{{ phase.phase || phase.stage || phase.label }}</span>
                   <strong class="phase-headline">{{ phase.headline || phase.summary || '等待运行' }}</strong>
-                  <small class="muted">{{ phase.metric || phase.status || '-' }}</small>
+                  <small class="muted">{{ phase.metric || displayJobStatus(phase.status) }}</small>
                 </div>
               </div>
             </div>
@@ -180,7 +200,7 @@ watch(selectedPeriod, async () => { await loadVision() })
               >
                 <div class="run-head">
                   <strong class="run-company">{{ item.company_name }}</strong>
-                  <TagPill :label="item.status_label || item.stage || 'done'" tone="success" />
+                  <TagPill :label="item.status_label || displayJobStatus(item.status) || '已完成'" tone="success" />
                 </div>
                 <p class="run-summary muted">{{ item.headline || item.status_label || '-' }}</p>
               </div>
@@ -202,11 +222,11 @@ watch(selectedPeriod, async () => { await loadVision() })
               >
                 <div class="job-head">
                   <span class="job-stage">{{ job.stage }}</span>
-                  <span class="job-status" :class="job.status === 'done' ? 'text-accent' : 'muted'">{{ job.status }}</span>
+                  <span class="job-status" :class="job.status === 'done' || job.status === 'completed' ? 'text-accent' : 'muted'">{{ displayJobStatus(job.status) }}</span>
                 </div>
                 <strong class="job-company">{{ job.company_name }}</strong>
                 <p class="job-summary muted">{{ job.artifact_summary || '等待摘要' }}</p>
-                <p class="job-summary muted">{{ job.artifact_source || 'source-unknown' }}</p>
+                <p class="job-summary muted">{{ displayArtifactSource(job.artifact_source) }}</p>
               </div>
             </div>
           </article>

@@ -138,6 +138,56 @@ async function clearPipelineFilter() {
 const canRerunFilteredCellTrace = computed(() => {
   return selectedContractStatus.value === 'missing' || selectedContractStatus.value === 'invalid'
 })
+
+function displayReadinessStage(stage?: string) {
+  const map: Record<string, string> = {
+    bootstrapping: '启动期',
+    hardening: '加固期',
+    blocked: '阻断',
+    ready: '就绪',
+    pass: '通过',
+  }
+  return map[stage || ''] || stage || '-'
+}
+
+function displayJobStatus(status?: string) {
+  const map: Record<string, string> = {
+    completed: '已完成',
+    pending: '待执行',
+    blocked: '已阻断',
+    ready: '就绪',
+    invalid: '不合格',
+    missing: '缺失',
+    pass: '通过',
+  }
+  return map[status || ''] || status || '-'
+}
+
+function displayPipelineStage(stage?: string) {
+  const map: Record<string, string> = {
+    cross_page_merge: '跨页拼接',
+    title_hierarchy: '标题恢复',
+    cell_trace: '单元格追踪',
+  }
+  return map[stage || ''] || stage || '-'
+}
+
+function displayArtifactSource(source?: string) {
+  const map: Record<string, string> = {
+    standard_ocr: '标准 OCR',
+    geometric_fallback: '几何恢复',
+  }
+  return map[source || ''] || source || '-'
+}
+
+function displayHistoryType(historyType?: string) {
+  const map: Record<string, string> = {
+    document_pipeline_run: '整改运行',
+    artifact: '产物记录',
+    query: '查询记录',
+  }
+  return map[historyType || ''] || historyType || '-'
+}
 </script>
 
 <template>
@@ -219,7 +269,7 @@ const canRerunFilteredCellTrace = computed(() => {
               <div class="panel-head-compact">
                 <h3 class="panel-sm-title mb-4">交付就绪度</h3>
                 <span class="readiness-badge" :class="`is-${state.data.value.delivery_readiness.stage}`">
-                  {{ state.data.value.delivery_readiness.stage.toUpperCase() }}
+                  {{ displayReadinessStage(state.data.value.delivery_readiness.stage) }}
                 </span>
               </div>
               <div class="readiness-grid">
@@ -266,7 +316,7 @@ const canRerunFilteredCellTrace = computed(() => {
               <div class="panel-head-compact">
                 <h3 class="panel-sm-title mb-4">运行时检查</h3>
                 <span class="readiness-badge" :class="`is-${state.data.value.runtime_readiness.status}`">
-                  {{ state.data.value.runtime_readiness.status.toUpperCase() }}
+                  {{ displayReadinessStage(state.data.value.runtime_readiness.status) }}
                 </span>
               </div>
               <div class="runtime-check-list">
@@ -278,7 +328,7 @@ const canRerunFilteredCellTrace = computed(() => {
                 >
                   <div class="runtime-check-head">
                     <strong>{{ item.label }}</strong>
-                    <span class="tag" :class="item.status === 'ready' ? 'success-tag' : 'risk-tag'">{{ item.status }}</span>
+                    <span class="tag" :class="item.status === 'ready' ? 'success-tag' : 'risk-tag'">{{ displayJobStatus(item.status) }}</span>
                   </div>
                   <p>{{ item.summary }}</p>
                   <code>{{ item.detail }}</code>
@@ -303,7 +353,7 @@ const canRerunFilteredCellTrace = computed(() => {
                 >
                   <div class="runtime-check-head">
                     <strong>{{ item.label }}</strong>
-                    <span class="tag" :class="item.status === 'pass' ? 'success-tag' : 'risk-tag'">{{ item.status }}</span>
+                    <span class="tag" :class="item.status === 'pass' ? 'success-tag' : 'risk-tag'">{{ displayJobStatus(item.status) }}</span>
                   </div>
                   <p>{{ item.detail }}</p>
                 </div>
@@ -336,19 +386,19 @@ const canRerunFilteredCellTrace = computed(() => {
                 <div class="engine-row">
                   <span class="muted">OCR核心</span>
                   <strong class="eg-val">{{ state.data.value.document_pipeline.ocr_engine }}</strong>
-                  <span class="tag subtle-tag ml-auto" :class="state.data.value.document_pipeline.ocr_runtime_enabled ? 'text-accent' : 'risk-text'">{{ state.data.value.document_pipeline.ocr_runtime_enabled ? 'Active' : 'Required' }}</span>
+                  <span class="tag subtle-tag ml-auto" :class="state.data.value.document_pipeline.ocr_runtime_enabled ? 'text-accent' : 'risk-text'">{{ state.data.value.document_pipeline.ocr_runtime_enabled ? '已接通' : '未接通' }}</span>
                 </div>
                 <div class="engine-row">
                   <span class="muted">跨页拼接</span>
-                  <strong class="eg-val">{{ state.data.value.document_pipeline.cross_page_merge.status }}</strong>
+                  <strong class="eg-val">{{ displayJobStatus(state.data.value.document_pipeline.cross_page_merge.status) }}</strong>
                 </div>
                 <div class="engine-row">
                   <span class="muted">标题恢复</span>
-                  <strong class="eg-val">{{ state.data.value.document_pipeline.title_hierarchy.status }}</strong>
+                  <strong class="eg-val">{{ displayJobStatus(state.data.value.document_pipeline.title_hierarchy.status) }}</strong>
                 </div>
                 <div class="engine-row">
                   <span class="muted">OCR Contract</span>
-                  <strong class="eg-val">{{ state.data.value.document_pipeline.cell_trace.contract_audit.status }}</strong>
+                  <strong class="eg-val">{{ displayJobStatus(state.data.value.document_pipeline.cell_trace.contract_audit.status) }}</strong>
                   <span class="tag subtle-tag ml-auto">
                     {{ state.data.value.document_pipeline.cell_trace.contract_audit.ready }}/{{ state.data.value.document_pipeline.cell_trace.contract_audit.total || 0 }}
                   </span>
@@ -371,8 +421,8 @@ const canRerunFilteredCellTrace = computed(() => {
                     class="inline-glass-link py-1 px-3"
                     type="button"
                     @click="runStage('cell_trace')"
-                  >RERUN FILTERED</button>
-                  <button class="inline-glass-link py-1 px-3" type="button" @click="clearPipelineFilter">CLEAR FILTER</button>
+                  >重跑当前筛选</button>
+                  <button class="inline-glass-link py-1 px-3" type="button" @click="clearPipelineFilter">清除筛选</button>
                 </div>
               </div>
               <div class="readiness-grid">
@@ -402,7 +452,7 @@ const canRerunFilteredCellTrace = computed(() => {
                   >
                     <div class="runtime-check-head">
                       <strong>{{ item.company_name }} · {{ item.report_id }}</strong>
-                      <span class="tag" :class="item.status === 'ready' ? 'success-tag' : 'risk-tag'">{{ item.status }}</span>
+                      <span class="tag" :class="item.status === 'ready' ? 'success-tag' : 'risk-tag'">{{ displayJobStatus(item.status) }}</span>
                     </div>
                     <p>{{ item.detail }}</p>
                     <code>{{ item.path }}</code>
@@ -442,10 +492,10 @@ const canRerunFilteredCellTrace = computed(() => {
                       :disabled="runningStage === item.stage"
                       @click="runStage(item.stage)"
                     >
-                      {{ runningStage === item.stage ? 'RUNNING' : item.stage === 'cell_trace' && canRerunFilteredCellTrace ? 'RERUN FILTERED' : 'EXECUTE BATCH' }}
+                      {{ runningStage === item.stage ? '执行中' : item.stage === 'cell_trace' && canRerunFilteredCellTrace ? '重跑当前筛选' : '批量执行' }}
                     </button>
                     <span v-else class="text-xs muted">
-                      COMPLETED
+                      已完成
                     </span>
                   </div>
                   <div class="jc-stats">
@@ -470,7 +520,7 @@ const canRerunFilteredCellTrace = computed(() => {
                    <div class="tag-row compact-tags mb-3">
                      <TagPill v-for="point in item.core_points" :key="point" :label="point" />
                    </div>
-                   <a class="inline-glass-link text-center w-full block" :href="item.url" target="_blank" rel="noreferrer">SOURCE CODE / PAPER</a>
+                   <a class="inline-glass-link text-center w-full block" :href="item.url" target="_blank" rel="noreferrer">论文 / 项目链接</a>
                  </div>
                </div>
              </article>
@@ -483,15 +533,15 @@ const canRerunFilteredCellTrace = computed(() => {
              <!-- Detail Inspector -->
              <article v-if="detailState.data.value" class="glass-panel p-panel highlight-panel mb-6">
                 <div class="panel-header flex justify-between items-center mb-4">
-                  <h3 class="panel-sm-title m-0 border-none pb-0">解析调试终端</h3>
+                  <h3 class="panel-sm-title m-0 border-none pb-0">解析核验终端</h3>
                   <button class="icon-btn" @click="$router.push({ query: {} })">×</button>
                 </div>
                 <div class="inspector-head mb-4">
-                  <div class="ih-row"><span class="muted w-16">STAGE</span><strong class="text-gradient">{{ detailState.data.value.job.stage }}</strong></div>
-                  <div class="ih-row"><span class="muted w-16">CORP</span><strong>{{ detailState.data.value.job.company_name }}</strong></div>
-                  <div class="ih-row"><span class="muted w-16">PERIOD</span><strong>{{ detailState.data.value.job.report_period || '-' }}</strong></div>
-                  <div class="ih-row"><span class="muted w-16">STATUS</span><span class="tag" :class="detailState.data.value.job.status === 'completed' ? 'success-tag' : detailState.data.value.job.status === 'blocked' ? 'risk-tag' : 'subtle-tag'">{{ detailState.data.value.job.status }}</span></div>
-                  <div class="ih-row"><span class="muted w-16">SOURCE</span><span class="tag subtle-tag">{{ detailState.data.value.job.artifact_source || detailState.data.value.artifact?.source || '-' }}</span></div>
+                  <div class="ih-row"><span class="muted w-16">工序</span><strong class="text-gradient">{{ displayPipelineStage(detailState.data.value.job.stage) }}</strong></div>
+                  <div class="ih-row"><span class="muted w-16">公司</span><strong>{{ detailState.data.value.job.company_name }}</strong></div>
+                  <div class="ih-row"><span class="muted w-16">报期</span><strong>{{ detailState.data.value.job.report_period || '-' }}</strong></div>
+                  <div class="ih-row"><span class="muted w-16">状态</span><span class="tag" :class="detailState.data.value.job.status === 'completed' ? 'success-tag' : detailState.data.value.job.status === 'blocked' ? 'risk-tag' : 'subtle-tag'">{{ displayJobStatus(detailState.data.value.job.status) }}</span></div>
+                  <div class="ih-row"><span class="muted w-16">来源</span><span class="tag subtle-tag">{{ displayArtifactSource(detailState.data.value.job.artifact_source || detailState.data.value.artifact?.source) }}</span></div>
                 </div>
 
                 <div class="runtime-check-list mb-4" v-if="detailState.data.value.artifact_locations?.length">
@@ -547,21 +597,21 @@ const canRerunFilteredCellTrace = computed(() => {
                <div class="panel-head-compact">
                  <h3 class="panel-sm-title mb-4">升级结果日志</h3>
                  <span class="muted text-xs">
-                   {{ selectedContractStatus ? `contract=${selectedContractStatus}` : 'all contracts' }}
-                   {{ selectedArtifactSource ? ` · source=${selectedArtifactSource}` : '' }}
+                   {{ selectedContractStatus ? `Contract=${displayJobStatus(selectedContractStatus)}` : '全部 Contract' }}
+                   {{ selectedArtifactSource ? ` · 来源=${displayArtifactSource(selectedArtifactSource)}` : '' }}
                  </span>
                </div>
                <div class="logs-grid">
                   <div v-for="job in (resultsState.data.value?.results || []).slice(0, 16)" :key="`${job.report_id}-${job.stage}`" class="log-card glass-panel-hover">
                      <div class="lc-head">
-                       <span class="lc-stage">{{ job.stage }}</span>
+                       <span class="lc-stage">{{ displayPipelineStage(job.stage) }}</span>
                        <span class="status-dot" :class="`is-${job.status}`"></span>
                      </div>
                      <h4 class="lc-company">{{ job.company_name }}</h4>
-                     <p class="lc-summary muted">{{ job.artifact_summary || 'No summary generated' }}</p>
+                     <p class="lc-summary muted">{{ job.artifact_summary || '尚未生成摘要' }}</p>
                      <div class="lc-foot">
-                       <span>{{ job.report_period || '-' }} · {{ job.artifact_source || '-' }} · {{ job.contract_status || '-' }}</span>
-                       <RouterLink class="inline-glass-link py-1 px-3" :to="{ path: '/admin', query: { stage: job.stage, report_id: job.report_id } }">INSPECT</RouterLink>
+                       <span>{{ job.report_period || '-' }} · {{ displayArtifactSource(job.artifact_source) }} · {{ displayJobStatus(job.contract_status) }}</span>
+                       <RouterLink class="inline-glass-link py-1 px-3" :to="{ path: '/admin', query: { stage: job.stage, report_id: job.report_id } }">查看详情</RouterLink>
                      </div>
                   </div>
                </div>
@@ -578,7 +628,7 @@ const canRerunFilteredCellTrace = computed(() => {
                  >
                    <div class="runtime-check-head">
                      <strong>{{ item.title }}</strong>
-                     <span class="tag subtle-tag">{{ item.history_type }}</span>
+                     <span class="tag subtle-tag">{{ displayHistoryType(item.history_type) }}</span>
                    </div>
                    <p>{{ item.meta?.headline || item.meta?.artifact_summary || item.meta?.query_type || '已记录运行轨迹。' }}</p>
                    <code>{{ item.created_at || '-' }} · {{ item.company_name || item.report_period || '-' }}</code>
@@ -600,24 +650,24 @@ const canRerunFilteredCellTrace = computed(() => {
                    </div>
                  </div>
                  <div class="detail-health" :class="{ healthy: selectedCompanyDetail.issues.length === 0 }">
-                   {{ selectedCompanyDetail.issues.length === 0 ? 'READY' : `${selectedCompanyDetail.issues.length} BLOCKERS` }}
+                   {{ selectedCompanyDetail.issues.length === 0 ? '已就绪' : `${selectedCompanyDetail.issues.length} 项阻断` }}
                  </div>
                </div>
                <div class="detail-stats">
                  <div class="detail-stat">
-                   <span>RAW</span>
+                   <span>原始</span>
                    <strong>{{ selectedCompanyDetail.raw_report_count }}</strong>
                  </div>
                  <div class="detail-stat">
-                   <span>BRONZE</span>
+                   <span>页级</span>
                    <strong>{{ selectedCompanyDetail.bronze_report_count }}</strong>
                  </div>
                  <div class="detail-stat">
-                   <span>SILVER</span>
+                   <span>指标</span>
                    <strong>{{ selectedCompanyDetail.silver_record_count }}</strong>
                  </div>
                  <div class="detail-stat">
-                   <span>RESEARCH</span>
+                   <span>研报</span>
                    <strong>{{ selectedCompanyDetail.research_report_count }}</strong>
                  </div>
                </div>
