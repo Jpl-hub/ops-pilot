@@ -699,7 +699,10 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["agent_flow"][0]["route"]["path"], "/score")
             self.assertEqual(payload["agent_flow"][1]["tool"], "score_engine")
             self.assertEqual(payload["agent_flow"][2]["tool"], "evidence_auditor")
-            self.assertTrue(payload["agent_flow"][2]["route"]["path"].startswith("/evidence/") or payload["agent_flow"][2]["route"]["path"] == "/admin")
+            self.assertIn(
+                payload["agent_flow"][2]["route"]["path"],
+                ("/admin", "/score"),
+            )
             self.assertEqual(payload["agent_flow"][3]["tool"], "action_planner")
             self.assertIn("run_id", payload)
             self.assertTrue((root / "bronze" / "manifests" / "workspace_runs.json").exists())

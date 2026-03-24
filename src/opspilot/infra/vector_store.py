@@ -123,7 +123,7 @@ class VectorStore:
                         INSERT INTO chunk_embeddings
                             (chunk_id, company_id, report_period, title, content, page_start, embedding)
                         VALUES
-                            (:chunk_id, :cid, :rp, :t, :c, :pg, :e::vector)
+                            (:chunk_id, :cid, :rp, :t, :c, :pg, CAST(:e AS vector))
                         ON CONFLICT (chunk_id) DO NOTHING
                     """),
                     {

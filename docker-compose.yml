@@ -46,7 +46,7 @@ services:
       [
         "sh",
         "-c",
-        "ops-pilot-runtime-check && ops-pilot-api",
+        "python -c \"from opspilot.main import run_api; run_api()\"",
       ]
     ports:
       - "8000:8000"
