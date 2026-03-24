@@ -45,6 +45,7 @@ docker compose up --build
 - API：`http://127.0.0.1:8000`
 - 前端：`http://127.0.0.1:8080`
 - PostgreSQL：`127.0.0.1:5432`
+- OCR 标准能力：在 `.env` 中配置 `OPS_PILOT_OCR_ASSETS_PATH` 和 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`
 
 ### 交付验收建议
 
@@ -69,6 +70,8 @@ docker compose up --build
 | `OPS_PILOT_OCR_ASSETS_PATH` | 标准 OCR 模型/权重目录（必填） | `models/paddleocr-vl` |
 | `OPS_PILOT_OCR_RUNTIME_ENABLED` | 标准 OCR 运行时开关，交付环境必须为 `true` | `true` |
 | `OPS_PILOT_DEFAULT_PERIOD` | 默认分析报期 | `2025Q3` |
+
+Colab 验证和 Docker 交付作业书见 [docs/ocr_delivery_runbook.md](/D:/code/ops-pilot/docs/ocr_delivery_runbook.md)。
 
 ## 数据流水线
 
