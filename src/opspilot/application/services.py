@@ -2557,6 +2557,31 @@ class OpsPilotService:
             "jobs": records[:30],
         }
 
+    def document_pipeline_runs(self, limit: int = 30) -> dict[str, Any]:
+        manifest = _load_document_pipeline_run_manifest(self.settings)
+        records = list(manifest["records"])
+        records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+        return {
+            "generated_at": manifest["generated_at"],
+            "total": len(records),
+            "runs": records[:limit],
+        }
+
+    def document_pipeline_run_detail(self, run_id: str) -> dict[str, Any]:
+        manifest = _load_document_pipeline_run_manifest(self.settings)
+        record = next((item for item in manifest["records"] if item.get("run_id") == run_id), None)
+        if record is None:
+            raise ValueError(f"未找到文档升级运行：{run_id}")
+        detail_path = _document_pipeline_run_detail_path(self.settings, run_id)
+        if not detail_path.exists():
+            raise ValueError(f"未找到文档升级运行详情：{run_id}")
+        try:
+            with detail_path.open("r", encoding="utf-8") as file:
+                detail = json.load(file)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"文档升级运行记录损坏：{run_id}") from exc
+        return detail
+
     def document_pipeline_results(
         self,
         stage: str | None = None,
@@ -2719,6 +2744,14 @@ class OpsPilotService:
             before_summary=before_summary,
             after_summary=after_summary,
         )
+        run_record = _append_document_pipeline_run_record(
+            self.settings,
+            stage=stage,
+            artifact_source=artifact_source,
+            contract_status=contract_status,
+            results=results,
+            execution_feedback=execution_feedback,
+        )
         return {
             "stage": stage,
             "requested": limit,
@@ -2727,6 +2760,7 @@ class OpsPilotService:
             "processed": len(results),
             "results": results,
             "execution_feedback": execution_feedback,
+            "run_id": run_record["run_id"],
             "jobs": self.document_pipeline_jobs(),
         }
 
@@ -3152,6 +3186,31 @@ class OpsPilotService:
             for item in self.document_pipeline_results(limit=300)["results"]
             if item.get("report_period") == period
         ]
+        document_runs = [
+            {
+                "history_type": "document_pipeline_run",
+                "id": item["run_id"],
+                "title": f"{item['stage']} 批量执行",
+                "company_name": "、".join(item.get("companies", [])[:3]) or None,
+                "report_period": item.get("report_period"),
+                "user_role": user_role,
+                "status": item.get("status", "completed"),
+                "created_at": item.get("created_at"),
+                "meta": {
+                    "stage": item.get("stage"),
+                    "processed": item.get("processed"),
+                    "fixed_count": item.get("execution_feedback", {}).get("fixed_count"),
+                    "remaining_count": item.get("execution_feedback", {}).get("remaining_count"),
+                    "headline": item.get("execution_feedback", {}).get("headline"),
+                    "contract_status": item.get("contract_status"),
+                    "route": {
+                        "path": f"/api/v1/admin/document-pipeline/runs/{item['run_id']}",
+                    },
+                },
+            }
+            for item in self.document_pipeline_runs(limit=200)["runs"]
+            if item.get("report_period") == period
+        ]
         stress_runs = [
             {
                 "history_type": "stress_test",
@@ -3222,7 +3281,7 @@ class OpsPilotService:
                 limit=200,
             )["runs"]
         ]
-        records = analysis_runs + watch_runs + document_jobs + stress_runs
+        records = analysis_runs + watch_runs + document_jobs + document_runs + stress_runs
         records += graph_runs + vision_runs
         records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
         return {
@@ -7282,6 +7341,61 @@ def _build_document_pipeline_execution_feedback(
     }
 
 
+def _append_document_pipeline_run_record(
+    settings: Settings,
+    *,
+    stage: str,
+    artifact_source: str | None,
+    contract_status: str | None,
+    results: list[dict[str, Any]],
+    execution_feedback: dict[str, Any],
+) -> dict[str, Any]:
+    run_id = _build_document_pipeline_run_id(stage)
+    created_at = _utcnow_iso()
+    detail_payload = {
+        "run_id": run_id,
+        "created_at": created_at,
+        "stage": stage,
+        "artifact_source": artifact_source,
+        "contract_status": contract_status,
+        "processed": len(results),
+        "companies": [item.get("company_name") for item in results if item.get("company_name")],
+        "results": results,
+        "execution_feedback": execution_feedback,
+    }
+    detail_path = _document_pipeline_run_detail_path(settings, run_id)
+    _write_json(detail_path, detail_payload)
+    manifest = _load_document_pipeline_run_manifest(settings)
+    records = [item for item in manifest["records"] if item.get("run_id") != run_id]
+    report_period = None
+    if results:
+        first_result = results[0]
+        report_id = first_result.get("report_id")
+        jobs_manifest = _load_document_pipeline_job_manifest(settings)
+        job = next(
+            (item for item in jobs_manifest["records"] if item.get("stage") == stage and item.get("report_id") == report_id),
+            None,
+        )
+        report_period = job.get("report_period") if job else None
+    records.append(
+        {
+            "run_id": run_id,
+            "created_at": created_at,
+            "stage": stage,
+            "artifact_source": artifact_source,
+            "contract_status": contract_status,
+            "processed": len(results),
+            "report_period": report_period,
+            "companies": detail_payload["companies"],
+            "status": "completed",
+            "execution_feedback": execution_feedback,
+        }
+    )
+    manifest["records"] = records[-200:]
+    _write_document_pipeline_run_manifest(settings, manifest)
+    return records[-1]
+
+
 def _load_json_if_possible(path: Path) -> dict[str, Any] | None:
     try:
         with path.open("r", encoding="utf-8") as file:
@@ -7545,6 +7659,34 @@ def _write_workspace_run_manifest(settings: Settings, payload: dict[str, Any]) -
     payload["record_count"] = len(payload.get("records", []))
     manifest_path = settings.bronze_data_path / "manifests" / "workspace_runs.json"
     _write_json(manifest_path, payload)
+
+
+def _load_document_pipeline_run_manifest(settings: Settings) -> dict[str, Any]:
+    manifest_path = settings.bronze_data_path / "manifests" / "document_pipeline_runs.json"
+    if not manifest_path.exists():
+        return {"generated_at": _utcnow_iso(), "record_count": 0, "records": []}
+    with manifest_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return {
+        "generated_at": payload.get("generated_at", _utcnow_iso()),
+        "record_count": len(payload.get("records", [])),
+        "records": payload.get("records", []),
+    }
+
+
+def _write_document_pipeline_run_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    payload["generated_at"] = _utcnow_iso()
+    payload["record_count"] = len(payload.get("records", []))
+    manifest_path = settings.bronze_data_path / "manifests" / "document_pipeline_runs.json"
+    _write_json(manifest_path, payload)
+
+
+def _build_document_pipeline_run_id(stage: str) -> str:
+    return f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{stage}-document-run"
+
+
+def _document_pipeline_run_detail_path(settings: Settings, run_id: str) -> Path:
+    return settings.bronze_data_path / "document_pipeline_runs" / f"{run_id}.json"
 
 
 def _build_workspace_run_id(company_name: str, query_type: str) -> str:

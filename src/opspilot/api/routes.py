@@ -223,6 +223,17 @@ def admin_document_pipeline_result_detail(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/admin/document-pipeline/runs/{run_id}")
+def admin_document_pipeline_run_detail(
+    run_id: str,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    try:
+        return get_service().document_pipeline_run_detail(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/workspace/companies")
 def workspace_companies(_: dict = Depends(require_current_user)) -> dict:
     """轻量接口：仅返回公司列表和主周期，不触发风险扫描。"""

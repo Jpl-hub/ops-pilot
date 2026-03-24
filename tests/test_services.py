@@ -2810,10 +2810,15 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(rerun["processed"], 1)
             self.assertEqual(rerun["execution_feedback"]["processed"], 1)
             self.assertIn("修复", rerun["execution_feedback"]["headline"])
+            self.assertTrue(rerun["run_id"])
             artifact_path = Path(rerun["results"][0]["artifact_path"])
             artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
             self.assertEqual(artifact_payload["source"], "geometric_fallback")
             self.assertEqual(rerun["execution_feedback"]["remaining_count"], 1)
+            run_detail = service.document_pipeline_run_detail(rerun["run_id"])
+            self.assertEqual(run_detail["execution_feedback"]["processed"], 1)
+            history = service.workspace_history(user_role="management", report_period="2025Q3", limit=20)
+            self.assertTrue(any(item["history_type"] == "document_pipeline_run" for item in history["records"]))
 
             with self.assertRaises(ValueError):
                 service.run_document_pipeline_stage("cell_trace", 1, contract_status="ready")

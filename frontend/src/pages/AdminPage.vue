@@ -544,6 +544,25 @@ const canRerunFilteredCellTrace = computed(() => {
                </div>
              </article>
 
+             <article class="glass-panel p-panel mb-6">
+               <h3 class="panel-sm-title mb-4">整改轨迹</h3>
+               <div class="runtime-check-list">
+                 <div
+                   v-for="item in (state.data.value.workspace_history?.records || []).slice(0, 8)"
+                   :key="`${item.history_type}-${item.id}`"
+                   class="runtime-check-card"
+                   :class="item.history_type === 'document_pipeline_run' ? 'is-ready' : ''"
+                 >
+                   <div class="runtime-check-head">
+                     <strong>{{ item.title }}</strong>
+                     <span class="tag subtle-tag">{{ item.history_type }}</span>
+                   </div>
+                   <p>{{ item.meta?.headline || item.meta?.artifact_summary || item.meta?.query_type || '已记录运行轨迹。' }}</p>
+                   <code>{{ item.created_at || '-' }} · {{ item.company_name || item.report_period || '-' }}</code>
+                 </div>
+               </div>
+             </article>
+
              <article v-if="selectedCompanyDetail" class="glass-panel p-panel mb-6">
                <div class="matrix-header">
                  <h3 class="panel-sm-title mb-4">公司问题诊断卡</h3>
