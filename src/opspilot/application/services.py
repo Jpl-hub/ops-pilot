@@ -215,6 +215,115 @@ class OpsPilotService:
             ],
         }
 
+    def delivery_report(self) -> dict[str, Any]:
+        overview = self.admin_overview()
+        health = overview["health"]
+        runtime_readiness = overview["runtime_readiness"]
+        delivery_readiness = overview["delivery_readiness"]
+        acceptance_checklist = overview["acceptance_checklist"]
+        quality_overview = overview["quality_overview"]
+        contract_audit = overview["document_pipeline"]["cell_trace"]["contract_audit"]
+        runtime_blockers = [
+            {
+                "label": item["label"],
+                "summary": item["summary"],
+                "detail": item["detail"],
+                "remediation": item.get("remediation"),
+            }
+            for item in runtime_readiness.get("checks", [])
+            if item.get("status") == "blocked"
+        ]
+        acceptance_blockers = [
+            {
+                "label": item["label"],
+                "detail": item["detail"],
+            }
+            for item in acceptance_checklist.get("items", [])
+            if item.get("status") == "blocked"
+        ]
+        remediation_runs = [
+            {
+                "title": item["title"],
+                "created_at": item["created_at"],
+                "headline": item.get("meta", {}).get("headline"),
+                "processed": item.get("meta", {}).get("processed"),
+                "fixed_count": item.get("meta", {}).get("fixed_count"),
+                "remaining_count": item.get("meta", {}).get("remaining_count"),
+            }
+            for item in overview.get("workspace_history", {}).get("records", [])
+            if item.get("history_type") == "document_pipeline_run"
+        ][:5]
+        issue_buckets = [
+            {
+                "label": item.get("label"),
+                "count": item.get("count", 0),
+                "companies": item.get("companies", [])[:5],
+            }
+            for item in quality_overview.get("issue_buckets", [])[:5]
+        ]
+        executive_summary = [
+            f"当前交付阶段为{_delivery_stage_label(delivery_readiness.get('stage'))}，主周期 {health.get('preferred_period') or '-'} 可直接交付 {delivery_readiness.get('ready_company_count', 0)} 家公司。",
+            f"运行时阻断 {runtime_readiness.get('blocked_count', 0)} 项，验收通过 {acceptance_checklist.get('passed', 0)}/{acceptance_checklist.get('total', 0)} 项。",
+            f"OCR Contract 当前达标 {contract_audit.get('ready', 0)}/{contract_audit.get('total', 0)}，缺失 {contract_audit.get('missing', 0)}，不合格 {contract_audit.get('invalid', 0)}。",
+        ]
+        return {
+            "generated_at": _utcnow_iso(),
+            "app_name": health.get("app_name", self.settings.app_name),
+            "env": health.get("env", self.settings.env),
+            "preferred_period": health.get("preferred_period"),
+            "overall_status": "ready"
+            if acceptance_checklist.get("status") == "ready" and runtime_readiness.get("status") == "ready"
+            else "blocked",
+            "overall_label": "可交付"
+            if acceptance_checklist.get("status") == "ready" and runtime_readiness.get("status") == "ready"
+            else "待整改",
+            "executive_summary": executive_summary,
+            "summary_cards": {
+                "pool_companies": quality_overview.get("coverage", {}).get("pool_companies", 0),
+                "ready_company_count": delivery_readiness.get("ready_company_count", 0),
+                "blocked_company_count": delivery_readiness.get("blocked_company_count", 0),
+                "runtime_blocked_count": runtime_readiness.get("blocked_count", 0),
+                "acceptance_passed": acceptance_checklist.get("passed", 0),
+                "acceptance_total": acceptance_checklist.get("total", 0),
+            },
+            "delivery_readiness": {
+                "stage": delivery_readiness.get("stage"),
+                "stage_label": _delivery_stage_label(delivery_readiness.get("stage")),
+                "coverage_ratio": delivery_readiness.get("coverage_ratio", 0),
+                "silver_ratio": delivery_readiness.get("silver_ratio", 0),
+                "research_ratio": delivery_readiness.get("research_ratio", 0),
+                "contract_ratio": delivery_readiness.get("contract_ratio", 0),
+                "ready_company_count": delivery_readiness.get("ready_company_count", 0),
+                "blocked_company_count": delivery_readiness.get("blocked_company_count", 0),
+                "priority_actions": delivery_readiness.get("priority_actions", []),
+            },
+            "runtime_readiness": {
+                "status": runtime_readiness.get("status"),
+                "status_label": _status_label(runtime_readiness.get("status")),
+                "blocked_count": runtime_readiness.get("blocked_count", 0),
+                "blocked_checks": runtime_blockers,
+            },
+            "acceptance_checklist": {
+                "status": acceptance_checklist.get("status"),
+                "status_label": _status_label(acceptance_checklist.get("status")),
+                "passed": acceptance_checklist.get("passed", 0),
+                "total": acceptance_checklist.get("total", 0),
+                "blocked_items": acceptance_blockers,
+                "items": acceptance_checklist.get("items", []),
+            },
+            "ocr_contract": {
+                "status": contract_audit.get("status"),
+                "status_label": _status_label(contract_audit.get("status")),
+                "ready": contract_audit.get("ready", 0),
+                "invalid": contract_audit.get("invalid", 0),
+                "missing": contract_audit.get("missing", 0),
+                "total": contract_audit.get("total", 0),
+                "samples": contract_audit.get("samples", []),
+            },
+            "issue_buckets": issue_buckets,
+            "recent_remediation_runs": remediation_runs,
+        }
+
     def innovation_radar(self) -> dict[str, Any]:
         radar_path = _innovation_radar_path()
         if not radar_path.exists():
@@ -7149,6 +7258,29 @@ def _build_acceptance_checklist(
         "total": len(items),
         "items": items,
     }
+
+
+def _delivery_stage_label(stage: str | None) -> str:
+    mapping = {
+        "bootstrapping": "启动期",
+        "hardening": "加固期",
+        "blocked": "阻断",
+        "ready": "就绪",
+    }
+    return mapping.get(stage or "", stage or "-")
+
+
+def _status_label(status: str | None) -> str:
+    mapping = {
+        "ready": "就绪",
+        "blocked": "阻断",
+        "pass": "通过",
+        "completed": "已完成",
+        "pending": "待执行",
+        "invalid": "不合格",
+        "missing": "缺失",
+    }
+    return mapping.get(status or "", status or "-")
 
 
 def _index_records_by_company(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

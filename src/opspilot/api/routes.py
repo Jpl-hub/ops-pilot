@@ -142,6 +142,11 @@ def admin_overview(_: dict = Depends(require_current_user)) -> dict:
     return get_service().admin_overview()
 
 
+@router.get("/admin/delivery-report")
+def admin_delivery_report(_: dict = Depends(require_current_user)) -> dict:
+    return get_service().delivery_report()
+
+
 @router.get("/admin/innovation-radar")
 def admin_innovation_radar(_: dict = Depends(require_current_user)) -> dict:
     return get_service().innovation_radar()

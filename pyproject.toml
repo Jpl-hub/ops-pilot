@@ -28,6 +28,7 @@ dev = [
 
 [project.scripts]
 ops-pilot-api = "opspilot.main:run_api"
+ops-pilot-delivery-report = "opspilot.delivery_report:main"
 ops-pilot-init-ocr-assets = "opspilot.init_ocr_assets:main"
 ops-pilot-runtime-check = "opspilot.runtime_checks:main"
 ops-pilot-ui = "opspilot.main:run_ui"

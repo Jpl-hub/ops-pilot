@@ -20,6 +20,7 @@ from opspilot.application.services import (
     _infer_report_period_from_text,
     _select_research_report,
 )
+from opspilot.delivery_report import build_delivery_report_markdown
 from opspilot.runtime_checks import build_runtime_report, validate_delivery_runtime
 from opspilot.infra.sample_repository import SampleRepository
 
@@ -2042,6 +2043,17 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertIn("innovation_radar", payload)
             self.assertIn("workspace_history", payload)
             self.assertGreaterEqual(payload["innovation_radar"]["summary"]["total"], 1)
+
+            report = service.delivery_report()
+
+            self.assertEqual(report["overall_status"], "blocked")
+            self.assertEqual(report["delivery_readiness"]["stage_label"], "启动期")
+            self.assertEqual(report["runtime_readiness"]["status_label"], "就绪")
+            self.assertEqual(report["acceptance_checklist"]["status_label"], "阻断")
+            self.assertTrue(report["executive_summary"])
+            markdown = build_delivery_report_markdown(report)
+            self.assertIn("# OpsPilot 交付报告", markdown)
+            self.assertIn("## 执行摘要", markdown)
 
     def test_document_pipeline_run_creates_upgrade_artifact(self) -> None:
         class StubRepository:

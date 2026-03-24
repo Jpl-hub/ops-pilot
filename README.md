@@ -48,6 +48,7 @@ docker compose up --build
 - OCR 标准能力：在 `.env` 中配置 `OPS_PILOT_OCR_ASSETS_PATH` 和 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`
 - API 容器启动前会自动执行 `ops-pilot-runtime-check`，OCR 资产缺失会直接阻断启动
 - 首次准备模型目录可执行 `ops-pilot-init-ocr-assets`
+- 需要导出交付报告时可执行 `ops-pilot-delivery-report --format markdown --output docs/delivery_report.md`
 
 ### 交付验收建议
 
@@ -58,8 +59,9 @@ docker compose up --build
 3. 在管理台依次检查“运行时检查”、“交付就绪度”、“OCR Contract 批量验收”、“交付验收清单”。
 4. 确认 `OPS_PILOT_OPENAI_API_KEY`、`OPS_PILOT_POSTGRES_DSN`、数据目录路径都已配置。
 5. 确认 `OPS_PILOT_OCR_ASSETS_PATH` 已落盘且 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`，管理台“OCR 标准引擎”显示 `ready`。
-6. 如 OCR contract 存在 `missing/invalid`，先在管理台筛选并执行 `RERUN FILTERED`，再看“最近一次执行反馈”和“整改轨迹”。
-7. 确认主评估周期、silver 指标覆盖、研报覆盖和 OCR contract 验收全部达到演示/交付范围。
+6. 如 OCR contract 存在 `missing/invalid`，先在管理台筛选并执行“重跑当前筛选”，再看“最近一次执行反馈”和“整改轨迹”。
+7. 执行 `ops-pilot-delivery-report --format markdown --output docs/delivery_report.md`，固化当前交付状态和整改摘要。
+8. 确认主评估周期、silver 指标覆盖、研报覆盖和 OCR contract 验收全部达到演示/交付范围。
 
 ## 配置
 
