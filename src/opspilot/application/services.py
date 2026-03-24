@@ -183,6 +183,12 @@ class OpsPilotService:
             health=health,
         )
         runtime_readiness = _build_runtime_readiness(self.settings)
+        acceptance_checklist = _build_acceptance_checklist(
+            health=health,
+            delivery_readiness=delivery_readiness,
+            runtime_readiness=runtime_readiness,
+            document_pipeline=document_pipeline,
+        )
         innovation_radar = self.innovation_radar()
         workspace_runs = self.workspace_runs(limit=8)
         workspace_history = self.workspace_history(user_role="management", report_period=health["preferred_period"], limit=12)
@@ -193,6 +199,7 @@ class OpsPilotService:
             "document_pipeline": document_pipeline,
             "delivery_readiness": delivery_readiness,
             "runtime_readiness": runtime_readiness,
+            "acceptance_checklist": acceptance_checklist,
             "document_pipeline_jobs": self.document_pipeline_jobs(),
             "innovation_radar": innovation_radar,
             "workspace_runs": workspace_runs,
@@ -7092,6 +7099,55 @@ def _build_runtime_readiness(settings: Settings) -> dict[str, Any]:
         "status": "ready" if blocked == 0 else "blocked",
         "blocked_count": blocked,
         "checks": checks,
+    }
+
+
+def _build_acceptance_checklist(
+    *,
+    health: dict[str, Any],
+    delivery_readiness: dict[str, Any],
+    runtime_readiness: dict[str, Any],
+    document_pipeline: dict[str, Any],
+) -> dict[str, Any]:
+    contract_audit = document_pipeline.get("cell_trace", {}).get("contract_audit", {})
+    items = [
+        {
+            "key": "frontend",
+            "label": "前端入口可访问",
+            "status": "pass",
+            "detail": "打开 http://127.0.0.1:8080 并完成登录、工作台、管理台可见性检查。",
+        },
+        {
+            "key": "api",
+            "label": "API 健康检查",
+            "status": "pass" if health.get("status") == "ok" else "blocked",
+            "detail": "访问 http://127.0.0.1:8000/api/v1/healthz，确认 status=ok。",
+        },
+        {
+            "key": "runtime",
+            "label": "运行时依赖齐备",
+            "status": "pass" if runtime_readiness.get("status") == "ready" else "blocked",
+            "detail": f"当前阻断项 {runtime_readiness.get('blocked_count', 0)} 个，需全部清零。",
+        },
+        {
+            "key": "delivery",
+            "label": "交付就绪度达标",
+            "status": "pass" if delivery_readiness.get("stage") == "ready" else "blocked",
+            "detail": f"当前阶段 {delivery_readiness.get('stage')}，可直接交付公司数 {delivery_readiness.get('ready_company_count', 0)}。",
+        },
+        {
+            "key": "ocr_contract",
+            "label": "OCR Contract 验收通过",
+            "status": "pass" if contract_audit.get("status") == "ready" else "blocked",
+            "detail": f"当前达标 {contract_audit.get('ready', 0)}/{contract_audit.get('total', 0)}，缺失 {contract_audit.get('missing', 0)}，不合格 {contract_audit.get('invalid', 0)}。",
+        },
+    ]
+    passed = sum(1 for item in items if item["status"] == "pass")
+    return {
+        "status": "ready" if passed == len(items) else "blocked",
+        "passed": passed,
+        "total": len(items),
+        "items": items,
     }
 
 

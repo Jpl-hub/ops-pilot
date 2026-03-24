@@ -2033,9 +2033,12 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertIn("document_pipeline_jobs", payload)
             self.assertIn("delivery_readiness", payload)
             self.assertIn("runtime_readiness", payload)
+            self.assertIn("acceptance_checklist", payload)
             self.assertEqual(payload["delivery_readiness"]["stage"], "bootstrapping")
             self.assertEqual(payload["delivery_readiness"]["contract_ratio"], 100)
             self.assertEqual(payload["runtime_readiness"]["status"], "ready")
+            self.assertEqual(payload["acceptance_checklist"]["status"], "blocked")
+            self.assertEqual(payload["acceptance_checklist"]["total"], 5)
             self.assertIn("innovation_radar", payload)
             self.assertIn("workspace_history", payload)
             self.assertGreaterEqual(payload["innovation_radar"]["summary"]["total"], 1)
@@ -2684,6 +2687,9 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["delivery_readiness"]["contract_ratio"], 33)
             self.assertEqual(payload["delivery_readiness"]["stage"], "bootstrapping")
             self.assertEqual(payload["delivery_readiness"]["priority_actions"][0]["title"], "OCR Contract 验收")
+            self.assertEqual(payload["acceptance_checklist"]["status"], "blocked")
+            blocked_items = [item for item in payload["acceptance_checklist"]["items"] if item["status"] == "blocked"]
+            self.assertTrue(any(item["key"] == "ocr_contract" for item in blocked_items))
 
             ready_results = service.document_pipeline_results(
                 stage="cell_trace",

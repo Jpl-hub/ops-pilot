@@ -51,14 +51,15 @@ docker compose up --build
 
 ### 交付验收建议
 
-启动后建议按以下顺序验收：
+启动后按以下顺序验收，且以管理台“交付验收清单”为准：
 
 1. 打开 `http://127.0.0.1:8080`，确认登录、工作台、管理台都可访问。
 2. 访问 `http://127.0.0.1:8000/api/v1/healthz`，确认 API 返回 `status=ok`。
-3. 在管理台检查“交付就绪度”和“运行时检查”面板。
+3. 在管理台依次检查“运行时检查”、“交付就绪度”、“OCR Contract 批量验收”、“交付验收清单”。
 4. 确认 `OPS_PILOT_OPENAI_API_KEY`、`OPS_PILOT_POSTGRES_DSN`、数据目录路径都已配置。
 5. 确认 `OPS_PILOT_OCR_ASSETS_PATH` 已落盘且 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`，管理台“OCR 标准引擎”显示 `ready`。
-6. 确认主评估周期、silver 指标覆盖和研报覆盖满足演示/交付范围。
+6. 如 OCR contract 存在 `missing/invalid`，先在管理台筛选并执行 `RERUN FILTERED`，再看“最近一次执行反馈”和“整改轨迹”。
+7. 确认主评估周期、silver 指标覆盖、研报覆盖和 OCR contract 验收全部达到演示/交付范围。
 
 ## 配置
 

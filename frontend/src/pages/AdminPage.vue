@@ -287,6 +287,29 @@ const canRerunFilteredCellTrace = computed(() => {
               </div>
             </article>
 
+            <article class="glass-panel p-panel mt-6">
+              <div class="panel-head-compact">
+                <h3 class="panel-sm-title mb-4">交付验收清单</h3>
+                <span class="readiness-badge" :class="`is-${state.data.value.acceptance_checklist.status}`">
+                  {{ state.data.value.acceptance_checklist.passed }}/{{ state.data.value.acceptance_checklist.total }}
+                </span>
+              </div>
+              <div class="runtime-check-list">
+                <div
+                  v-for="item in state.data.value.acceptance_checklist.items"
+                  :key="item.key"
+                  class="runtime-check-card"
+                  :class="item.status === 'pass' ? 'is-ready' : 'is-blocked'"
+                >
+                  <div class="runtime-check-head">
+                    <strong>{{ item.label }}</strong>
+                    <span class="tag" :class="item.status === 'pass' ? 'success-tag' : 'risk-tag'">{{ item.status }}</span>
+                  </div>
+                  <p>{{ item.detail }}</p>
+                </div>
+              </div>
+            </article>
+
             <article v-if="blockerSummary.length" class="glass-panel p-panel mt-6">
               <h3 class="panel-sm-title mb-4">阻断分布</h3>
               <div class="bucket-list">
