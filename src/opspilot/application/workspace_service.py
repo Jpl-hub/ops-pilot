@@ -142,8 +142,25 @@ class WorkspaceService:
                 )
                 if extra_chunks:
                     payload["evidence"] = deduplicate(current_evidence + extra_chunks)
+                payload["retrieval_meta"] = {
+                    "attempted": True,
+                    "enriched_count": len(extra_chunks),
+                    "status": "augmented" if extra_chunks else "no_hit",
+                }
             except Exception as exc:
                 logger.warning("Hybrid RAG enrichment failed (non-fatal): %s", exc)
+                payload["retrieval_meta"] = {
+                    "attempted": True,
+                    "enriched_count": 0,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+        else:
+            payload["retrieval_meta"] = {
+                "attempted": False,
+                "enriched_count": 0,
+                "status": "skipped",
+            }
 
         # Stage 3 — Build structured workspace payload
         workspace_payload = _build_workspace_payload(payload, query=query, user_role=user_role)
@@ -255,6 +272,7 @@ class WorkspaceService:
             "user_role": user_role,
             "query_type": payload.get("query_type"),
             "control_plane": payload.get("control_plane"),
+            "ai_assurance": payload.get("ai_assurance"),
             "agent_flow": payload.get("agent_flow"),
             "answer_sections": payload.get("answer_sections"),
             "insight_cards": payload.get("insight_cards"),
@@ -315,7 +333,8 @@ def _build_workspace_payload(
     insight_cards = _build_workspace_insight_cards(payload)
     follow_up_questions = _build_follow_up_questions(payload, role_profile["key"])
     agent_flow = _build_agent_flow(payload, query, role_profile["key"])
-    control_plane = _build_control_plane(payload, query, role_profile["key"], agent_flow)
+    ai_assurance = _build_ai_assurance(payload)
+    control_plane = _build_control_plane(payload, query, role_profile["key"], agent_flow, ai_assurance)
     return {
         **payload,
         "role_profile": role_profile,
@@ -324,6 +343,7 @@ def _build_workspace_payload(
         "follow_up_questions": follow_up_questions,
         "agent_flow": agent_flow,
         "control_plane": control_plane,
+        "ai_assurance": ai_assurance,
     }
 
 
@@ -519,6 +539,7 @@ def _build_control_plane(
     query: str,
     role_key: str,
     agent_flow: list[dict[str, Any]],
+    ai_assurance: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "session_label": f"{ROLE_PROFILES[role_key]['label']} · {payload.get('company_name', '行业视图')}",
@@ -529,6 +550,62 @@ def _build_control_plane(
         "steps_completed": sum(1 for item in agent_flow if item.get("status") == "completed"),
         "step_total": len(agent_flow),
         "data_sources": _build_control_plane_sources(payload),
+        "assurance_label": ai_assurance.get("label"),
+        "assurance_status": ai_assurance.get("status"),
+    }
+
+
+def _build_ai_assurance(payload: dict[str, Any]) -> dict[str, Any]:
+    tool_trace = payload.get("tool_trace", [])
+    successful_tools = [item["tool_name"] for item in tool_trace if item.get("success") and item.get("tool_name")]
+    failed_tools = [item["tool_name"] for item in tool_trace if not item.get("success") and item.get("tool_name")]
+    evidence_count = len(payload.get("evidence", []))
+    evidence_group_count = len(payload.get("evidence_groups", []))
+    formula_count = len(payload.get("formula_cards", []))
+    key_number_count = len(payload.get("key_numbers", []))
+    retrieval_meta = payload.get("retrieval_meta", {})
+    retrieval_attempted = bool(retrieval_meta.get("attempted"))
+    retrieval_enriched_count = int(retrieval_meta.get("enriched_count", 0) or 0)
+    fallback_triggered = payload.get("answer_markdown", "").startswith("分析执行异常")
+
+    if fallback_triggered:
+        status = "degraded"
+        label = "回退分析"
+        summary = "当前轮未形成稳定工具链，结论只可作为排查线索，不能直接作为交付结论。"
+        tone = "risk"
+    elif not successful_tools:
+        status = "review"
+        label = "待补证"
+        summary = "当前轮已有结构化结果，但工具执行轨迹未完整保留，适合先复核再用于正式输出。"
+        tone = "warning"
+    elif evidence_count >= 2 or evidence_group_count >= 1 or formula_count >= 1:
+        status = "grounded"
+        label = "强支撑"
+        summary = "当前结论已绑定真实工具链和证据链，可回放、可抽检、可继续下钻。"
+        tone = "success"
+    else:
+        status = "review"
+        label = "待补证"
+        summary = "当前结论已有工具结果，但证据链偏薄，适合先复核再用于正式输出。"
+        tone = "warning"
+
+    return {
+        "status": status,
+        "label": label,
+        "tone": tone,
+        "summary": summary,
+        "tool_call_count": len(successful_tools),
+        "failed_tool_count": len(failed_tools),
+        "tool_labels": successful_tools[:6],
+        "failed_tool_labels": failed_tools[:4],
+        "evidence_count": evidence_count,
+        "evidence_group_count": evidence_group_count,
+        "formula_count": formula_count,
+        "key_number_count": key_number_count,
+        "retrieval_attempted": retrieval_attempted,
+        "retrieval_enriched_count": retrieval_enriched_count,
+        "retrieval_status": retrieval_meta.get("status"),
+        "fallback_triggered": fallback_triggered,
     }
 
 

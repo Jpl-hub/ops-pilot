@@ -590,6 +590,9 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["control_plane"]["query_type"], "company_scoring")
             self.assertEqual(payload["control_plane"]["steps_completed"], 4)
             self.assertIn("真实财报指标", payload["control_plane"]["data_sources"])
+            self.assertIn("assurance_label", payload["control_plane"])
+            self.assertEqual(payload["ai_assurance"]["status"], "review")
+            self.assertEqual(payload["ai_assurance"]["tool_call_count"], 0)
             self.assertEqual(payload["agent_flow"][0]["tool"], "intent_router")
             self.assertEqual(payload["agent_flow"][0]["route"]["path"], "/score")
             self.assertEqual(payload["agent_flow"][1]["tool"], "score_engine")
@@ -680,6 +683,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(runs["total"], 1)
             self.assertEqual(detail["run"]["run_id"], payload["run_id"])
             self.assertEqual(detail["detail"]["query"], "请给测试公司做一份经营体检评分")
+            self.assertIn("ai_assurance", detail["detail"])
 
     def test_task_queue_returns_prioritized_actions(self) -> None:
         class StubRepository:

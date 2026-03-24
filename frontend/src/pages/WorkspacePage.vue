@@ -51,6 +51,7 @@ const latestAnswer = computed(() => {
 // 右侧面板数据
 const insightCards = computed(() => latestAnswer.value?.insight_cards ?? [])
 const actionCards  = computed(() => latestAnswer.value?.action_cards  ?? [])
+const aiAssurance = computed(() => latestAnswer.value?.ai_assurance ?? null)
 const hasCompanies = computed(() => companies.value.length > 0)
 const canRunQuery = computed(() => !!selectedCompany.value && !!query.value.trim() && !loadingTurn.value)
 
@@ -83,6 +84,15 @@ function displayPriority(priority?: string) {
     low: '低优先级',
   }
   return map[(priority || '').toLowerCase()] || priority || '待定级'
+}
+
+function displayAssuranceStatus(status?: string) {
+  const map: Record<string, string> = {
+    grounded: '强支撑',
+    review: '待补证',
+    degraded: '回退分析',
+  }
+  return map[status || ''] || status || '未判定'
 }
 
 // ------------------------------------------------------------------
@@ -383,6 +393,40 @@ watch(selectedCompany, async (company, previous) => {
           <div class="panel-body">
 
             <template v-if="insightCards.length || actionCards.length">
+
+              <div v-if="aiAssurance" class="panel-block">
+                <div class="panel-block-title">
+                  <span class="panel-dot" :style="{ background: aiAssurance.status === 'grounded' ? '#10b981' : aiAssurance.status === 'review' ? '#f59e0b' : '#f43f5e' }"/>
+                  可信分析卡
+                </div>
+                <div class="panel-assurance-card" :class="`is-${aiAssurance.status}`">
+                  <div class="panel-assurance-head">
+                    <strong>{{ displayAssuranceStatus(aiAssurance.status) }}</strong>
+                    <span class="panel-assurance-badge">{{ aiAssurance.tool_call_count }} 工具</span>
+                  </div>
+                  <p>{{ aiAssurance.summary }}</p>
+                  <div class="panel-assurance-grid">
+                    <span>证据 {{ aiAssurance.evidence_count }}</span>
+                    <span>证据组 {{ aiAssurance.evidence_group_count }}</span>
+                    <span>公式 {{ aiAssurance.formula_count }}</span>
+                    <span>关键数 {{ aiAssurance.key_number_count }}</span>
+                  </div>
+                  <div v-if="aiAssurance.tool_labels?.length" class="panel-tags">
+                    <TagPill
+                      v-for="tool in aiAssurance.tool_labels"
+                      :key="tool"
+                      :label="tool"
+                      tone="default"
+                    />
+                  </div>
+                  <p v-if="aiAssurance.failed_tool_count" class="panel-assurance-warning">
+                    本轮有 {{ aiAssurance.failed_tool_count }} 个工具未成功返回。
+                  </p>
+                  <p v-if="aiAssurance.retrieval_attempted" class="panel-assurance-foot">
+                    文本检索补证 {{ aiAssurance.retrieval_enriched_count }} 条，状态 {{ aiAssurance.retrieval_status || '已记录' }}。
+                  </p>
+                </div>
+              </div>
 
               <!-- key metrics grid -->
               <div v-if="insightCards.length" class="panel-block">
@@ -843,6 +887,40 @@ watch(selectedCompany, async (company, previous) => {
   margin-bottom: 10px;
 }
 .panel-dot { width: 7px; height: 7px; border-radius: 50%; }
+.panel-assurance-card {
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 12px;
+  background: rgba(255,255,255,0.03);
+}
+.panel-assurance-card.is-grounded { border-color: rgba(16,185,129,0.28); background: rgba(16,185,129,0.06); }
+.panel-assurance-card.is-review { border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.06); }
+.panel-assurance-card.is-degraded { border-color: rgba(244,63,94,0.28); background: rgba(244,63,94,0.06); }
+.panel-assurance-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.panel-assurance-head strong { font-size: 13px; color: #f8fafc; }
+.panel-assurance-badge {
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  padding: 2px 8px;
+  font-size: 11px;
+  color: #cbd5e1;
+}
+.panel-assurance-card p { margin: 0 0 8px; font-size: 12px; line-height: 1.5; color: #cbd5e1; }
+.panel-assurance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.panel-assurance-grid span {
+  font-size: 11px;
+  color: #94a3b8;
+  background: rgba(0,0,0,0.22);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.panel-assurance-warning { color: #fecaca; }
+.panel-assurance-foot { color: #93c5fd; }
 
 /* metrics 2-col grid */
 .panel-metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
