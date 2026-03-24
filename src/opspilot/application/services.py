@@ -54,6 +54,22 @@ METRIC_ANCHOR_TERMS = {
     "S3": ("利润总额", "利息费用"),
     "S4": ("货币资金", "短期借款"),
 }
+TABLE_HEADER_TERMS = (
+    "项目",
+    "本报告期",
+    "上年同期",
+    "年初至报告期末",
+    "期末余额",
+    "期初余额",
+    "增减",
+    "变动",
+    "单位",
+    "币种",
+    "合并资产负债表",
+    "合并利润表",
+    "合并现金流量表",
+    "续表",
+)
 ROLE_PROFILES = {
     "investor": {
         "label": "投资者",
@@ -2184,10 +2200,7 @@ class OpsPilotService:
             )
             job = stage_jobs[0] if stage_jobs else None
             latest_jobs.extend(stage_jobs[:1])
-            if stage == "cell_trace" and not ocr_runtime["runtime_enabled"]:
-                status = "blocked"
-            else:
-                status = job.get("status", "missing") if job else "missing"
+            status = job.get("status", "missing") if job else "missing"
             stages.append(
                 {
                     "stage": stage,
@@ -2218,8 +2231,6 @@ class OpsPilotService:
             stage_status_counts[item["status"]] = stage_status_counts.get(item["status"], 0) + 1
         if stage_status_counts.get("pending"):
             next_action = "继续运行文档升级作业"
-        elif stage_status_counts.get("blocked"):
-            next_action = "等待 OCR 运行时接入"
         elif stage_status_counts.get("completed"):
             next_action = "进入结果核验与证据回放"
         else:
@@ -2250,9 +2261,7 @@ class OpsPilotService:
     ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
         jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
-        requested_stages = ["cross_page_merge", "title_hierarchy"]
-        if _settings_ocr_runtime(self.settings)["runtime_enabled"]:
-            requested_stages.append("cell_trace")
+        requested_stages = ["cross_page_merge", "title_hierarchy", "cell_trace"]
         executed: list[dict[str, Any]] = []
         for stage in requested_stages:
             pending_jobs = [
@@ -6771,12 +6780,11 @@ def _build_delivery_readiness(
     silver_ratio = round((silver_ready / pool_companies) * 100) if pool_companies else 0
     research_ratio = round((research_ready / pool_companies) * 100) if pool_companies else 0
 
-    blocked_cell_trace = document_pipeline.get("cell_trace", {}).get("blocked", 0)
     if pool_companies == 0:
         stage = "bootstrapping"
     elif not ready_companies:
         stage = "blocked"
-    elif coverage_ratio >= 85 and silver_ratio >= 85 and research_ratio >= 70 and blocked_cell_trace == 0:
+    elif coverage_ratio >= 85 and silver_ratio >= 85 and research_ratio >= 70:
         stage = "ready"
     else:
         stage = "hardening"
@@ -6790,15 +6798,6 @@ def _build_delivery_readiness(
         }
         for item in top_blockers
     ]
-    if blocked_cell_trace:
-        priority_actions.append(
-            {
-                "title": "OCR 运行时",
-                "summary": f"单元格溯源仍有 {blocked_cell_trace} 条作业被阻断。",
-                "companies": [],
-            }
-        )
-
     return {
         "stage": stage,
         "preferred_period": health.get("preferred_period"),
@@ -6951,7 +6950,6 @@ def _build_admin_job_catalog() -> list[dict[str, Any]]:
 def _build_document_pipeline_overview(
     data_status: dict[str, Any], settings: Settings
 ) -> dict[str, Any]:
-    ocr_runtime = _settings_ocr_runtime(settings)
     bronze_count = data_status.get("bronze_periodic_reports", {}).get("record_count", 0)
     silver_count = data_status.get("silver_financial_metrics", {}).get("record_count", 0)
     periodic_count = data_status.get("periodic_reports", {}).get("record_count", 0)
@@ -6963,8 +6961,9 @@ def _build_document_pipeline_overview(
     title_completed = sum(
         1 for item in records if item["stage"] == "title_hierarchy" and item["status"] == "completed"
     )
-    cell_blocked = sum(
-        1 for item in records if item["stage"] == "cell_trace" and item["status"] == "blocked"
+    ocr_runtime = _settings_ocr_runtime(settings)
+    cell_completed = sum(
+        1 for item in records if item["stage"] == "cell_trace" and item["status"] == "completed"
     )
     return {
         "layout_engine": ocr_runtime["layout_engine"],
@@ -6981,9 +6980,10 @@ def _build_document_pipeline_overview(
             "summary": "已支持从真实页块中恢复标题层级，用于目录导航和段落定位。",
         },
         "cell_trace": {
-            "enabled": ocr_runtime["runtime_enabled"],
-            "status": "runtime-ready" if ocr_runtime["runtime_enabled"] else f"blocked {cell_blocked}",
-            "summary": "单元格级溯源需要 OCR 运行时和表格结构输出，当前已挂入作业队列。",
+            "enabled": True,
+            "status": f"completed {cell_completed}",
+            "completed": cell_completed,
+            "summary": "已支持基于真实页块几何信息恢复表格片段和单元格证据链；扫描件可选接入 OCR 增强。",
         },
         "coverage": [
             {"label": "原始文档", "value": periodic_count, "unit": "份"},
@@ -7183,7 +7183,6 @@ def _load_document_pipeline_job_manifest(settings: Settings) -> dict[str, Any]:
     parsed_reports = _load_manifest_records(
         settings.bronze_data_path / "manifests" / "parsed_periodic_reports_manifest.json"
     )
-    ocr_runtime = _settings_ocr_runtime(settings)
     desired_jobs: dict[tuple[str, str], dict[str, Any]] = {}
     for record in parsed_reports:
         report_id = record.get("report_id")
@@ -7191,7 +7190,7 @@ def _load_document_pipeline_job_manifest(settings: Settings) -> dict[str, Any]:
             continue
         for stage in ("cross_page_merge", "title_hierarchy", "cell_trace"):
             artifact_path = _document_pipeline_artifact_path(settings, stage, record)
-            status = "blocked" if stage == "cell_trace" and not ocr_runtime["runtime_enabled"] else "pending"
+            status = "pending"
             if artifact_path.exists():
                 status = "completed"
             desired_jobs[(report_id, stage)] = {
@@ -7448,12 +7447,7 @@ def _run_document_pipeline_job(
     elif stage == "title_hierarchy":
         artifact_payload = _build_title_hierarchy_artifact(job, page_payload)
     else:
-        artifact_payload = {
-            "report_id": job["report_id"],
-            "company_name": job["company_name"],
-            "summary": "当前运行时未输出单元格级结构。",
-            "cells": [],
-        }
+        artifact_payload = _build_cell_trace_artifact(job, page_payload)
     artifact_path = _document_pipeline_artifact_path(settings, stage, job)
     _write_json(artifact_path, artifact_payload)
     return artifact_payload, artifact_path
@@ -7509,10 +7503,245 @@ def _build_title_hierarchy_artifact(job: dict[str, Any], page_payload: dict[str,
     }
 
 
+def _build_cell_trace_artifact(job: dict[str, Any], page_payload: dict[str, Any]) -> dict[str, Any]:
+    tables: list[dict[str, Any]] = []
+    cells: list[dict[str, Any]] = []
+    for page in page_payload.get("pages", []):
+        for index, table in enumerate(_extract_page_table_traces(page), start=1):
+            table_id = f"{job['report_id']}-p{page.get('page', 0)}-t{index:02d}"
+            tables.append(
+                {
+                    "table_id": table_id,
+                    "page": page.get("page"),
+                    "title": table["title"],
+                    "continued": table["continued"],
+                    "row_count": len(table["rows"]),
+                    "column_count": table["column_count"],
+                    "bbox": table["bbox"],
+                    "header_rows": table["header_rows"],
+                }
+            )
+            for row in table["rows"]:
+                for cell in row["cells"]:
+                    cells.append(
+                        {
+                            "table_id": table_id,
+                            "page": page.get("page"),
+                            "row_index": row["row_index"],
+                            "column_index": cell["column_index"],
+                            "text": cell["text"],
+                            "bbox": cell["bbox"],
+                            "kind": cell["kind"],
+                            "source_block_indexes": cell["source_block_indexes"],
+                        }
+                    )
+    return {
+        "report_id": job["report_id"],
+        "company_name": job["company_name"],
+        "summary": f"恢复出 {len(tables)} 个表格片段、{len(cells)} 个单元格。",
+        "tables": tables,
+        "cells": cells,
+    }
+
+
 def _document_pipeline_artifact_path(settings: Settings, stage: str, record: dict[str, Any]) -> Path:
     security_code = record.get("security_code", "unknown")
     report_id = record.get("report_id", "unknown")
     return settings.bronze_data_path / "upgrades" / stage / security_code / f"{report_id}.json"
+
+
+def _extract_page_table_traces(page: dict[str, Any]) -> list[dict[str, Any]]:
+    lines = _group_blocks_into_lines(page.get("blocks", []))
+    tables: list[dict[str, Any]] = []
+    cursor = 0
+    while cursor < len(lines):
+        first_cells = _parse_line_cells(lines[cursor])
+        if not _is_table_like_line(lines[cursor], first_cells):
+            cursor += 1
+            continue
+        start = cursor
+        rows: list[dict[str, Any]] = []
+        while cursor < len(lines):
+            parsed_cells = _parse_line_cells(lines[cursor])
+            if not _is_table_like_line(lines[cursor], parsed_cells):
+                break
+            rows.append(
+                {
+                    "row_index": len(rows) + 1,
+                    "bbox": _merge_bboxes([cell["bbox"] for cell in parsed_cells]),
+                    "cells": parsed_cells,
+                }
+            )
+            cursor += 1
+        max_columns = max((len(row["cells"]) for row in rows), default=0)
+        if len(rows) >= 2 and max_columns >= 2:
+            table_title = _infer_table_title(lines, start)
+            tables.append(
+                {
+                    "title": table_title,
+                    "continued": "续表" in table_title,
+                    "column_count": max_columns,
+                    "header_rows": _count_header_rows(rows),
+                    "rows": rows,
+                    "bbox": _merge_bboxes([row["bbox"] for row in rows]),
+                }
+            )
+    return tables
+
+
+def _group_blocks_into_lines(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for index, block in enumerate(blocks):
+        text = (block.get("text") or "").strip()
+        if not text:
+            continue
+        bbox = block.get("bbox") or [0.0, float(index) * 14.0, max(1.0, float(len(text))), float(index) * 14.0 + 10.0]
+        normalized.append(
+            {
+                "block_index": block.get("block_index", index),
+                "text": text,
+                "bbox": [float(value) for value in bbox],
+            }
+        )
+    normalized.sort(
+        key=lambda item: (
+            round((item["bbox"][1] + item["bbox"][3]) / 2, 1),
+            round(item["bbox"][0], 1),
+        )
+    )
+
+    lines: list[dict[str, Any]] = []
+    for block in normalized:
+        center_y = (block["bbox"][1] + block["bbox"][3]) / 2
+        if lines and abs(lines[-1]["center_y"] - center_y) <= 8.0:
+            lines[-1]["blocks"].append(block)
+            lines[-1]["center_y"] = (lines[-1]["center_y"] + center_y) / 2
+            continue
+        lines.append({"center_y": center_y, "blocks": [block]})
+
+    for line in lines:
+        line["blocks"].sort(key=lambda item: item["bbox"][0])
+        line["text"] = " ".join(block["text"] for block in line["blocks"])
+        line["bbox"] = _merge_bboxes([block["bbox"] for block in line["blocks"]])
+    return lines
+
+
+def _parse_line_cells(line: dict[str, Any]) -> list[dict[str, Any]]:
+    blocks = line.get("blocks", [])
+    if len(blocks) >= 2:
+        return [
+            {
+                "column_index": index + 1,
+                "text": block["text"],
+                "bbox": block["bbox"],
+                "kind": "value" if _contains_numeric(block["text"]) else "header",
+                "source_block_indexes": [block["block_index"]],
+            }
+            for index, block in enumerate(blocks)
+        ]
+
+    text = (line.get("text") or "").strip()
+    tokens = _split_table_tokens(text)
+    if len(tokens) < 2:
+        return []
+    bbox = line.get("bbox") or [0.0, 0.0, float(len(text)), 10.0]
+    width = max(float(bbox[2]) - float(bbox[0]), 1.0)
+    total_chars = sum(max(len(token), 1) for token in tokens)
+    cursor_x = float(bbox[0])
+    source_index = blocks[0]["block_index"] if blocks else 0
+    cells: list[dict[str, Any]] = []
+    for index, token in enumerate(tokens):
+        token_width = width * max(len(token), 1) / total_chars
+        cells.append(
+            {
+                "column_index": index + 1,
+                "text": token,
+                "bbox": [cursor_x, float(bbox[1]), cursor_x + token_width, float(bbox[3])],
+                "kind": "value" if _contains_numeric(token) else "header",
+                "source_block_indexes": [source_index],
+            }
+        )
+        cursor_x += token_width
+    return cells
+
+
+def _split_table_tokens(text: str) -> list[str]:
+    parts = [part.strip() for part in text.split(" ") if part.strip()]
+    if len(parts) < 2:
+        return [text]
+    numeric_parts = [part for part in parts if _contains_numeric(part)]
+    if len(numeric_parts) >= 2:
+        label: list[str] = []
+        values: list[str] = []
+        numeric_started = False
+        for part in parts:
+            if _contains_numeric(part):
+                numeric_started = True
+                values.append(part)
+            elif numeric_started:
+                values.append(part)
+            else:
+                label.append(part)
+        tokens: list[str] = []
+        if label:
+            tokens.append(" ".join(label))
+        tokens.extend(values)
+        return tokens if len(tokens) >= 2 else [text]
+    if len(parts) <= 6 and any(term in text for term in TABLE_HEADER_TERMS):
+        return parts
+    return [text]
+
+
+def _is_table_like_line(line: dict[str, Any], cells: list[dict[str, Any]]) -> bool:
+    text = (line.get("text") or "").strip()
+    if not text or _infer_heading_level(text) is not None or len(cells) < 2:
+        return False
+    numeric_count = sum(1 for cell in cells if _contains_numeric(cell["text"]))
+    if numeric_count >= 2:
+        return True
+    return any(term in text for term in TABLE_HEADER_TERMS)
+
+
+def _infer_table_title(lines: list[dict[str, Any]], start_index: int) -> str:
+    for offset in range(1, 4):
+        candidate_index = start_index - offset
+        if candidate_index < 0:
+            break
+        candidate_text = (lines[candidate_index].get("text") or "").strip()
+        if not candidate_text:
+            continue
+        if _infer_heading_level(candidate_text) is not None:
+            return candidate_text
+        if any(term in candidate_text for term in ("单位", "币种")):
+            continue
+        return candidate_text[:48]
+    return "未命名表格片段"
+
+
+def _count_header_rows(rows: list[dict[str, Any]]) -> int:
+    count = 0
+    for row in rows[:3]:
+        numeric_count = sum(1 for cell in row["cells"] if cell["kind"] == "value")
+        if numeric_count <= max(1, len(row["cells"]) // 2):
+            count += 1
+        else:
+            break
+    return count
+
+
+def _merge_bboxes(bboxes: list[list[float] | tuple[float, float, float, float]]) -> list[float]:
+    if not bboxes:
+        return [0.0, 0.0, 0.0, 0.0]
+    return [
+        min(float(bbox[0]) for bbox in bboxes),
+        min(float(bbox[1]) for bbox in bboxes),
+        max(float(bbox[2]) for bbox in bboxes),
+        max(float(bbox[3]) for bbox in bboxes),
+    ]
+
+
+def _contains_numeric(text: str) -> bool:
+    return bool(re.search(r"[0-9]", text))
 
 
 def _last_meaningful_block_text(blocks: list[dict[str, Any]]) -> str | None:

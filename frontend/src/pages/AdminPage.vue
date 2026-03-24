@@ -275,7 +275,7 @@ function toggleIssueFilter(issueCode: string) {
                 <div class="engine-row">
                   <span class="muted">OCR核心</span>
                   <strong class="eg-val">{{ state.data.value.document_pipeline.ocr_engine }}</strong>
-                  <span class="tag subtle-tag ml-auto" :class="state.data.value.document_pipeline.ocr_runtime_enabled ? 'text-accent' : ''">{{ state.data.value.document_pipeline.ocr_runtime_enabled ? 'Active' : 'Planned' }}</span>
+                  <span class="tag subtle-tag ml-auto" :class="state.data.value.document_pipeline.ocr_runtime_enabled ? 'text-accent' : ''">{{ state.data.value.document_pipeline.ocr_runtime_enabled ? 'Active' : 'Optional' }}</span>
                 </div>
                 <div class="engine-row">
                   <span class="muted">跨页拼接</span>
@@ -305,7 +305,7 @@ function toggleIssueFilter(issueCode: string) {
                   <div class="jc-head">
                     <strong class="jc-stage">{{ item.stage }}</strong>
                     <button
-                      v-if="item.stage !== 'cell_trace'"
+                      v-if="item.pending > 0"
                       class="button-secondary glow-button-small"
                       :disabled="runningStage === item.stage"
                       @click="runStage(item.stage)"
@@ -313,7 +313,7 @@ function toggleIssueFilter(issueCode: string) {
                       {{ runningStage === item.stage ? 'RUNNING' : 'EXECUTE BATCH' }}
                     </button>
                     <span v-else class="text-xs muted">
-                      {{ state.data.value.document_pipeline.ocr_runtime_enabled ? 'WAITING OCR' : 'BLOCKED' }}
+                      COMPLETED
                     </span>
                   </div>
                   <div class="jc-stats">

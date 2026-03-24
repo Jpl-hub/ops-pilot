@@ -1652,7 +1652,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(runtime_before["runtime"]["model"], "PaddleOCR-VL-1.5")
             self.assertFalse(runtime_before["runtime"]["runtime_enabled"])
             self.assertTrue(any(item["status"] == "pending" for item in runtime_before["stages"]))
-            self.assertTrue(any(item["status"] == "blocked" for item in runtime_before["stages"]))
+            self.assertFalse(any(item["status"] == "blocked" for item in runtime_before["stages"]))
 
             pipeline_result = service.run_company_vision_pipeline(
                 "测试公司",
@@ -1671,7 +1671,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             stage_status = {item["stage"]: item["status"] for item in runtime_after["stages"]}
             self.assertEqual(stage_status["cross_page_merge"], "completed")
             self.assertEqual(stage_status["title_hierarchy"], "completed")
-            self.assertEqual(stage_status["cell_trace"], "blocked")
+            self.assertEqual(stage_status["cell_trace"], "completed")
 
     def test_company_workspace_and_graph_aggregate_core_system_state(self) -> None:
         class StubRepository:
@@ -2119,6 +2119,93 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
             self.assertEqual(artifact_payload["company_name"], "测试公司")
             self.assertTrue(artifact_payload["headings"])
+
+    def test_document_pipeline_cell_trace_creates_real_table_artifact(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return []
+
+            def list_company_names(self) -> list[str]:
+                return []
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = False
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
+
+            def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bootstrap").mkdir(parents=True, exist_ok=True)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+            page_json = root / "bronze" / "page_text" / "SZSE" / "000001" / "demo-table.json"
+            page_json.parent.mkdir(parents=True, exist_ok=True)
+            page_json.write_text(
+                json.dumps(
+                    {
+                        "pages": [
+                            {
+                                "page": 1,
+                                "blocks": [
+                                    {"text": "一、主要财务数据", "bbox": [0, 0, 120, 12]},
+                                    {"text": "项目 本报告期 年初至报告期末", "bbox": [0, 20, 240, 32]},
+                                    {"text": "营业收入 100.5 320.8", "bbox": [0, 36, 240, 48]},
+                                    {"text": "归母净利润 12.2 30.4", "bbox": [0, 52, 240, 64]},
+                                ],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "bronze" / "manifests" / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司：2025年三季度报告",
+                                "report_id": "demo-table",
+                                "page_json_path": str(page_json),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+
+            payload = service.run_document_pipeline_stage("cell_trace", 1)
+
+            self.assertEqual(payload["processed"], 1)
+            artifact_path = Path(payload["results"][0]["artifact_path"])
+            self.assertTrue(artifact_path.exists())
+            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact_payload["company_name"], "测试公司")
+            self.assertTrue(artifact_payload["tables"])
+            self.assertTrue(artifact_payload["cells"])
+            self.assertGreaterEqual(artifact_payload["tables"][0]["column_count"], 2)
 
     def test_admin_overview_reports_company_coverage_gaps(self) -> None:
         class StubRepository:
