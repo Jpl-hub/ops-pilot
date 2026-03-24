@@ -54,7 +54,8 @@ docker compose up --build
 2. 访问 `http://127.0.0.1:8000/api/v1/healthz`，确认 API 返回 `status=ok`。
 3. 在管理台检查“交付就绪度”和“运行时检查”面板。
 4. 确认 `OPS_PILOT_OPENAI_API_KEY`、`OPS_PILOT_POSTGRES_DSN`、数据目录路径都已配置。
-5. 确认主评估周期、silver 指标覆盖和研报覆盖满足演示/交付范围。
+5. 确认 `OPS_PILOT_OCR_ASSETS_PATH` 已落盘且 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`，管理台“OCR 标准引擎”显示 `ready`。
+6. 确认主评估周期、silver 指标覆盖和研报覆盖满足演示/交付范围。
 
 ## 配置
 
@@ -65,6 +66,8 @@ docker compose up --build
 | `OPS_PILOT_OPENAI_API_KEY` | OpenAI API Key（必填） | `sk-xxx` |
 | `OPS_PILOT_OPENAI_BASE_URL` | API 端点 | `https://api.openai.com/v1` |
 | `OPS_PILOT_POSTGRES_DSN` | 数据库连接 | `postgresql+psycopg://...` |
+| `OPS_PILOT_OCR_ASSETS_PATH` | 标准 OCR 模型/权重目录（必填） | `models/paddleocr-vl` |
+| `OPS_PILOT_OCR_RUNTIME_ENABLED` | 标准 OCR 运行时开关，交付环境必须为 `true` | `true` |
 | `OPS_PILOT_DEFAULT_PERIOD` | 默认分析报期 | `2025Q3` |
 
 ## 数据流水线

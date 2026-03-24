@@ -902,7 +902,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
             ocr_provider = "PaddleOCR-VL"
             ocr_model = "PaddleOCR-VL-1.5"
-            ocr_runtime_enabled = False
+            ocr_runtime_enabled = True
             postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
             cors_allowed_origins = ("http://127.0.0.1:8080",)
             openai_api_key = "test-key"
@@ -913,6 +913,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 self.official_data_path = root / "raw"
                 self.bronze_data_path = root / "bronze"
                 self.silver_data_path = root / "silver"
+                self.ocr_assets_path = root / "models" / "paddleocr-vl"
+                self.ocr_assets_path.mkdir(parents=True, exist_ok=True)
 
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1992,7 +1994,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
             ocr_provider = "PaddleOCR-VL"
             ocr_model = "PaddleOCR-VL-1.5"
-            ocr_runtime_enabled = False
+            ocr_runtime_enabled = True
             postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
             cors_allowed_origins = ("http://127.0.0.1:8080",)
             openai_api_key = "test-key"
@@ -2003,6 +2005,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 self.official_data_path = root / "raw"
                 self.bronze_data_path = root / "bronze"
                 self.silver_data_path = root / "silver"
+                self.ocr_assets_path = root / "models" / "paddleocr-vl"
+                self.ocr_assets_path.mkdir(parents=True, exist_ok=True)
 
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2139,7 +2143,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
             ocr_provider = "PaddleOCR-VL"
             ocr_model = "PaddleOCR-VL-1.5"
-            ocr_runtime_enabled = False
+            ocr_runtime_enabled = True
             postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
             cors_allowed_origins = ("http://127.0.0.1:8080",)
             openai_api_key = "test-key"
@@ -2150,6 +2154,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 self.official_data_path = root / "raw"
                 self.bronze_data_path = root / "bronze"
                 self.silver_data_path = root / "silver"
+                self.ocr_assets_path = root / "models" / "paddleocr-vl"
+                self.ocr_assets_path.mkdir(parents=True, exist_ok=True)
 
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2226,7 +2232,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
             ocr_provider = "PaddleOCR-VL"
             ocr_model = "PaddleOCR-VL-1.5"
-            ocr_runtime_enabled = False
+            ocr_runtime_enabled = True
             postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
             cors_allowed_origins = ("http://127.0.0.1:8080",)
             openai_api_key = "test-key"
@@ -2237,6 +2243,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 self.official_data_path = root / "raw"
                 self.bronze_data_path = root / "bronze"
                 self.silver_data_path = root / "silver"
+                self.ocr_assets_path = root / "models" / "paddleocr-vl"
+                self.ocr_assets_path.mkdir(parents=True, exist_ok=True)
 
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -6821,6 +6821,9 @@ def _build_runtime_readiness(settings: Settings) -> dict[str, Any]:
     openai_base_url = getattr(settings, "openai_base_url", "missing")
     postgres_dsn = getattr(settings, "postgres_dsn", "")
     cors_allowed_origins = tuple(getattr(settings, "cors_allowed_origins", ()) or ())
+    ocr_runtime = _settings_ocr_runtime(settings)
+    ocr_assets_path = Path(ocr_runtime["assets_path"])
+    ocr_ready = bool(ocr_runtime["runtime_enabled"]) and ocr_assets_path.exists()
     checks = [
         {
             "key": "llm",
@@ -6830,6 +6833,15 @@ def _build_runtime_readiness(settings: Settings) -> dict[str, Any]:
             if openai_api_key
             else "未配置 API Key，问答与多智能体编排不可用。",
             "detail": openai_base_url,
+        },
+        {
+            "key": "ocr",
+            "label": "OCR 标准引擎",
+            "status": "ready" if ocr_ready else "blocked",
+            "summary": "PaddleOCR-VL 标准链路已接通，可处理扫描件与复杂报表。"
+            if ocr_ready
+            else "OCR 标准链路未接通，扫描件与复杂表格解析不满足交付标准。",
+            "detail": f"{ocr_runtime['provider']} / {ocr_runtime['model']} @ {ocr_assets_path}",
         },
         {
             "key": "database",
@@ -6983,7 +6995,7 @@ def _build_document_pipeline_overview(
             "enabled": True,
             "status": f"completed {cell_completed}",
             "completed": cell_completed,
-            "summary": "已支持基于真实页块几何信息恢复表格片段和单元格证据链；扫描件可选接入 OCR 增强。",
+            "summary": "统一文档理解链路：页块几何恢复 + 标准 OCR 引擎，产出表格片段与单元格证据链。",
         },
         "coverage": [
             {"label": "原始文档", "value": periodic_count, "unit": "份"},
@@ -7005,6 +7017,7 @@ def _settings_ocr_runtime(settings: Settings) -> dict[str, Any]:
     return {
         "provider": getattr(settings, "ocr_provider", "PaddleOCR-VL"),
         "model": getattr(settings, "ocr_model", "PaddleOCR-VL-1.5"),
+        "assets_path": str(getattr(settings, "ocr_assets_path", Path("models/paddleocr-vl"))),
         "runtime_enabled": getattr(settings, "ocr_runtime_enabled", False),
         "layout_engine": getattr(settings, "doc_layout_engine", "PP-DocLayout-V3 + PyMuPDF"),
     }

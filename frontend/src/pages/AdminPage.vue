@@ -275,7 +275,7 @@ function toggleIssueFilter(issueCode: string) {
                 <div class="engine-row">
                   <span class="muted">OCR核心</span>
                   <strong class="eg-val">{{ state.data.value.document_pipeline.ocr_engine }}</strong>
-                  <span class="tag subtle-tag ml-auto" :class="state.data.value.document_pipeline.ocr_runtime_enabled ? 'text-accent' : ''">{{ state.data.value.document_pipeline.ocr_runtime_enabled ? 'Active' : 'Optional' }}</span>
+                  <span class="tag subtle-tag ml-auto" :class="state.data.value.document_pipeline.ocr_runtime_enabled ? 'text-accent' : 'risk-text'">{{ state.data.value.document_pipeline.ocr_runtime_enabled ? 'Active' : 'Required' }}</span>
                 </div>
                 <div class="engine-row">
                   <span class="muted">跨页拼接</span>
