@@ -327,6 +327,92 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                   <p v-for="line in deliveryReport.executive_summary" :key="line">{{ line }}</p>
                   <code>{{ deliveryReport.generated_at }} · 主周期 {{ deliveryReport.preferred_period || '-' }}</code>
                 </div>
+                <div class="readiness-grid">
+                  <div class="readiness-stat">
+                    <span>正式公司池</span>
+                    <strong>{{ deliveryReport.summary_cards.pool_companies }}</strong>
+                  </div>
+                  <div class="readiness-stat">
+                    <span>可直接交付</span>
+                    <strong>{{ deliveryReport.summary_cards.ready_company_count }}</strong>
+                  </div>
+                  <div class="readiness-stat">
+                    <span>待整改公司</span>
+                    <strong>{{ deliveryReport.summary_cards.blocked_company_count }}</strong>
+                  </div>
+                  <div class="readiness-stat">
+                    <span>运行时阻断</span>
+                    <strong>{{ deliveryReport.summary_cards.runtime_blocked_count }}</strong>
+                  </div>
+                </div>
+                <div class="report-grid">
+                  <div class="runtime-check-card" :class="deliveryReport.runtime_readiness.blocked_checks.length ? 'is-blocked' : 'is-ready'">
+                    <div class="runtime-check-head">
+                      <strong>运行时阻断项</strong>
+                      <span class="tag" :class="deliveryReport.runtime_readiness.blocked_checks.length ? 'risk-tag' : 'success-tag'">
+                        {{ deliveryReport.runtime_readiness.blocked_checks.length || 0 }}
+                      </span>
+                    </div>
+                    <div v-if="deliveryReport.runtime_readiness.blocked_checks.length" class="runtime-check-list compact-stack">
+                      <div v-for="item in deliveryReport.runtime_readiness.blocked_checks" :key="item.label" class="report-list-card">
+                        <strong>{{ item.label }}</strong>
+                        <p>{{ item.summary }}</p>
+                        <code>{{ item.detail }}</code>
+                        <p v-if="item.remediation" class="runtime-remediation">{{ item.remediation }}</p>
+                      </div>
+                    </div>
+                    <p v-else>当前运行时检查已经清零，没有交付级阻断项。</p>
+                  </div>
+                  <div class="runtime-check-card" :class="deliveryReport.acceptance_checklist.blocked_items.length ? 'is-blocked' : 'is-ready'">
+                    <div class="runtime-check-head">
+                      <strong>验收未通过项</strong>
+                      <span class="tag" :class="deliveryReport.acceptance_checklist.blocked_items.length ? 'risk-tag' : 'success-tag'">
+                        {{ deliveryReport.acceptance_checklist.blocked_items.length || 0 }}
+                      </span>
+                    </div>
+                    <div v-if="deliveryReport.acceptance_checklist.blocked_items.length" class="runtime-check-list compact-stack">
+                      <div v-for="item in deliveryReport.acceptance_checklist.blocked_items" :key="item.label" class="report-list-card">
+                        <strong>{{ item.label }}</strong>
+                        <p>{{ item.detail }}</p>
+                      </div>
+                    </div>
+                    <p v-else>当前验收项已全部通过，可以进入正式交付演示。</p>
+                  </div>
+                </div>
+                <div class="report-grid">
+                  <div class="runtime-check-card">
+                    <div class="runtime-check-head">
+                      <strong>当前问题簇</strong>
+                      <span class="tag subtle-tag">{{ deliveryReport.issue_buckets.length }} 类</span>
+                    </div>
+                    <div v-if="deliveryReport.issue_buckets.length" class="tag-row compact-tags">
+                      <span
+                        v-for="bucket in deliveryReport.issue_buckets"
+                        :key="bucket.label"
+                        class="tag risk-tag text-xs"
+                      >{{ bucket.label }} {{ bucket.count }}</span>
+                    </div>
+                    <p v-else>当前没有新增问题簇，覆盖诊断已趋于稳定。</p>
+                  </div>
+                  <div class="runtime-check-card">
+                    <div class="runtime-check-head">
+                      <strong>最近整改轨迹</strong>
+                      <span class="tag subtle-tag">{{ deliveryReport.recent_remediation_runs.length }} 条</span>
+                    </div>
+                    <div v-if="deliveryReport.recent_remediation_runs.length" class="runtime-check-list compact-stack">
+                      <div
+                        v-for="item in deliveryReport.recent_remediation_runs"
+                        :key="`${item.title}-${item.created_at}`"
+                        class="report-list-card"
+                      >
+                        <strong>{{ item.title }}</strong>
+                        <p>{{ item.headline || '已完成一次整改执行。' }}</p>
+                        <code>{{ item.created_at || '-' }} · 修复 {{ item.fixed_count || 0 }} · 剩余 {{ item.remaining_count || 0 }}</code>
+                      </div>
+                    </div>
+                    <p v-else>当前还没有形成正式整改轨迹。</p>
+                  </div>
+                </div>
               </div>
             </article>
 
@@ -868,6 +954,7 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 .readiness-action-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
 .readiness-action-card p { margin: 0 0 10px; color: #cbd5e1; font-size: 13px; line-height: 1.5; }
 .runtime-check-list { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.compact-stack { gap: 8px; margin-top: 0; }
 .runtime-check-card { border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.03); border-radius: 12px; padding: 14px; }
 .runtime-check-card.is-blocked { border-color: rgba(244,63,94,0.28); background: rgba(244,63,94,0.06); }
 .runtime-check-card.is-ready { border-color: rgba(16,185,129,0.24); background: rgba(16,185,129,0.05); }
@@ -875,6 +962,9 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 .runtime-check-card p { margin: 0 0 8px; color: #cbd5e1; font-size: 13px; line-height: 1.5; }
 .runtime-check-card code { display: block; font-size: 11px; color: #94a3b8; word-break: break-all; font-family: 'JetBrains Mono', monospace; }
 .runtime-remediation { margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(148, 163, 184, 0.18); color: #f8fafc; }
+.report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.report-list-card { border: 1px solid rgba(255,255,255,0.06); background: rgba(0,0,0,0.16); border-radius: 10px; padding: 12px; }
+.report-list-card strong { display: block; margin-bottom: 6px; }
 
 /* Engines */
 .engine-list { display: flex; flex-direction: column; gap: 12px; }

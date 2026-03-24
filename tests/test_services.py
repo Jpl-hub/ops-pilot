@@ -825,6 +825,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             refreshed = service.task_board("management", "2025Q3")
             refreshed_task = next(item for item in refreshed["tasks"] if item["task_id"] == task_id)
             self.assertEqual(refreshed_task["status"], "in_progress")
+            self.assertEqual(refreshed_task["status_label"], "处理中")
             self.assertEqual(refreshed_task["history"][-1]["status"], "in_progress")
             self.assertTrue((root / "bronze" / "manifests" / "workspace_task_board.json").exists())
 
@@ -1041,6 +1042,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             refreshed = service.alert_workflow("2025Q3")
             refreshed_alert = next(item for item in refreshed["alerts"] if item["alert_id"] == alert_id)
             self.assertEqual(refreshed_alert["status"], "in_progress")
+            self.assertEqual(refreshed_alert["status_label"], "处理中")
             self.assertEqual(refreshed_alert["history"][-1]["status"], "in_progress")
             self.assertTrue((root / "bronze" / "manifests" / "workspace_alert_board.json").exists())
 
@@ -1973,6 +1975,11 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertGreaterEqual(overview["execution_bus_summary"]["document_pipeline"]["total"], 1)
             self.assertGreaterEqual(overview["workspace_history"]["total"], 1)
             self.assertGreaterEqual(overview["execution_bus_records"]["total"], 3)
+            task_record = next(
+                item for item in overview["execution_bus_records"]["records"] if item["bus_type"] == "task"
+            )
+            self.assertEqual(task_record["type_label"], "任务推进")
+            self.assertTrue(task_record["status_label"])
             self.assertEqual(graph["company_name"], "测试公司")
             self.assertGreaterEqual(graph["summary"]["node_count"], 5)
             self.assertGreaterEqual(graph["summary"]["edge_count"], 4)

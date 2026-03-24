@@ -917,6 +917,7 @@ class OpsPilotService:
                     **alert,
                     "alert_id": alert_id,
                     "status": status,
+                    "status_label": _status_label(status),
                     "note": record.get("note"),
                     "updated_at": record.get("updated_at"),
                     "history": record.get("history", []),
@@ -2560,6 +2561,7 @@ class OpsPilotService:
                 {
                     **task,
                     "status": status,
+                    "status_label": _status_label(status),
                     "note": record.get("note"),
                     "updated_at": record.get("updated_at"),
                     "history": record.get("history", []),
@@ -6615,10 +6617,12 @@ def _build_workspace_execution_bus_records(
     task_records = [
         {
             "bus_type": "task",
+            "type_label": _bus_type_label("task"),
             "id": item["task_id"],
             "title": item["title"],
             "company_name": item["company_name"],
             "status": item["status"],
+            "status_label": item.get("status_label", _status_label(item["status"])),
             "created_at": item.get("updated_at"),
             "meta": {
                 "priority": item.get("priority"),
@@ -6630,10 +6634,12 @@ def _build_workspace_execution_bus_records(
     alert_records = [
         {
             "bus_type": "alert",
+            "type_label": _bus_type_label("alert"),
             "id": item["alert_id"],
             "title": f"{item['company_name']} 预警",
             "company_name": item["company_name"],
             "status": item["status"],
+            "status_label": item.get("status_label", _status_label(item["status"])),
             "created_at": item.get("updated_at"),
             "meta": {
                 "summary": item.get("summary"),
@@ -6645,10 +6651,12 @@ def _build_workspace_execution_bus_records(
     watch_records = [
         {
             "bus_type": "watchboard",
+            "type_label": _bus_type_label("watchboard"),
             "id": f"watch::{item['company_name']}::{watchboard['report_period']}::{watchboard['user_role']}",
             "title": "重点监测",
             "company_name": item["company_name"],
             "status": "tracked",
+            "status_label": _status_label("tracked"),
             "created_at": None,
             "meta": {
                 "new_alerts": item.get("new_alerts"),
@@ -6661,10 +6669,12 @@ def _build_workspace_execution_bus_records(
     history_records = [
         {
             "bus_type": item["history_type"],
+            "type_label": _bus_type_label(item["history_type"]),
             "id": item["id"],
             "title": item["title"],
             "company_name": item.get("company_name"),
             "status": item.get("status"),
+            "status_label": item.get("status_label", _status_label(item.get("status"))),
             "created_at": item.get("created_at"),
             "meta": item.get("meta"),
         }
@@ -7279,8 +7289,34 @@ def _status_label(status: str | None) -> str:
         "pending": "待执行",
         "invalid": "不合格",
         "missing": "缺失",
+        "queued": "待启动",
+        "in_progress": "处理中",
+        "done": "已完成",
+        "new": "新增",
+        "dispatched": "已派发",
+        "resolved": "已闭环",
+        "dismissed": "已忽略",
+        "idle": "未启动",
+        "tracked": "已纳管",
+        "active": "执行中",
     }
     return mapping.get(status or "", status or "-")
+
+
+def _bus_type_label(bus_type: str | None) -> str:
+    mapping = {
+        "task": "任务推进",
+        "alert": "预警处置",
+        "watchboard": "重点监测",
+        "analysis_run": "分析执行",
+        "watchboard_scan": "监测扫描",
+        "document_pipeline": "文档工序",
+        "document_pipeline_run": "整改运行",
+        "stress_run": "压力推演",
+        "graph_run": "图谱演算",
+        "vision_run": "多模态核验",
+    }
+    return mapping.get(bus_type or "", bus_type or "-")
 
 
 def _index_records_by_company(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

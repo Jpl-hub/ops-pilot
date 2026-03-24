@@ -48,7 +48,7 @@ type CompanyWorkspace = {
 
 export const useWorkspaceStore = defineStore('workspace', {
   state: () => ({
-    selectedCompany: 'TCL中环',
+    selectedCompany: '',
     query: '',
     companies: [] as string[],
     messages: [] as WorkspaceMessage[],
