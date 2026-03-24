@@ -13,7 +13,7 @@ import { buildEvidenceLink } from '@/lib/format'
 
 const companies = ref<string[]>([])
 const reports = ref<any[]>([])
-const selectedCompany = ref('TCL中环')
+const selectedCompany = ref('')
 const selectedReportTitle = ref<string | null>(null)
 const state = useAsyncState<any>()
 const route = useRoute()
@@ -27,6 +27,11 @@ async function loadCompanies() {
 }
 
 async function loadReports() {
+  if (!selectedCompany.value) {
+    reports.value = []
+    selectedReportTitle.value = null
+    return
+  }
   try {
     const payload = await get<any>(`/company/research-reports?company_name=${encodeURIComponent(selectedCompany.value)}`)
     reports.value = payload.reports
@@ -38,7 +43,7 @@ async function loadReports() {
 }
 
 async function loadVerify() {
-  if (!selectedReportTitle.value) {
+  if (!selectedCompany.value || !selectedReportTitle.value) {
     state.data.value = null
     state.error.value = null
     state.loading.value = false
@@ -64,8 +69,8 @@ function applyQuerySelection() {
 
 onMounted(async () => {
   await loadCompanies()
-  if (!companies.value.includes(selectedCompany.value)) {
-    selectedCompany.value = companies.value[0]
+  if (!selectedCompany.value) {
+    selectedCompany.value = companies.value[0] || ''
   }
   await loadReports()
   applyQuerySelection()
@@ -151,6 +156,12 @@ watch(
 
       <LoadingState v-if="state.loading.value" class="state-container" />
       <ErrorState v-else-if="state.error.value" :message="state.error.value" class="state-container" />
+      <section v-else-if="!selectedCompany" class="glass-panel empty-panel">
+        <div class="empty-content">
+          <h3 class="text-gradient mb-2">公司池为空</h3>
+          <p class="muted">当前环境还没有可核验的企业，请先完成正式公司池和研报数据接入。</p>
+        </div>
+      </section>
       
       <section v-else-if="reports.length === 0" class="glass-panel empty-panel">
         <div class="empty-content">

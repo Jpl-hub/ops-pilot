@@ -12,7 +12,7 @@ import { get, post } from '@/lib/api'
 import { buildEvidenceLink } from '@/lib/format'
 
 const companies = ref<string[]>([])
-const selectedCompany = ref('TCL中环')
+const selectedCompany = ref('')
 const selectedPeriod = ref<string>('')
 const scoreState = useAsyncState<any>()
 const timelineState = useAsyncState<any>()
@@ -29,6 +29,12 @@ async function loadCompanies() {
 }
 
 async function loadScore() {
+  if (!selectedCompany.value) {
+    scoreState.data.value = null
+    scoreState.error.value = null
+    scoreState.loading.value = false
+    return
+  }
   await scoreState.execute(() =>
     post('/company/score', {
       company_name: selectedCompany.value,
@@ -38,12 +44,24 @@ async function loadScore() {
 }
 
 async function loadTimeline() {
+  if (!selectedCompany.value) {
+    timelineState.data.value = null
+    timelineState.error.value = null
+    timelineState.loading.value = false
+    return
+  }
   await timelineState.execute(() =>
     get<any>(`/company/timeline?company_name=${encodeURIComponent(selectedCompany.value)}`),
   )
 }
 
 async function loadCompanyWorkspace() {
+  if (!selectedCompany.value) {
+    companyState.data.value = null
+    companyState.error.value = null
+    companyState.loading.value = false
+    return
+  }
   const query = new URLSearchParams({ company_name: selectedCompany.value })
   if (selectedPeriod.value) {
     query.set('report_period', selectedPeriod.value)
@@ -68,8 +86,8 @@ function applyQuerySelection() {
 
 onMounted(async () => {
   await loadCompanies()
-  if (!companies.value.includes(selectedCompany.value)) {
-    selectedCompany.value = companies.value[0]
+  if (!selectedCompany.value) {
+    selectedCompany.value = companies.value[0] || ''
   }
   applyQuerySelection()
   await loadScore()
@@ -169,6 +187,12 @@ watch(
 
       <LoadingState v-if="scoreState.loading.value" class="state-container" />
       <ErrorState v-else-if="scoreState.error.value" :message="scoreState.error.value" class="state-container" />
+      <section v-else-if="!selectedCompany" class="glass-panel empty-panel">
+        <div class="empty-content">
+          <h3 class="text-gradient mb-2">公司池为空</h3>
+          <p class="muted">当前环境还没有可评分的企业，请先完成正式公司池和财报数据接入。</p>
+        </div>
+      </section>
       
       <!-- Main Dashboard Grid -->
       <div v-else-if="scoreState.data.value" class="dashboard-grid">
