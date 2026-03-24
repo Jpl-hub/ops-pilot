@@ -403,6 +403,40 @@ def _build_answer_sections(payload: dict[str, Any], role_key: str) -> list[dict[
                 for i, item in enumerate(benchmark[:3])
             ]},
         ]
+    if query_type == "graph_query":
+        focal_nodes = payload.get("focal_nodes", [])
+        return [
+            {"title": "图谱结论", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]},
+            {"title": "关键节点", "lines": [
+                f"{item.get('label')}（{item.get('type')}）"
+                for item in focal_nodes[:5]
+            ] or ["当前未命中关键节点。"]},
+            {"title": "主传导链", "lines": [
+                f"{item.get('step')}. {item.get('title')}：{item.get('detail')}"
+                for item in payload.get("inference_path", [])[:4]
+            ] or ["当前未形成稳定传导路径。"]},
+        ]
+    if query_type == "stress_test":
+        severity = payload.get("severity", {})
+        return [
+            {"title": "压力结论", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]},
+            {"title": "冲击等级", "lines": [
+                f"{severity.get('level', 'UNKNOWN')} / {severity.get('label', '待确认')}",
+                f"当前场景：{payload.get('scenario', '未提供')}",
+            ]},
+            {"title": "传导矩阵", "lines": [
+                f"{item.get('stage')}：{item.get('headline')}（{item.get('impact_label')} {item.get('impact_score')}）"
+                for item in payload.get("transmission_matrix", [])[:4]
+            ] or ["当前没有可用的传导矩阵。"]},
+        ]
+    if query_type == "company_timeline":
+        return [
+            {"title": "时间线结论", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]},
+            {"title": "最近报期", "lines": [
+                f"{item.get('report_period')}：总分 {item.get('total_score')}，评级 {item.get('grade')}"
+                for item in payload.get("snapshots", [])[:3]
+            ] or ["当前没有可回放的报期记录。"]},
+        ]
     if query_type == "risk_scan":
         return [
             {"title": "批量预警", "lines": [
@@ -462,6 +496,24 @@ def _build_follow_up_questions(payload: dict[str, Any], role_key: str) -> list[s
             f"{company_name}还有哪些研报可以横向对比？",
             f"{company_name}最新评级动作和目标价是什么？",
             f"{company_name}哪些观点缺少真实财报支撑？",
+        ]
+    if payload.get("query_type") == "graph_query" and company_name:
+        return [
+            f"{company_name}这条主传导链里最先失稳的是哪个节点？",
+            f"{company_name}上游和下游谁对当前风险更敏感？",
+            f"{company_name}这条链路还需要补哪些证据？",
+        ]
+    if payload.get("query_type") == "stress_test" and company_name:
+        return [
+            f"{company_name}当前压力场景下最先要守住哪个指标？",
+            f"{company_name}哪些恢复动作能优先缓解冲击？",
+            f"{company_name}这个场景是否需要升级预警等级？",
+        ]
+    if payload.get("query_type") == "company_timeline" and company_name:
+        return [
+            f"{company_name}近几期最明显的拐点出现在什么时候？",
+            f"{company_name}哪一个风险标签是持续恶化的？",
+            f"{company_name}最新一期和上一期相比最大的变化是什么？",
         ]
     return ROLE_PROFILES[role_key]["starter_queries"]
 
@@ -613,6 +665,15 @@ def _build_agent_route(agent_name: str, payload: dict[str, Any]) -> dict[str, An
     company_name = payload.get("company_name")
     report_period = payload.get("report_period")
     query_type = payload.get("query_type")
+    if agent_name in {"orchestrator", "signal_analyst", "action_planner"} and query_type == "graph_query" and company_name:
+        return {"label": "进入图谱分析", "path": "/graph",
+                "query": {"company": company_name, "period": report_period}}
+    if agent_name in {"orchestrator", "signal_analyst", "action_planner"} and query_type == "stress_test" and company_name:
+        return {"label": "进入压力测试", "path": "/stress",
+                "query": {"company": company_name, "period": report_period}}
+    if agent_name in {"orchestrator", "signal_analyst", "action_planner"} and query_type == "company_timeline" and company_name:
+        return {"label": "进入时间线回放", "path": "/workspace",
+                "query": {"company": company_name, "period": report_period, "mode": "timeline"}}
     if agent_name in {"orchestrator", "signal_analyst", "action_planner"} and company_name:
         return {"label": "进入企业体检", "path": "/score",
                 "query": {"company": company_name, "period": report_period}}
@@ -642,6 +703,9 @@ def _build_control_plane_sources(payload: dict[str, Any]) -> list[str]:
         "claim_verification": ["真实财报指标", "东方财富研报详情页", "观点核验规则"],
         "peer_benchmark": ["真实财报指标", "同子行业样本池", "横向评分结果"],
         "risk_scan": ["全公司评分快照", "主周期预警板", "行业研报观察"],
+        "graph_query": ["企业关系图谱", "执行流记录", "文档升级结果"],
+        "stress_test": ["企业体检结果", "图谱关系", "压力场景推演"],
+        "company_timeline": ["跨期评分快照", "历史报期", "风险标签变化"],
     }
     return mapping.get(payload.get("query_type", ""), ["真实财报指标", "页级证据", "指标直取"])
 
@@ -652,6 +716,9 @@ def _resolve_agent_signal_source(query_type: str | None) -> str:
         "claim_verification": "真实财报指标 + 研报观点抽取",
         "peer_benchmark": "同子行业评分样本 + 分位结果",
         "risk_scan": "主周期公司池 + 历史报期预警板",
+        "graph_query": "企业关系图谱 + 执行流记录 + 文档升级结果",
+        "stress_test": "企业体检结果 + 压力场景推演 + 图谱传导链",
+        "company_timeline": "历史报期快照 + 风险标签变化 + 图表回放",
         "metric_query": "指标定义 + 页级证据",
         "brief_generation": "评分结果 + 建议动作模板",
     }
@@ -664,6 +731,9 @@ def _resolve_agent_signal_tool(query_type: str | None) -> str:
         "claim_verification": "claim_verifier",
         "peer_benchmark": "benchmark_engine",
         "risk_scan": "risk_scanner",
+        "graph_query": "graph_reasoner",
+        "stress_test": "stress_simulator",
+        "company_timeline": "timeline_replayer",
         "metric_query": "metric_router",
         "brief_generation": "brief_builder",
     }
@@ -700,6 +770,24 @@ def _build_signal_agent_metrics(
             {"label": "高风险公司", "value": len(payload.get("risk_board", []))},
             {"label": "主动预警", "value": len(payload.get("alert_board", []))},
             {"label": "行业研报组", "value": len(payload.get("industry_research", {}).get("groups", []))},
+        ]
+    if query_type == "graph_query":
+        return [
+            {"label": "焦点节点", "value": len(payload.get("focal_nodes", []))},
+            {"label": "推理链路", "value": len(payload.get("inference_path", []))},
+            {"label": "图谱节点", "value": payload.get("graph", {}).get("node_count", 0)},
+        ]
+    if query_type == "stress_test":
+        return [
+            {"label": "冲击等级", "value": payload.get("severity", {}).get("level", "UNKNOWN")},
+            {"label": "传导阶段", "value": len(payload.get("transmission_matrix", []))},
+            {"label": "恢复动作", "value": len(payload.get("stress_recovery_sequence", []))},
+        ]
+    if query_type == "company_timeline":
+        return [
+            {"label": "报期数", "value": len(payload.get("snapshots", []))},
+            {"label": "图表数", "value": len(payload.get("charts", []))},
+            {"label": "关键结果", "value": len(payload.get("key_numbers", []))},
         ]
     return [
         {"label": "关键结果", "value": len(payload.get("key_numbers", []))},

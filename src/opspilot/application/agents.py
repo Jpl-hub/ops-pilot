@@ -28,6 +28,7 @@ ROLE_TOOL_WHITELIST: dict[str, set[str]] = {
         "tool_benchmark_company",
         "tool_risk_scan",
         "tool_company_timeline",
+        "tool_graph_query",
     },
     "management": {
         "tool_score_company",
@@ -35,12 +36,15 @@ ROLE_TOOL_WHITELIST: dict[str, set[str]] = {
         "tool_stress_test",
         "tool_graph_query",
         "tool_company_timeline",
+        "tool_verify_claim",
+        "tool_benchmark_company",
     },
     "regulator": {
         "tool_risk_scan",
         "tool_verify_claim",
         "tool_company_timeline",
         "tool_benchmark_company",
+        "tool_graph_query",
     },
 }
 
@@ -583,18 +587,35 @@ def _strip_markdown_fences(text: str) -> str:
 
 def _route_local_tool(*, query: str, company_name: str | None) -> str:
     lowered = query.lower()
-    if any(keyword in query for keyword in ("研报", "核验", "观点", "券商", "目标价")):
+    benchmark_keywords = ("对标", "同行", "横向", "比较", "排名", "龙头", "领先", "落后")
+    verify_keywords = ("研报", "核验", "观点", "券商", "目标价", "评级", "一致预期", "盈利预测")
+    stress_keywords = ("压力", "冲击", "情景", "stress", "断供", "停产", "关税", "制裁", "下跌", "上涨")
+    graph_keywords = ("图谱", "传导", "链路", "关联", "路径", "因果", "影响到", "波及", "上游", "下游")
+    timeline_keywords = ("时间线", "历年", "回溯", "趋势", "变化", "连续", "拐点", "近几期")
+    risk_scan_keywords = ("行业", "板块", "预警", "扫描", "风险面", "全行业", "谁最危险")
+
+    if any(keyword in query for keyword in verify_keywords):
         return "tool_verify_claim"
-    if any(keyword in query for keyword in ("对标", "同行", "横向", "比较", "排名")):
+    if any(keyword in query for keyword in benchmark_keywords):
         return "tool_benchmark_company"
-    if any(keyword in query for keyword in ("压力", "冲击", "情景", "stress")):
+    if any(keyword in query for keyword in stress_keywords):
         return "tool_stress_test"
-    if any(keyword in query for keyword in ("图谱", "传导", "链路", "关联", "路径")):
+    if any(keyword in query for keyword in graph_keywords):
         return "tool_graph_query"
-    if any(keyword in query for keyword in ("时间线", "历年", "回溯", "趋势")):
+    if any(keyword in query for keyword in timeline_keywords):
         return "tool_company_timeline"
-    if any(keyword in query for keyword in ("行业", "板块", "预警", "扫描")) and not company_name:
+    if any(keyword in query for keyword in risk_scan_keywords) and not company_name:
         return "tool_risk_scan"
+    if any(token in lowered for token in ("benchmark", "peer", "compare")):
+        return "tool_benchmark_company"
+    if any(token in lowered for token in ("verify", "claim", "research")):
+        return "tool_verify_claim"
+    if any(token in lowered for token in ("graph", "path", "causal")):
+        return "tool_graph_query"
+    if any(token in lowered for token in ("stress", "shock", "scenario")):
+        return "tool_stress_test"
+    if any(token in lowered for token in ("timeline", "trend", "history")):
+        return "tool_company_timeline"
     if "risk" in lowered and not company_name:
         return "tool_risk_scan"
     return "tool_score_company"
@@ -704,7 +725,7 @@ async def _execute_local_tool(
         latest = timeline.get("snapshots", [{}])[0]
         timeline.update(
             {
-                "query_type": "metric_query",
+                "query_type": "company_timeline",
                 "answer_markdown": (
                     f"已回放 `{company_name}` 的跨期变化。"
                     f"最新报期为 `{timeline.get('latest_period', report_period or '-')}`，"
@@ -735,14 +756,21 @@ async def _execute_local_tool(
         score = service.score_company(company_name, report_period)
         scorecard = score.get("scorecard", {})
         top_risk = scorecard.get("risk_labels", [{}])
+        dimension_scores = scorecard.get("dimension_scores", {})
+        weakest_dimension = min(
+            dimension_scores.items(),
+            key=lambda item: item[1],
+            default=("经营质量", scorecard.get("total_score")),
+        )
         score.update(
             {
                 "query_type": "company_scoring",
                 "answer_markdown": (
                     f"已完成 `{company_name}` 的企业体检。"
                     f"当前总分 {scorecard.get('total_score', '-')}, 评级 {scorecard.get('grade', '-')}"
-                    f"，首要风险为 `{top_risk[0].get('name', '待识别')}`。"
-                    "建议继续查看分项得分、证据链和整改动作。"
+                    f"，首要风险为 `{top_risk[0].get('name', '待识别')}`，"
+                    f"当前最弱维度是 `{weakest_dimension[0]}`。"
+                    f" 针对问题“{query}”建议优先下钻这一维度的证据链和整改动作。"
                 ),
                 "key_numbers": [
                     {"label": "总分", "value": scorecard.get("total_score"), "unit": "分"},

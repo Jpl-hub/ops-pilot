@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from opspilot.application.agents import _route_local_tool
 from opspilot.application.services import (
     OpsPilotService,
     _build_claim_cards,
@@ -786,6 +787,137 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["runtime_notice"]["mode"], "local_orchestrator")
             self.assertEqual(payload["tool_trace"][0]["tool_name"], "tool_score_company")
             self.assertEqual(payload["ai_assurance"]["tool_call_count"], 1)
+
+    def test_local_tool_router_separates_query_intents(self) -> None:
+        self.assertEqual(
+            _route_local_tool(query="请分析测试公司的图谱传导路径", company_name="测试公司"),
+            "tool_graph_query",
+        )
+        self.assertEqual(
+            _route_local_tool(query="请做测试公司的断供压力测试", company_name="测试公司"),
+            "tool_stress_test",
+        )
+        self.assertEqual(
+            _route_local_tool(query="请回放测试公司近几期时间线变化", company_name="测试公司"),
+            "tool_company_timeline",
+        )
+        self.assertEqual(
+            _route_local_tool(query="请核验测试公司最新研报目标价", company_name="测试公司"),
+            "tool_verify_claim",
+        )
+
+    async def test_chat_turn_keeps_distinct_query_types_when_llm_unavailable(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                return {
+                    "company_name": "测试公司",
+                    "report_period": "2025Q3",
+                    "subindustry": "储能",
+                    "metrics": {"G1": 12.0, "P2": 8.0, "C3": 11.2, "S4": 0.72, "S1": 1.08},
+                    "history": [],
+                    "metric_evidence": {},
+                    "formula_context": {},
+                    "label_evidence": {},
+                }
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [self.get_company("测试公司", "2025Q3")]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def find_company_from_query(self, query: str, report_period: str | None = None) -> str | None:
+                return "测试公司" if "测试公司" in query else None
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bronze" / "manifests").mkdir(parents=True, exist_ok=True)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                openai_api_key = "invalid"
+                postgres_dsn = "postgresql://user:pass@localhost:5432/test"
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            service.company_graph_query = lambda *args, **kwargs: {
+                "company_name": "测试公司",
+                "report_period": "2025Q3",
+                "focal_nodes": [{"label": "应收账款", "type": "risk"}],
+                "inference_path": [{"step": 1, "title": "回款承压", "detail": "客户付款延后"}],
+                "graph": {"node_count": 8, "edge_count": 7, "nodes": [], "edges": []},
+                "summary": {"execution_records": 3},
+            }
+            service.company_stress_test = AsyncMock(return_value={
+                "company_name": "测试公司",
+                "report_period": "2025Q3",
+                "scenario": "供应链断供",
+                "severity": {"level": "HIGH", "label": "高冲击"},
+                "transmission_matrix": [{"stage": "upstream", "headline": "原料断供", "impact_label": "产能承压", "impact_score": -8}],
+                "stress_recovery_sequence": [{"step": 1, "action": "锁定备份供应商"}],
+            })
+            service.company_timeline = lambda *args, **kwargs: {
+                "company_name": "测试公司",
+                "latest_period": "2025Q3",
+                "report_period": "2025Q3",
+                "snapshots": [{"report_period": "2025Q3", "total_score": 72, "grade": "B+"}],
+                "charts": [{"title": "历史评分"}],
+                "key_numbers": [{"label": "报期数", "value": 1, "unit": "期"}],
+            }
+
+            with patch(
+                "opspilot.application.agents.generate_completion",
+                new=AsyncMock(side_effect=RuntimeError("401 invalid token")),
+            ):
+                graph_payload = await service.chat_turn(
+                    query="请分析测试公司的图谱传导路径",
+                    company_name="测试公司",
+                    user_role="management",
+                )
+                stress_payload = await service.chat_turn(
+                    query="请做测试公司的断供压力测试",
+                    company_name="测试公司",
+                    user_role="management",
+                )
+                timeline_payload = await service.chat_turn(
+                    query="请回放测试公司近几期时间线变化",
+                    company_name="测试公司",
+                    user_role="management",
+                )
+
+            self.assertEqual(graph_payload["runtime_notice"]["mode"], "local_orchestrator")
+            self.assertEqual(graph_payload["tool_trace"][0]["tool_name"], "tool_graph_query")
+            self.assertEqual(graph_payload["control_plane"]["query_type"], "graph_query")
+            self.assertEqual(graph_payload["answer_sections"][0]["title"], "图谱结论")
+
+            self.assertEqual(stress_payload["tool_trace"][0]["tool_name"], "tool_stress_test")
+            self.assertEqual(stress_payload["control_plane"]["query_type"], "stress_test")
+            self.assertEqual(stress_payload["answer_sections"][0]["title"], "压力结论")
+
+            self.assertEqual(timeline_payload["tool_trace"][0]["tool_name"], "tool_company_timeline")
+            self.assertEqual(timeline_payload["control_plane"]["query_type"], "company_timeline")
+            self.assertEqual(timeline_payload["answer_sections"][0]["title"], "时间线结论")
 
     async def test_workspace_runs_persist_and_can_be_read_back(self) -> None:
         class StubRepository:
