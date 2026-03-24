@@ -360,14 +360,15 @@ function toggleIssueFilter(issueCode: string) {
                   <div class="ih-row"><span class="muted w-16">CORP</span><strong>{{ detailState.data.value.job.company_name }}</strong></div>
                   <div class="ih-row"><span class="muted w-16">PERIOD</span><strong>{{ detailState.data.value.job.report_period || '-' }}</strong></div>
                   <div class="ih-row"><span class="muted w-16">STATUS</span><span class="tag" :class="detailState.data.value.job.status === 'completed' ? 'success-tag' : detailState.data.value.job.status === 'blocked' ? 'risk-tag' : 'subtle-tag'">{{ detailState.data.value.job.status }}</span></div>
+                  <div class="ih-row"><span class="muted w-16">SOURCE</span><span class="tag subtle-tag">{{ detailState.data.value.job.artifact_source || detailState.data.value.artifact?.source || '-' }}</span></div>
                 </div>
 
                 <div class="terminal-view scroll-area">
                   <div v-for="section in (detailState.data.value.consumable_sections || [])" :key="section.section_type" class="tv-block">
                      <div class="tv-title">> {{ section.title }} ({{ section.count }})</div>
                      <div v-for="(item, i) in section.items.slice(0, 5)" :key="i" class="tv-line">
-                       <span class="tv-text">{{ String(item.text || item.title || item.reason || 'ITEM').substring(0, 60) }}...</span>
-                       <span class="tv-page">p.{{ item.page || item.level || item.to_page || '--' }}</span>
+                       <span class="tv-text">{{ String(item.text || item.title || item.reason || item.source || 'ITEM').substring(0, 60) }}...</span>
+                       <span class="tv-page">{{ item.source || `p.${item.page || item.level || item.to_page || '--'}` }}</span>
                      </div>
                   </div>
                 </div>
@@ -395,7 +396,7 @@ function toggleIssueFilter(issueCode: string) {
                      <h4 class="lc-company">{{ job.company_name }}</h4>
                      <p class="lc-summary muted">{{ job.artifact_summary || 'No summary generated' }}</p>
                      <div class="lc-foot">
-                       <span>{{ job.report_period || '-' }}</span>
+                       <span>{{ job.report_period || '-' }} · {{ job.artifact_source || '-' }}</span>
                        <RouterLink class="inline-glass-link py-1 px-3" :to="{ path: '/admin', query: { stage: job.stage, report_id: job.report_id } }">INSPECT</RouterLink>
                      </div>
                   </div>

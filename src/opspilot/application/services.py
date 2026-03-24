@@ -2206,6 +2206,7 @@ class OpsPilotService:
                     "stage": stage,
                     "label": _document_stage_label(stage),
                     "status": status,
+                    "artifact_source": job.get("artifact_source") if job else None,
                     "summary": (
                         job.get("artifact_summary")
                         or job.get("completed_at")
@@ -2581,6 +2582,7 @@ class OpsPilotService:
                     "status": item["status"],
                     "artifact_path": item.get("artifact_path"),
                     "artifact_summary": item.get("artifact_summary"),
+                    "artifact_source": item.get("artifact_source"),
                     "completed_at": item.get("completed_at"),
                     "detail_route": {
                         "path": f"/api/v1/admin/document-pipeline/results/{item['stage']}/{item['report_id']}",
@@ -2631,6 +2633,7 @@ class OpsPilotService:
                 "artifact_path": job["artifact_path"],
                 "completed_at": job.get("completed_at"),
                 "artifact_summary": job.get("artifact_summary"),
+                "artifact_source": job.get("artifact_source"),
             },
             "artifact": artifact,
             "evidence_navigation": evidence_navigation,
@@ -2650,12 +2653,14 @@ class OpsPilotService:
             job["artifact_path"] = str(artifact_path)
             job["completed_at"] = _utcnow_iso()
             job["artifact_summary"] = artifact_payload.get("summary")
+            job["artifact_source"] = artifact_payload.get("source")
             results.append(
                 {
                     "report_id": job["report_id"],
                     "company_name": job["company_name"],
                     "artifact_path": str(artifact_path),
                     "summary": artifact_payload.get("summary"),
+                    "source": artifact_payload.get("source"),
                 }
             )
         _write_document_pipeline_job_manifest(self.settings, jobs_manifest)
@@ -5496,6 +5501,8 @@ def _filter_document_results_for_company(
 
 def _build_document_artifact_preview(artifact: dict[str, Any]) -> dict[str, Any]:
     preview: dict[str, Any] = {}
+    if source := artifact.get("source"):
+        preview["source"] = source
     if summary := artifact.get("summary"):
         preview["summary"] = summary
     if headings := artifact.get("headings"):
@@ -5533,6 +5540,21 @@ def _build_document_artifact_preview(artifact: dict[str, Any]) -> dict[str, Any]
 
 def _build_document_consumable_sections(artifact: dict[str, Any]) -> list[dict[str, Any]]:
     sections: list[dict[str, Any]] = []
+    if source := artifact.get("source"):
+        sections.append(
+            {
+                "section_type": "artifact_provenance",
+                "title": "解析来源",
+                "count": 1,
+                "items": [
+                    {
+                        "text": "标准 OCR 结构产物" if source == "standard_ocr" else "几何恢复链",
+                        "source": source,
+                        "path": artifact.get("ocr_artifact_path"),
+                    }
+                ],
+            }
+        )
     if headings := artifact.get("headings"):
         sections.append(
             {
@@ -7588,6 +7610,8 @@ def _load_standard_ocr_cell_trace(settings_record: dict[str, Any], settings: Set
     cells = payload.get("cells")
     if not isinstance(tables, list) or not isinstance(cells, list):
         return None
+    if not _is_valid_standard_ocr_tables(tables) or not _is_valid_standard_ocr_cells(cells):
+        return None
     return {
         "report_id": settings_record["report_id"],
         "company_name": settings_record["company_name"],
@@ -7597,6 +7621,36 @@ def _load_standard_ocr_cell_trace(settings_record: dict[str, Any], settings: Set
         "cells": cells,
         "ocr_artifact_path": str(artifact_path),
     }
+
+
+def _is_valid_standard_ocr_tables(tables: list[Any]) -> bool:
+    for item in tables:
+        if not isinstance(item, dict):
+            return False
+        if not item.get("table_id"):
+            return False
+        if not isinstance(item.get("page"), int):
+            return False
+        if not item.get("title"):
+            return False
+    return True
+
+
+def _is_valid_standard_ocr_cells(cells: list[Any]) -> bool:
+    for item in cells:
+        if not isinstance(item, dict):
+            return False
+        if not item.get("table_id"):
+            return False
+        if not isinstance(item.get("page"), int):
+            return False
+        if not isinstance(item.get("row_index"), int):
+            return False
+        if not isinstance(item.get("column_index"), int):
+            return False
+        if not isinstance(item.get("text"), str):
+            return False
+    return True
 
 
 def _extract_page_table_traces(page: dict[str, Any]) -> list[dict[str, Any]]:

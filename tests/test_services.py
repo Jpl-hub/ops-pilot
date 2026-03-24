@@ -1293,6 +1293,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
 
             results = service.document_pipeline_results(stage="title_hierarchy")
             self.assertEqual(results["total"], 1)
+            self.assertIsNone(results["results"][0]["artifact_source"])
 
             detail = service.document_pipeline_result_detail("title_hierarchy", "r-1")
             self.assertEqual(detail["job"]["report_id"], "r-1")
@@ -2298,6 +2299,109 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(artifact_payload["source"], "standard_ocr")
             self.assertEqual(artifact_payload["tables"][0]["title"], "OCR表")
             self.assertEqual(artifact_payload["cells"][0]["text"], "营业收入")
+
+            results = service.document_pipeline_results(stage="cell_trace")
+            self.assertEqual(results["results"][0]["artifact_source"], "standard_ocr")
+
+            detail = service.document_pipeline_result_detail("cell_trace", "demo-ocr")
+            self.assertEqual(detail["job"]["artifact_source"], "standard_ocr")
+            self.assertEqual(detail["consumable_sections"][0]["section_type"], "artifact_provenance")
+            self.assertEqual(detail["consumable_sections"][0]["items"][0]["source"], "standard_ocr")
+
+    def test_document_pipeline_cell_trace_rejects_invalid_standard_ocr_artifact(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return []
+
+            def list_company_names(self) -> list[str]:
+                return []
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = True
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
+
+            def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+                self.ocr_assets_path = root / "models" / "paddleocr-vl"
+                self.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bootstrap").mkdir(parents=True, exist_ok=True)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+            page_json = root / "bronze" / "page_text" / "SZSE" / "000001" / "demo-invalid-ocr.json"
+            page_json.parent.mkdir(parents=True, exist_ok=True)
+            page_json.write_text(
+                json.dumps(
+                    {
+                        "pages": [
+                            {
+                                "page": 1,
+                                "blocks": [
+                                    {"text": "项目 本报告期 年初至报告期末", "bbox": [0, 20, 240, 32]},
+                                    {"text": "营业收入 100.5 320.8", "bbox": [0, 36, 240, 48]},
+                                ],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            ocr_artifact = root / "bronze" / "upgrades" / "ocr_cell_trace" / "000001" / "demo-invalid-ocr.json"
+            ocr_artifact.parent.mkdir(parents=True, exist_ok=True)
+            ocr_artifact.write_text(
+                json.dumps(
+                    {
+                        "summary": "损坏的 OCR 输出",
+                        "tables": [{"page": "1", "title": "坏表"}],
+                        "cells": [{"table_id": "ocr-1", "page": 1, "row_index": 1, "column_index": 1}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "bronze" / "manifests" / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司：2025年三季度报告",
+                                "report_id": "demo-invalid-ocr",
+                                "page_json_path": str(page_json),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+
+            payload = service.run_document_pipeline_stage("cell_trace", 1)
+
+            artifact_path = Path(payload["results"][0]["artifact_path"])
+            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact_payload["source"], "geometric_fallback")
 
     def test_admin_overview_reports_company_coverage_gaps(self) -> None:
         class StubRepository:

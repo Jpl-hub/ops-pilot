@@ -128,6 +128,10 @@ watch(selectedPeriod, async () => { await loadVision() })
             <div v-if="selectedResult" class="status-badge-row">
               <TagPill :label="selectedResult.status_label || '就绪'" tone="success" />
               <TagPill v-if="selectedResult.company_name" :label="selectedResult.company_name" />
+              <TagPill
+                v-if="runtimeState.data.value?.latest_jobs?.[0]?.artifact_source"
+                :label="runtimeState.data.value.latest_jobs[0].artifact_source"
+              />
             </div>
 
             <!-- Phase Track -->
@@ -202,6 +206,7 @@ watch(selectedPeriod, async () => { await loadVision() })
                 </div>
                 <strong class="job-company">{{ job.company_name }}</strong>
                 <p class="job-summary muted">{{ job.artifact_summary || '等待摘要' }}</p>
+                <p class="job-summary muted">{{ job.artifact_source || 'source-unknown' }}</p>
               </div>
             </div>
           </article>
