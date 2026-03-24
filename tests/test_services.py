@@ -2027,6 +2027,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["quality_overview"]["coverage"]["pool_companies"], 0)
             self.assertEqual(payload["document_pipeline"]["layout_engine"], "PP-DocLayout-V3 + PyMuPDF")
             self.assertEqual(payload["document_pipeline"]["cross_page_merge"]["status"], "completed 0")
+            self.assertEqual(payload["document_pipeline"]["cell_trace"]["contract_audit"]["status"], "ready")
             self.assertEqual(payload["job_catalog"][0]["job_id"], "fetch_real_data")
             self.assertIn("企业评分", payload["capabilities"])
             self.assertIn("document_pipeline_jobs", payload)
@@ -2531,6 +2532,153 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["delivery_readiness"]["blocked_company_count"], 1)
             self.assertEqual(payload["delivery_readiness"]["coverage_ratio"], 50)
             self.assertEqual(payload["runtime_readiness"]["status"], "ready")
+
+    def test_admin_overview_audits_ocr_contract_statuses(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return []
+
+            def list_company_names(self) -> list[str]:
+                return []
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = True
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
+
+            def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+                self.ocr_assets_path = root / "models" / "paddleocr-vl"
+                self.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bootstrap").mkdir(parents=True, exist_ok=True)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+            (root / "bronze" / "manifests" / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-ready",
+                                "company_name": "甲公司",
+                                "security_code": "000001",
+                                "title": "甲公司2025年三季度报告",
+                                "page_json_path": str(root / "bronze" / "pages" / "r-ready.json"),
+                            },
+                            {
+                                "report_id": "r-invalid",
+                                "company_name": "乙公司",
+                                "security_code": "000002",
+                                "title": "乙公司2025年三季度报告",
+                                "page_json_path": str(root / "bronze" / "pages" / "r-invalid.json"),
+                            },
+                            {
+                                "report_id": "r-missing",
+                                "company_name": "丙公司",
+                                "security_code": "000003",
+                                "title": "丙公司2025年三季度报告",
+                                "page_json_path": str(root / "bronze" / "pages" / "r-missing.json"),
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "bronze" / "manifests" / "document_pipeline_jobs.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-ready",
+                                "company_name": "甲公司",
+                                "security_code": "000001",
+                                "report_period": "2025Q3",
+                                "stage": "cell_trace",
+                                "status": "completed",
+                                "artifact_path": str(root / "bronze" / "upgrades" / "cell_trace" / "000001" / "r-ready.json"),
+                                "artifact_source": "standard_ocr",
+                                "completed_at": "2026-03-24T10:00:00Z",
+                            },
+                            {
+                                "report_id": "r-invalid",
+                                "company_name": "乙公司",
+                                "security_code": "000002",
+                                "report_period": "2025Q3",
+                                "stage": "cell_trace",
+                                "status": "completed",
+                                "artifact_path": str(root / "bronze" / "upgrades" / "cell_trace" / "000002" / "r-invalid.json"),
+                                "artifact_source": "standard_ocr",
+                                "completed_at": "2026-03-24T10:00:00Z",
+                            },
+                            {
+                                "report_id": "r-missing",
+                                "company_name": "丙公司",
+                                "security_code": "000003",
+                                "report_period": "2025Q3",
+                                "stage": "cell_trace",
+                                "status": "completed",
+                                "artifact_path": str(root / "bronze" / "upgrades" / "cell_trace" / "000003" / "r-missing.json"),
+                                "artifact_source": "geometric_fallback",
+                                "completed_at": "2026-03-24T10:00:00Z",
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            ready = root / "bronze" / "upgrades" / "ocr_cell_trace" / "000001" / "r-ready.json"
+            ready.parent.mkdir(parents=True, exist_ok=True)
+            ready.write_text(
+                json.dumps(
+                    {
+                        "tables": [{"table_id": "t1", "page": 1, "title": "表1"}],
+                        "cells": [{"table_id": "t1", "page": 1, "row_index": 1, "column_index": 1, "text": "营收"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            invalid = root / "bronze" / "upgrades" / "ocr_cell_trace" / "000002" / "r-invalid.json"
+            invalid.parent.mkdir(parents=True, exist_ok=True)
+            invalid.write_text(
+                json.dumps(
+                    {
+                        "tables": [{"page": "1", "title": "坏表"}],
+                        "cells": [{"table_id": "t1"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+            payload = service.admin_overview()
+
+            audit = payload["document_pipeline"]["cell_trace"]["contract_audit"]
+            self.assertEqual(audit["total"], 3)
+            self.assertEqual(audit["ready"], 1)
+            self.assertEqual(audit["invalid"], 1)
+            self.assertEqual(audit["missing"], 1)
+            self.assertEqual(audit["status"], "blocked")
 
     def test_runtime_check_blocks_when_ocr_assets_missing(self) -> None:
         with TemporaryDirectory() as temp_dir:

@@ -286,12 +286,56 @@ function toggleIssueFilter(issueCode: string) {
                   <span class="muted">标题恢复</span>
                   <strong class="eg-val">{{ state.data.value.document_pipeline.title_hierarchy.status }}</strong>
                 </div>
+                <div class="engine-row">
+                  <span class="muted">OCR Contract</span>
+                  <strong class="eg-val">{{ state.data.value.document_pipeline.cell_trace.contract_audit.status }}</strong>
+                  <span class="tag subtle-tag ml-auto">
+                    {{ state.data.value.document_pipeline.cell_trace.contract_audit.ready }}/{{ state.data.value.document_pipeline.cell_trace.contract_audit.total || 0 }}
+                  </span>
+                </div>
               </div>
               
               <div class="mt-4 flex gap-2">
                 <span v-for="item in state.data.value.document_pipeline.coverage" :key="item.label" class="minimal-stat">
                    {{ item.label }} <strong class="ml-1">{{ item.value }}{{ item.unit }}</strong>
                 </span>
+              </div>
+            </article>
+
+            <article class="glass-panel p-panel mt-6" v-if="state.data.value.document_pipeline.cell_trace.contract_audit.total">
+              <h3 class="panel-sm-title mb-4">OCR Contract 批量验收</h3>
+              <div class="readiness-grid">
+                <div class="readiness-stat">
+                  <span>达标</span>
+                  <strong>{{ state.data.value.document_pipeline.cell_trace.contract_audit.ready }}</strong>
+                </div>
+                <div class="readiness-stat">
+                  <span>缺失</span>
+                  <strong>{{ state.data.value.document_pipeline.cell_trace.contract_audit.missing }}</strong>
+                </div>
+                <div class="readiness-stat">
+                  <span>不合格</span>
+                  <strong>{{ state.data.value.document_pipeline.cell_trace.contract_audit.invalid }}</strong>
+                </div>
+                <div class="readiness-stat">
+                  <span>总数</span>
+                  <strong>{{ state.data.value.document_pipeline.cell_trace.contract_audit.total }}</strong>
+                </div>
+              </div>
+              <div class="runtime-check-list mt-4">
+                <div
+                  v-for="item in state.data.value.document_pipeline.cell_trace.contract_audit.samples"
+                  :key="`${item.report_id}-${item.path}`"
+                  class="runtime-check-card"
+                  :class="`is-${item.status === 'ready' ? 'ready' : 'blocked'}`"
+                >
+                  <div class="runtime-check-head">
+                    <strong>{{ item.company_name }} · {{ item.report_id }}</strong>
+                    <span class="tag" :class="item.status === 'ready' ? 'success-tag' : 'risk-tag'">{{ item.status }}</span>
+                  </div>
+                  <p>{{ item.detail }}</p>
+                  <code>{{ item.path }}</code>
+                </div>
               </div>
             </article>
 

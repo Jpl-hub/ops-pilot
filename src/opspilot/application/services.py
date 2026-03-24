@@ -7052,6 +7052,7 @@ def _build_document_pipeline_overview(
     cell_completed = sum(
         1 for item in records if item["stage"] == "cell_trace" and item["status"] == "completed"
     )
+    contract_audit = _build_ocr_cell_trace_contract_audit(settings, records)
     return {
         "layout_engine": ocr_runtime["layout_engine"],
         "ocr_engine": f"{ocr_runtime['provider']} / {ocr_runtime['model']}",
@@ -7071,6 +7072,7 @@ def _build_document_pipeline_overview(
             "status": f"completed {cell_completed}",
             "completed": cell_completed,
             "summary": "统一文档理解链路：页块几何恢复 + 标准 OCR 引擎，产出表格片段与单元格证据链。",
+            "contract_audit": contract_audit,
         },
         "coverage": [
             {"label": "原始文档", "value": periodic_count, "unit": "份"},
@@ -7096,6 +7098,71 @@ def _settings_ocr_runtime(settings: Settings) -> dict[str, Any]:
         "runtime_enabled": getattr(settings, "ocr_runtime_enabled", False),
         "layout_engine": getattr(settings, "doc_layout_engine", "PP-DocLayout-V3 + PyMuPDF"),
     }
+
+
+def _build_ocr_cell_trace_contract_audit(
+    settings: Settings, records: list[dict[str, Any]]
+) -> dict[str, Any]:
+    latest_jobs: dict[str, dict[str, Any]] = {}
+    for item in records:
+        if item.get("stage") != "cell_trace":
+            continue
+        report_id = item.get("report_id")
+        if not report_id:
+            continue
+        current = latest_jobs.get(report_id)
+        current_stamp = (
+            (current.get("completed_at") or current.get("created_at")) if current else ""
+        )
+        candidate_stamp = item.get("completed_at") or item.get("created_at") or ""
+        if current is None or candidate_stamp >= current_stamp:
+            latest_jobs[report_id] = item
+
+    summary = {"ready": 0, "invalid": 0, "missing": 0}
+    samples: list[dict[str, Any]] = []
+    for job in latest_jobs.values():
+        ocr_artifact_path = _standard_ocr_artifact_path(settings, job)
+        if not ocr_artifact_path.exists():
+            status = "missing"
+            detail = "缺少标准 OCR contract 产物"
+        else:
+            payload = _load_json_if_possible(ocr_artifact_path)
+            if payload and _is_valid_standard_ocr_tables(payload.get("tables", [])) and _is_valid_standard_ocr_cells(payload.get("cells", [])):
+                status = "ready"
+                detail = "contract 合法"
+            else:
+                status = "invalid"
+                detail = "contract 存在但字段不合法"
+        summary[status] += 1
+        if len(samples) < 6:
+            samples.append(
+                {
+                    "report_id": job.get("report_id"),
+                    "company_name": job.get("company_name"),
+                    "report_period": job.get("report_period"),
+                    "status": status,
+                    "detail": detail,
+                    "path": str(ocr_artifact_path),
+                }
+            )
+    total = sum(summary.values())
+    return {
+        "total": total,
+        "ready": summary["ready"],
+        "invalid": summary["invalid"],
+        "missing": summary["missing"],
+        "status": "ready" if total == 0 or (summary["invalid"] == 0 and summary["missing"] == 0) else "blocked",
+        "samples": samples,
+    }
+
+
+def _load_json_if_possible(path: Path) -> dict[str, Any] | None:
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _load_task_board_manifest(settings: Settings) -> dict[str, Any]:
