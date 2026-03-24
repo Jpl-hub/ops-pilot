@@ -2,9 +2,15 @@
 
 ## 目标
 
-用你的 Colab A100 资源，最小成本验证 `PaddleOCR-VL-1.5` 是否能在真实 PDF 上跑通。
+用你的 Colab A100 资源，最小成本验证 PaddleOCR 文档解析链路是否能在真实 PDF 上跑通。
 
 这一步只做验证，不做正式交付。正式交付仍然走 Docker。
+
+当前约束：
+
+- 你这次实际跑到的是 `Python 3.12 Colab`
+- 这条环境和当前 Paddle 运行时组合已经触发兼容问题
+- 本仓库脚本已改为在 `Python 3.12` 下直接拦截，不再让你反复空跑
 
 ## 第一步：打开 GPU
 
@@ -42,7 +48,8 @@
 !python scripts/colab_verify_paddleocr_vl.py \
   --pdf /content/sample_report.pdf \
   --output-dir /content/ocr_verify \
-  --install
+  --install \
+  --fail-on-unsupported-runtime
 ```
 
 验证输出会落到：
@@ -60,6 +67,12 @@
 1. `status` 是否为 `ok`
 2. `page_count` 是否大于 0
 3. `preview` 是否包含真实结构输出，而不是空内容或报错
+
+如果 `status` 是 `blocked`：
+
+- 说明不是你命令写错
+- 而是当前运行时不满足脚本验证条件
+- 不要继续在这个会话里硬试，直接切换到更稳定的 Python 3.10/3.11 环境，或者继续走 Docker 交付链
 
 ## 第六步：把结论带回项目
 
