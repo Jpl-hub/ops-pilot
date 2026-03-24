@@ -7460,7 +7460,7 @@ def _run_document_pipeline_job(
     elif stage == "title_hierarchy":
         artifact_payload = _build_title_hierarchy_artifact(job, page_payload)
     else:
-        artifact_payload = _build_cell_trace_artifact(job, page_payload)
+        artifact_payload = _build_cell_trace_artifact(job, page_payload, settings=settings)
     artifact_path = _document_pipeline_artifact_path(settings, stage, job)
     _write_json(artifact_path, artifact_payload)
     return artifact_payload, artifact_path
@@ -7516,7 +7516,12 @@ def _build_title_hierarchy_artifact(job: dict[str, Any], page_payload: dict[str,
     }
 
 
-def _build_cell_trace_artifact(job: dict[str, Any], page_payload: dict[str, Any]) -> dict[str, Any]:
+def _build_cell_trace_artifact(
+    job: dict[str, Any], page_payload: dict[str, Any], *, settings: Settings
+) -> dict[str, Any]:
+    if ocr_payload := _load_standard_ocr_cell_trace(job, settings):
+        return ocr_payload
+
     tables: list[dict[str, Any]] = []
     cells: list[dict[str, Any]] = []
     for page in page_payload.get("pages", []):
@@ -7551,6 +7556,7 @@ def _build_cell_trace_artifact(job: dict[str, Any], page_payload: dict[str, Any]
     return {
         "report_id": job["report_id"],
         "company_name": job["company_name"],
+        "source": "geometric_fallback",
         "summary": f"恢复出 {len(tables)} 个表格片段、{len(cells)} 个单元格。",
         "tables": tables,
         "cells": cells,
@@ -7561,6 +7567,36 @@ def _document_pipeline_artifact_path(settings: Settings, stage: str, record: dic
     security_code = record.get("security_code", "unknown")
     report_id = record.get("report_id", "unknown")
     return settings.bronze_data_path / "upgrades" / stage / security_code / f"{report_id}.json"
+
+
+def _standard_ocr_artifact_path(settings: Settings, record: dict[str, Any]) -> Path:
+    security_code = record.get("security_code", "unknown")
+    report_id = record.get("report_id", "unknown")
+    return settings.bronze_data_path / "upgrades" / "ocr_cell_trace" / security_code / f"{report_id}.json"
+
+
+def _load_standard_ocr_cell_trace(settings_record: dict[str, Any], settings: Settings) -> dict[str, Any] | None:
+    artifact_path = _standard_ocr_artifact_path(settings, settings_record)
+    if not artifact_path.exists():
+        return None
+    try:
+        with artifact_path.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except json.JSONDecodeError:
+        return None
+    tables = payload.get("tables")
+    cells = payload.get("cells")
+    if not isinstance(tables, list) or not isinstance(cells, list):
+        return None
+    return {
+        "report_id": settings_record["report_id"],
+        "company_name": settings_record["company_name"],
+        "source": "standard_ocr",
+        "summary": payload.get("summary") or f"读取标准 OCR 结构输出，获得 {len(tables)} 个表格片段、{len(cells)} 个单元格。",
+        "tables": tables,
+        "cells": cells,
+        "ocr_artifact_path": str(artifact_path),
+    }
 
 
 def _extract_page_table_traces(page: dict[str, Any]) -> list[dict[str, Any]]:

@@ -25,4 +25,20 @@ def main() -> None:
             ),
             encoding="utf-8",
         )
+    contract_path = Path(settings.bronze_data_path) / "upgrades" / "ocr_cell_trace" / "_CONTRACT.json"
+    contract_path.parent.mkdir(parents=True, exist_ok=True)
+    if not contract_path.exists():
+        contract_path.write_text(
+            json.dumps(
+                {
+                    "artifact_type": "standard_ocr_cell_trace",
+                    "path_pattern": "data/bronze/official/upgrades/ocr_cell_trace/<security_code>/<report_id>.json",
+                    "required_fields": ["tables", "cells"],
+                    "notes": "cell_trace 会优先消费该标准 OCR 结构输出；缺失时才回退到几何恢复。",
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     print(str(assets_root))
