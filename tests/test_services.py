@@ -2014,6 +2014,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["job_catalog"][0]["job_id"], "fetch_real_data")
             self.assertIn("企业评分", payload["capabilities"])
             self.assertIn("document_pipeline_jobs", payload)
+            self.assertIn("delivery_readiness", payload)
+            self.assertEqual(payload["delivery_readiness"]["stage"], "bootstrapping")
             self.assertIn("innovation_radar", payload)
             self.assertIn("workspace_history", payload)
             self.assertGreaterEqual(payload["innovation_radar"]["summary"]["total"], 1)
@@ -2214,6 +2216,10 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertIn("缺研报", issue_buckets)
             self.assertEqual(company_rows["甲公司"]["issues"], [])
             self.assertEqual(company_rows["乙公司"]["issues"], ["缺研报", "缺主周期"])
+            self.assertEqual(payload["delivery_readiness"]["stage"], "hardening")
+            self.assertEqual(payload["delivery_readiness"]["ready_company_count"], 1)
+            self.assertEqual(payload["delivery_readiness"]["blocked_company_count"], 1)
+            self.assertEqual(payload["delivery_readiness"]["coverage_ratio"], 50)
 
     def test_build_label_cards_links_formula_metrics_and_evidence(self) -> None:
         company = {

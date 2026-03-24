@@ -165,9 +165,9 @@ function toggleIssueFilter(issueCode: string) {
                 </div>
               </div>
               
-              <div v-if="state.data.value.quality_overview.issue_buckets?.length" class="mt-4 border-t-subtle pt-4">
-                <span class="eyebrow inline-mr">异常阻断分桶:</span>
-                <div class="tag-row compact-tags mt-2">
+                <div v-if="state.data.value.quality_overview.issue_buckets?.length" class="mt-4 border-t-subtle pt-4">
+                  <span class="eyebrow inline-mr">异常阻断分桶:</span>
+                  <div class="tag-row compact-tags mt-2">
                   <button
                     v-for="bucket in issueBuckets"
                     :key="bucket.code"
@@ -178,6 +178,49 @@ function toggleIssueFilter(issueCode: string) {
                   >
                     <TagPill :label="`${bucket.label} ${bucket.count}`" tone="risk" />
                   </button>
+                </div>
+              </div>
+            </article>
+
+            <article class="glass-panel p-panel mt-6">
+              <div class="panel-head-compact">
+                <h3 class="panel-sm-title mb-4">交付就绪度</h3>
+                <span class="readiness-badge" :class="`is-${state.data.value.delivery_readiness.stage}`">
+                  {{ state.data.value.delivery_readiness.stage.toUpperCase() }}
+                </span>
+              </div>
+              <div class="readiness-grid">
+                <div class="readiness-stat">
+                  <span>主周期覆盖</span>
+                  <strong>{{ state.data.value.delivery_readiness.coverage_ratio }}%</strong>
+                </div>
+                <div class="readiness-stat">
+                  <span>银层就绪</span>
+                  <strong>{{ state.data.value.delivery_readiness.silver_ratio }}%</strong>
+                </div>
+                <div class="readiness-stat">
+                  <span>研报就绪</span>
+                  <strong>{{ state.data.value.delivery_readiness.research_ratio }}%</strong>
+                </div>
+                <div class="readiness-stat">
+                  <span>可直接交付</span>
+                  <strong>{{ state.data.value.delivery_readiness.ready_company_count }}</strong>
+                </div>
+              </div>
+              <div class="readiness-actions">
+                <div
+                  v-for="item in state.data.value.delivery_readiness.priority_actions"
+                  :key="item.title"
+                  class="readiness-action-card"
+                >
+                  <div class="readiness-action-head">
+                    <strong>{{ item.title }}</strong>
+                    <span class="muted text-xs">{{ item.companies.length ? `${item.companies.length} 家样本` : '系统级' }}</span>
+                  </div>
+                  <p>{{ item.summary }}</p>
+                  <div v-if="item.companies.length" class="tag-row compact-tags">
+                    <span v-for="company in item.companies" :key="company" class="tag subtle-tag text-xs">{{ company }}</span>
+                  </div>
                 </div>
               </div>
             </article>
@@ -486,6 +529,20 @@ function toggleIssueFilter(issueCode: string) {
 .bucket-meta { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
 .bucket-bar-track { height: 8px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; }
 .bucket-bar-fill { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, rgba(244,63,94,0.7), rgba(251,191,36,0.85)); }
+.panel-head-compact { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.readiness-badge { padding: 4px 10px; border-radius: 999px; font-size: 11px; letter-spacing: 0.08em; font-family: 'JetBrains Mono', monospace; border: 1px solid rgba(255,255,255,0.1); }
+.readiness-badge.is-ready { color: #10b981; border-color: rgba(16,185,129,0.35); background: rgba(16,185,129,0.12); }
+.readiness-badge.is-hardening { color: #fbbf24; border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.12); }
+.readiness-badge.is-blocked { color: #f43f5e; border-color: rgba(244,63,94,0.35); background: rgba(244,63,94,0.12); }
+.readiness-badge.is-bootstrapping { color: #60a5fa; border-color: rgba(96,165,250,0.35); background: rgba(96,165,250,0.12); }
+.readiness-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 12px; }
+.readiness-stat { border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.03); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.readiness-stat span { color: var(--muted); font-size: 12px; }
+.readiness-stat strong { font-size: 24px; line-height: 1; }
+.readiness-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.readiness-action-card { border: 1px solid rgba(255,255,255,0.06); background: rgba(0,0,0,0.16); border-radius: 12px; padding: 14px; }
+.readiness-action-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.readiness-action-card p { margin: 0 0 10px; color: #cbd5e1; font-size: 13px; line-height: 1.5; }
 
 /* Engines */
 .engine-list { display: flex; flex-direction: column; gap: 12px; }

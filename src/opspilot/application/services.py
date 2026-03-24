@@ -161,6 +161,11 @@ class OpsPilotService:
         data_status = self.official_data_status()
         quality_overview = _build_admin_quality_overview(self.settings, health["preferred_period"])
         document_pipeline = _build_document_pipeline_overview(data_status, self.settings)
+        delivery_readiness = _build_delivery_readiness(
+            quality_overview=quality_overview,
+            document_pipeline=document_pipeline,
+            health=health,
+        )
         innovation_radar = self.innovation_radar()
         workspace_runs = self.workspace_runs(limit=8)
         workspace_history = self.workspace_history(user_role="management", report_period=health["preferred_period"], limit=12)
@@ -169,6 +174,7 @@ class OpsPilotService:
             "data_status": data_status,
             "quality_overview": quality_overview,
             "document_pipeline": document_pipeline,
+            "delivery_readiness": delivery_readiness,
             "document_pipeline_jobs": self.document_pipeline_jobs(),
             "innovation_radar": innovation_radar,
             "workspace_runs": workspace_runs,
@@ -6740,6 +6746,72 @@ def _build_admin_quality_overview(settings: Settings, preferred_period: str | No
         },
         "issue_buckets": issue_buckets,
         "companies": company_rows,
+    }
+
+
+def _build_delivery_readiness(
+    *,
+    quality_overview: dict[str, Any],
+    document_pipeline: dict[str, Any],
+    health: dict[str, Any],
+) -> dict[str, Any]:
+    coverage = quality_overview.get("coverage", {})
+    companies = quality_overview.get("companies", [])
+    issue_buckets = quality_overview.get("issue_buckets", [])
+    pool_companies = coverage.get("pool_companies", 0) or 0
+    preferred_period_ready = coverage.get("preferred_period_ready", 0) or 0
+    silver_ready = coverage.get("silver_ready", 0) or 0
+    research_ready = coverage.get("research_ready", 0) or 0
+    blocker_companies = [row for row in companies if row.get("issues")]
+    ready_companies = [row for row in companies if not row.get("issues")]
+
+    coverage_ratio = round((preferred_period_ready / pool_companies) * 100) if pool_companies else 0
+    silver_ratio = round((silver_ready / pool_companies) * 100) if pool_companies else 0
+    research_ratio = round((research_ready / pool_companies) * 100) if pool_companies else 0
+
+    blocked_cell_trace = document_pipeline.get("cell_trace", {}).get("blocked", 0)
+    if pool_companies == 0:
+        stage = "bootstrapping"
+    elif not ready_companies:
+        stage = "blocked"
+    elif coverage_ratio >= 85 and silver_ratio >= 85 and research_ratio >= 70 and blocked_cell_trace == 0:
+        stage = "ready"
+    else:
+        stage = "hardening"
+
+    top_blockers = sorted(issue_buckets, key=lambda item: item.get("count", 0), reverse=True)[:3]
+    priority_actions = [
+        {
+            "title": item["label"],
+            "summary": f"{item['count']} 家公司受阻，优先处理该链路。",
+            "companies": item.get("companies", [])[:5],
+        }
+        for item in top_blockers
+    ]
+    if blocked_cell_trace:
+        priority_actions.append(
+            {
+                "title": "OCR 运行时",
+                "summary": f"单元格溯源仍有 {blocked_cell_trace} 条作业被阻断。",
+                "companies": [],
+            }
+        )
+
+    return {
+        "stage": stage,
+        "preferred_period": health.get("preferred_period"),
+        "ready_company_count": len(ready_companies),
+        "blocked_company_count": len(blocker_companies),
+        "coverage_ratio": coverage_ratio,
+        "silver_ratio": silver_ratio,
+        "research_ratio": research_ratio,
+        "priority_actions": priority_actions[:4],
+        "summary": {
+            "pool_companies": pool_companies,
+            "preferred_period_ready": preferred_period_ready,
+            "silver_ready": silver_ready,
+            "research_ready": research_ready,
+        },
     }
 
 
