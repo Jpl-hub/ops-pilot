@@ -51,6 +51,8 @@ const latestAnswer = computed(() => {
 // 右侧面板数据
 const insightCards = computed(() => latestAnswer.value?.insight_cards ?? [])
 const actionCards  = computed(() => latestAnswer.value?.action_cards  ?? [])
+const hasCompanies = computed(() => companies.value.length > 0)
+const canRunQuery = computed(() => !!selectedCompany.value && !!query.value.trim() && !loadingTurn.value)
 
 // 角色显示
 const roleLabel = computed(() => {
@@ -73,6 +75,15 @@ const agentColor: Record<string, { icon: string; dot: string }> = {
   strategy: { icon: '#a78bfa', dot: '#7c3aed' },
 }
 function agentStyle(key: string) { return agentColor[key] ?? { icon: '#9ca3af', dot: '#6b7280' } }
+
+function displayPriority(priority?: string) {
+  const map: Record<string, string> = {
+    high: '高优先级',
+    medium: '中优先级',
+    low: '低优先级',
+  }
+  return map[(priority || '').toLowerCase()] || priority || '待定级'
+}
 
 // ------------------------------------------------------------------
 // Input handling
@@ -104,7 +115,7 @@ onMounted(async () => {
   workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
   await workspace.loadOverview(session.activeRole.value || 'investor')
   if (!companies.value.includes(selectedCompany.value)) {
-    selectedCompany.value = companies.value[0]
+    selectedCompany.value = companies.value[0] || ''
   }
 })
 
@@ -117,6 +128,9 @@ watch(
   async () => {
     workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
     await workspace.loadOverview(session.activeRole.value || 'investor')
+    if (!companies.value.includes(selectedCompany.value)) {
+      selectedCompany.value = companies.value[0] || ''
+    }
   },
 )
 
@@ -145,6 +159,7 @@ watch(selectedCompany, async (company, previous) => {
           <div class="chat-target">
             <span class="chat-target-label">分析公司</span>
             <select v-model="selectedCompany" class="chat-select">
+              <option v-if="!companies.length" value="">暂无公司</option>
               <option v-for="c in companies" :key="c" :value="c">{{ c }}</option>
             </select>
           </div>
@@ -169,7 +184,18 @@ watch(selectedCompany, async (company, previous) => {
           <div class="chat-messages" ref="chatScrollRef">
 
             <!-- welcome / empty state -->
-            <div v-if="messages.length <= 1" class="chat-welcome">
+            <div v-if="!hasCompanies" class="chat-welcome">
+              <div class="chat-welcome-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="1.5">
+                  <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>
+                </svg>
+              </div>
+              <p class="chat-welcome-text">
+                当前还没有可分析企业<br>
+                <span class="chat-welcome-sub">请先完成正式公司池和页级/指标数据接入，再进入协同分析。</span>
+              </p>
+            </div>
+            <div v-else-if="messages.length <= 1" class="chat-welcome">
               <div class="chat-welcome-icon">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="1.5">
                   <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73A2 2 0 0 1 10 4a2 2 0 0 1 2-2z"/>
@@ -325,6 +351,7 @@ watch(selectedCompany, async (company, previous) => {
                 v-for="item in starterQueries.slice(0, 5)"
                 :key="item"
                 class="chat-prompt-pill"
+                :disabled="!selectedCompany"
                 @click="runQuery(`${selectedCompany} ${item}`)"
               >{{ item }}</button>
             </div>
@@ -333,13 +360,13 @@ watch(selectedCompany, async (company, previous) => {
               <textarea
                 v-model="query"
                 class="chat-textarea"
-                :placeholder="`向 ${selectedCompany || '...'} 发起分析，Shift+Enter 换行`"
+                :placeholder="selectedCompany ? `向 ${selectedCompany} 发起分析，Shift+Enter 换行` : '当前无可分析企业，请先完成数据接入'"
                 @keydown.enter="handleEnter"
                 rows="1"
               />
               <button
                 class="chat-send"
-                :disabled="loadingTurn || !query.trim()"
+                :disabled="!canRunQuery"
                 @click="runQuery()"
               >
                 <svg v-if="loadingTurn" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
@@ -378,13 +405,13 @@ watch(selectedCompany, async (company, previous) => {
               <div v-if="actionCards.length" class="panel-block">
                 <div class="panel-block-title">
                   <span class="panel-dot" style="background:#f43f5e"/>
-                  风险 & 行动
+                  风险与动作
                 </div>
                 <div class="panel-tags">
                   <TagPill
                     v-for="item in actionCards"
                     :key="item.title"
-                    :label="`[${item.priority}] ${item.title}`"
+                    :label="`[${displayPriority(item.priority)}] ${item.title}`"
                     :tone="item.priority?.toLowerCase() === 'high' ? 'risk' : 'default'"
                   />
                 </div>

@@ -8,7 +8,6 @@ import { useAsyncState } from '@/composables/useAsyncState'
 import { buildWebSocketUrl, get, loadAccessToken } from '@/lib/api'
 
 const state = useAsyncState<any>()
-const historyState = useAsyncState<any>()
 const livePayload = ref<any | null>(null)
 const wsStatus = ref<'connecting' | 'connected' | 'disconnected'>('connecting')
 let socket: WebSocket | null = null
@@ -26,6 +25,31 @@ const sentimentScore = computed(() => {
 })
 
 const showForecast = ref(false)
+
+function displayWsStatus(status: 'connecting' | 'connected' | 'disconnected') {
+  const map: Record<string, string> = {
+    connecting: '连接中',
+    connected: '实时订阅已连接',
+    disconnected: '实时订阅未连接',
+  }
+  return map[status] || status
+}
+
+function displayGaugeMood(score: number) {
+  if (score > 60) return '偏强'
+  if (score > 40) return '平稳'
+  return '偏弱'
+}
+
+function displayExecutionStatus(status?: string) {
+  const map: Record<string, string> = {
+    ready: '就绪',
+    running: '处理中',
+    completed: '已完成',
+    blocked: '已阻断',
+  }
+  return map[(status || '').toLowerCase()] || status || '已记录'
+}
 
 function connectStream() {
   const token = loadAccessToken()
@@ -77,7 +101,7 @@ onBeforeUnmount(() => {
         <div class="ib-ticker-bar">
           <div class="ib-ticker-title">
             <svg class="ib-pulse-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-            Live Feed
+            实时信号带
           </div>
           <div class="ib-ticker-overflow">
             <div class="ib-ticker-track">
@@ -98,13 +122,13 @@ onBeforeUnmount(() => {
             <div class="ib-header-left">
               <h2 class="ib-title">
                 <svg class="ib-globe-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-                新能源产业大脑 (Industry Brain)
+                新能源产业大脑
               </h2>
               <div class="ib-meta-row">
-                <p class="ib-meta-desc">Global Macro & Micro Telemetry</p>
+                <p class="ib-meta-desc">宏观与产业联动监测</p>
                 <div class="ib-ws-badge" :class="wsStatus === 'connected' ? 'connected' : 'disconnected'">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-                  {{ wsStatus === 'connected' ? "WS CONNECTED" : "WS DISCONNECTED" }}
+                  {{ displayWsStatus(wsStatus) }}
                 </div>
               </div>
             </div>
@@ -118,29 +142,29 @@ onBeforeUnmount(() => {
 
           <!-- Top KPI Grid -->
           <div class="ib-kpi-grid">
-            <div class="ib-stat-card border-glow" v-if="marketTape[0]">
+              <div class="ib-stat-card border-glow" v-if="marketTape[0]">
               <div class="ib-card-accent bg-emerald-500"></div>
               <p class="ib-stat-label">{{ marketTape[0].label }}</p>
               <h4 class="ib-stat-value text-emerald-400">{{ marketTape[0].value }}</h4>
-              <div class="ib-stat-trend text-emerald-400"><span class="bg-emerald-500-10">{{ marketTape[0].delta }}</span> MoM</div>
+              <div class="ib-stat-trend text-emerald-400"><span class="bg-emerald-500-10">{{ marketTape[0].delta }}</span> 环比</div>
             </div>
             <div class="ib-stat-card border-glow-risk" v-if="marketTape[1]">
               <div class="ib-card-accent bg-rose-500"></div>
               <p class="ib-stat-label">{{ marketTape[1].label }}</p>
               <h4 class="ib-stat-value text-rose-400">{{ marketTape[1].value }}</h4>
-              <div class="ib-stat-trend text-rose-400"><span class="bg-rose-500-10">{{ marketTape[1].delta }}</span> MoM</div>
+              <div class="ib-stat-trend text-rose-400"><span class="bg-rose-500-10">{{ marketTape[1].delta }}</span> 环比</div>
             </div>
             <div class="ib-stat-card" v-for="item in marketTape.slice(2, 4)" :key="item.label">
               <p class="ib-stat-label">{{ item.label }}</p>
               <h4 class="ib-stat-value">{{ item.value }}</h4>
               <div class="ib-stat-trend" :class="item.tone === 'risk' ? 'text-rose-400' : 'text-emerald-400'">
-                <span :class="item.tone === 'risk' ? 'bg-rose-500-10' : 'bg-emerald-500-10'">{{ item.delta }}</span> MoM
+                <span :class="item.tone === 'risk' ? 'bg-rose-500-10' : 'bg-emerald-500-10'">{{ item.delta }}</span> 环比
               </div>
             </div>
 
             <!-- Sentiment Gauge -->
             <div class="ib-gauge-card group hover-glow-emerald">
-              <div class="ib-gauge-label">Market Sentiment</div>
+              <div class="ib-gauge-label">市场情绪</div>
               <div class="ib-gauge-draw">
                 <svg viewBox="0 0 100 50" class="ib-gauge-svg">
                   <!-- Background Arc -->
@@ -151,7 +175,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="ib-gauge-text">
                 <span class="ib-gauge-num">{{ sentimentScore }}</span>
-                <span class="ib-gauge-desc">{{ sentimentScore > 60 ? 'Greed' : sentimentScore > 40 ? 'Neutral' : 'Fear' }}</span>
+                <span class="ib-gauge-desc">{{ displayGaugeMood(sentimentScore) }}</span>
               </div>
             </div>
           </div>
@@ -163,7 +187,7 @@ onBeforeUnmount(() => {
               <div class="absolute right-5 top-5 z-10">
                 <button class="ib-ai-btn" :class="{ active: showForecast }" @click="showForecast = !showForecast">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ib-spark-icon" :class="{ 'animate-pulse': showForecast }"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a4.936 4.936 0 0 1 0-9.462l6.135-1.581A2 2 0 0 0 9.937.5L11.52.012a4.936 4.936 0 0 1 9.462 0l1.582 6.135a2 2 0 0 0 1.438 1.437l6.135 1.582a4.936 4.936 0 0 1 0 9.462l-6.135 1.582a2 2 0 0 0-1.438 1.437l-1.582 6.135a4.936 4.936 0 0 1-9.462 0z"></path></svg>
-                  Gemini 3.1 预测模型
+                  趋势预测视图
                 </button>
               </div>
               <h3 class="ib-panel-title">
@@ -182,30 +206,30 @@ onBeforeUnmount(() => {
             <!-- Right Feed: Live Anomalies -->
             <div class="ib-glass p-5 flex flex-col min-h-[380px] ib-col-span-1 border-white-5 shadow-xl">
               <h3 class="ib-panel-title flex justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="ib-dot bg-amber-500 animate-pulse"></div>
-                  AI 异常检测 (Live Anomalies)
+                  <div class="flex items-center gap-2">
+                    <div class="ib-dot bg-amber-500 animate-pulse"></div>
+                  异常事件流
                 </div>
-                <span class="ib-auto-refresh">Auto-refresh</span>
+                <span class="ib-auto-refresh">自动刷新</span>
               </h3>
               <div class="ib-feed-list custom-scrollbar">
                 <div v-if="liveEvents.length === 0" class="ib-empty-feed">
                    <svg class="opacity-20 mb-2" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-                   Monitoring streams...
+                   正在监听事件流...
                 </div>
                 <div v-for="event in liveEvents" :key="`${event.company_name}-${event.headline}`" class="ib-anomaly-item" :class="event.status === 'Alert' ? 'high-risk' : 'med-risk'">
                   <div class="flex items-start gap-2 relative z-10">
                     <svg class="ib-alert-icon" :class="event.status === 'Alert' ? 'text-red-400' : 'text-amber-400'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                     <span class="ib-anomaly-text">{{ event.headline }} ({{ event.company_name }})</span>
                   </div>
-                  <div class="ib-anomaly-time">LIVE</div>
+                  <div class="ib-anomaly-time">实时</div>
                 </div>
                 <div v-for="flash in executionFlash" :key="`${flash.title}-${flash.status}`" class="ib-anomaly-item low-risk">
                   <div class="flex items-start gap-2 relative z-10">
                     <svg class="ib-alert-icon text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
                     <span class="ib-anomaly-text">{{ flash.title }}</span>
                   </div>
-                  <div class="ib-anomaly-time">{{ flash.status }}</div>
+                  <div class="ib-anomaly-time">{{ displayExecutionStatus(flash.status) }}</div>
                 </div>
               </div>
             </div>
@@ -237,7 +261,7 @@ onBeforeUnmount(() => {
                   <div class="ib-radar-bg group-hover:opacity-100"></div>
                   <div class="flex justify-between items-start mb-2 relative z-10">
                     <span class="ib-radar-date">{{ matrix.company_name }}</span>
-                    <span class="ib-radar-impact border-blue-500">MONITOR</span>
+                    <span class="ib-radar-impact border-blue-500">跟踪</span>
                   </div>
                   <h4 class="ib-radar-head relative z-10 group-hover:text-purple-300">{{ matrix.headline }}</h4>
                 </RouterLink>

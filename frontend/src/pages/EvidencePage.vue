@@ -29,6 +29,22 @@ const highlightedExcerpt = computed(() => {
   }, escapeHtml(excerpt))
 })
 
+const sourceTypeLabel = computed(() => {
+  const map: Record<string, string> = {
+    official_summary_page: '定期报告页级摘要',
+    research_report: '研报证据',
+    annual_report: '年度报告',
+    periodic_report: '定期报告',
+  }
+  const sourceType = String(state.data.value?.source_type || '')
+  return map[sourceType] || sourceType || '未标注'
+})
+
+const pageLabel = computed(() => {
+  const page = state.data.value?.page
+  return typeof page === 'number' || typeof page === 'string' ? `第 ${page} 页` : '页码未标注'
+})
+
 function escapeHtml(text: string) {
   return text
     .replace(/&/g, '&amp;')
@@ -43,7 +59,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell title="证据库查看器" compact>
+  <AppShell title="证据核验台" compact>
     <div class="evidence-wrapper">
       <LoadingState v-if="state.loading.value" class="state-container" />
       <ErrorState v-else-if="state.error.value" :message="state.error.value" class="state-container" />
@@ -66,11 +82,11 @@ onMounted(() => {
              </div>
              <div class="ev-meta-item">
                <span class="muted text-xs">文档属性</span>
-               <strong class="text-sm">{{ state.data.value.source_type }} · {{ state.data.value.report_period }}</strong>
+               <strong class="text-sm">{{ sourceTypeLabel }} · {{ state.data.value.report_period }}</strong>
              </div>
              <div class="ev-meta-item">
                <span class="muted text-xs">定位点</span>
-               <strong class="text-sm text-accent">PAGE {{ state.data.value.page }}</strong>
+               <strong class="text-sm text-accent">{{ pageLabel }}</strong>
              </div>
            </div>
         </header>
@@ -91,7 +107,11 @@ onMounted(() => {
         <footer class="ev-foot border-t-subtle mt-4 pt-4">
            <h4 class="text-xs uppercase muted mb-3">源文件链路</h4>
            <div class="source-grid">
-              <div class="source-field"><span>源文件连接</span><a class="text-accent underline" :href="state.data.value.source_url" target="_blank" rel="noreferrer">打开原文图床</a></div>
+              <div class="source-field">
+                <span>原文链接</span>
+                <a v-if="state.data.value.source_url" class="text-accent underline" :href="state.data.value.source_url" target="_blank" rel="noreferrer">打开原文</a>
+                <code v-else class="system-code">无外部链接</code>
+              </div>
               <div class="source-field"><span>系统路径</span><code class="system-code">{{ state.data.value.local_path }}</code></div>
               <div class="source-field"><span>哈希指纹</span><code class="system-code">{{ state.data.value.fingerprint }}</code></div>
            </div>
