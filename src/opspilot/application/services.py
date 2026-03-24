@@ -2658,12 +2658,36 @@ class OpsPilotService:
             "consumable_sections": _build_document_consumable_sections(artifact),
         }
 
-    def run_document_pipeline_stage(self, stage: str, limit: int = 5) -> dict[str, Any]:
+    def run_document_pipeline_stage(
+        self,
+        stage: str,
+        limit: int = 5,
+        *,
+        artifact_source: str | None = None,
+        contract_status: str | None = None,
+    ) -> dict[str, Any]:
         jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
         records = jobs_manifest["records"]
-        pending_jobs = [
-            item for item in records if item["stage"] == stage and item["status"] == "pending"
-        ][:limit]
+        if contract_status and stage != "cell_trace":
+            raise ValueError("contract_status 仅支持 cell_trace 阶段。")
+        if contract_status == "ready":
+            raise ValueError("不允许批量重跑 contract 已达标的样本。")
+        candidate_jobs: list[dict[str, Any]] = []
+        for item in records:
+            if item["stage"] != stage:
+                continue
+            item_contract_status = _resolve_document_contract_status(self.settings, item)
+            item_artifact_source = item.get("artifact_source")
+            if artifact_source and item_artifact_source != artifact_source:
+                continue
+            if contract_status and item_contract_status != contract_status:
+                continue
+            if contract_status:
+                candidate_jobs.append(item)
+                continue
+            if item["status"] == "pending":
+                candidate_jobs.append(item)
+        pending_jobs = candidate_jobs[:limit]
         results: list[dict[str, Any]] = []
         for job in pending_jobs:
             artifact_payload, artifact_path = _run_document_pipeline_job(stage, job, self.settings)
@@ -2685,6 +2709,8 @@ class OpsPilotService:
         return {
             "stage": stage,
             "requested": limit,
+            "artifact_source": artifact_source,
+            "contract_status": contract_status,
             "processed": len(results),
             "results": results,
             "jobs": self.document_pipeline_jobs(),

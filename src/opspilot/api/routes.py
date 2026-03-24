@@ -182,7 +182,15 @@ def admin_document_pipeline_jobs(_: dict = Depends(require_current_user)) -> dic
 def admin_document_pipeline_run(
     request: DocumentPipelineRunRequest, _: dict = Depends(require_current_user)
 ) -> dict:
-    return get_service().run_document_pipeline_stage(request.stage, request.limit)
+    try:
+        return get_service().run_document_pipeline_stage(
+            request.stage,
+            request.limit,
+            artifact_source=request.artifact_source,
+            contract_status=request.contract_status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/admin/document-pipeline/results")

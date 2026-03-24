@@ -98,10 +98,15 @@ watch(
 
 async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_trace') {
   runningStage.value = stage
-  await pipelineRunState.execute(() => post('/admin/document-pipeline/run', { stage, limit: 5 }))
+  await pipelineRunState.execute(() =>
+    post('/admin/document-pipeline/run', {
+      stage,
+      limit: 5,
+      artifact_source: stage === 'cell_trace' && selectedArtifactSource.value ? selectedArtifactSource.value : null,
+      contract_status: stage === 'cell_trace' && selectedContractStatus.value ? selectedContractStatus.value : null,
+    }),
+  )
   await state.execute(() => get('/admin/overview'))
-  selectedArtifactSource.value = ''
-  selectedContractStatus.value = ''
   await loadResults(stage)
   runningStage.value = ''
 }
@@ -129,6 +134,10 @@ async function clearPipelineFilter() {
   selectedArtifactSource.value = ''
   await loadResults()
 }
+
+const canRerunFilteredCellTrace = computed(() => {
+  return selectedContractStatus.value === 'missing' || selectedContractStatus.value === 'invalid'
+})
 </script>
 
 <template>
@@ -333,7 +342,15 @@ async function clearPipelineFilter() {
             <article class="glass-panel p-panel mt-6" v-if="state.data.value.document_pipeline.cell_trace.contract_audit.total">
               <div class="panel-head-compact">
                 <h3 class="panel-sm-title mb-4">OCR Contract 批量验收</h3>
-                <button class="inline-glass-link py-1 px-3" type="button" @click="clearPipelineFilter">CLEAR FILTER</button>
+                <div class="flex gap-2">
+                  <button
+                    v-if="canRerunFilteredCellTrace"
+                    class="inline-glass-link py-1 px-3"
+                    type="button"
+                    @click="runStage('cell_trace')"
+                  >RERUN FILTERED</button>
+                  <button class="inline-glass-link py-1 px-3" type="button" @click="clearPipelineFilter">CLEAR FILTER</button>
+                </div>
               </div>
               <div class="readiness-grid">
                 <button class="readiness-stat" type="button" @click="applyContractFilter('ready', 'standard_ocr')">
@@ -389,7 +406,7 @@ async function clearPipelineFilter() {
                       :disabled="runningStage === item.stage"
                       @click="runStage(item.stage)"
                     >
-                      {{ runningStage === item.stage ? 'RUNNING' : 'EXECUTE BATCH' }}
+                      {{ runningStage === item.stage ? 'RUNNING' : item.stage === 'cell_trace' && canRerunFilteredCellTrace ? 'RERUN FILTERED' : 'EXECUTE BATCH' }}
                     </button>
                     <span v-else class="text-xs muted">
                       COMPLETED

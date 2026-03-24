@@ -77,6 +77,8 @@ class LoginRequest(BaseModel):
 class DocumentPipelineRunRequest(BaseModel):
     stage: Literal["cross_page_merge", "title_hierarchy", "cell_trace"]
     limit: int = Field(default=5, ge=1, le=20)
+    artifact_source: str | None = None
+    contract_status: Literal["ready", "invalid", "missing"] | None = None
 
 
 class TaskStatusUpdateRequest(BaseModel):
