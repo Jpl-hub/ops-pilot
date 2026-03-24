@@ -392,6 +392,19 @@ const canRerunFilteredCellTrace = computed(() => {
 
             <article class="glass-panel p-panel mt-6 min-h-[300px]">
               <h3 class="panel-sm-title mb-4">执行作业队列</h3>
+              <div v-if="pipelineRunState.data.value?.execution_feedback" class="runtime-check-list mb-4">
+                <div class="runtime-check-card is-ready">
+                  <div class="runtime-check-head">
+                    <strong>最近一次执行反馈</strong>
+                    <span class="tag success-tag">{{ pipelineRunState.data.value.execution_feedback.processed }}</span>
+                  </div>
+                  <p>{{ pipelineRunState.data.value.execution_feedback.headline }}</p>
+                  <code>
+                    before: {{ JSON.stringify(pipelineRunState.data.value.execution_feedback.before) }}
+                    | after: {{ JSON.stringify(pipelineRunState.data.value.execution_feedback.after) }}
+                  </code>
+                </div>
+              </div>
               <div class="job-list">
                 <div
                   v-for="item in state.data.value.document_pipeline_jobs.stage_summary"

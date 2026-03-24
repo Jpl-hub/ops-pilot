@@ -2672,6 +2672,7 @@ class OpsPilotService:
             raise ValueError("contract_status 仅支持 cell_trace 阶段。")
         if contract_status == "ready":
             raise ValueError("不允许批量重跑 contract 已达标的样本。")
+        before_summary = _summarize_contract_statuses(records, settings=self.settings, stage=stage)
         candidate_jobs: list[dict[str, Any]] = []
         for item in records:
             if item["stage"] != stage:
@@ -2706,6 +2707,18 @@ class OpsPilotService:
                 }
             )
         _write_document_pipeline_job_manifest(self.settings, jobs_manifest)
+        after_summary = _summarize_contract_statuses(
+            jobs_manifest["records"],
+            settings=self.settings,
+            stage=stage,
+        )
+        execution_feedback = _build_document_pipeline_execution_feedback(
+            stage=stage,
+            contract_status=contract_status,
+            processed=len(results),
+            before_summary=before_summary,
+            after_summary=after_summary,
+        )
         return {
             "stage": stage,
             "requested": limit,
@@ -2713,6 +2726,7 @@ class OpsPilotService:
             "contract_status": contract_status,
             "processed": len(results),
             "results": results,
+            "execution_feedback": execution_feedback,
             "jobs": self.document_pipeline_jobs(),
         }
 
@@ -7225,6 +7239,47 @@ def _resolve_document_contract_status(settings: Settings, item: dict[str, Any]) 
     if payload and _is_valid_standard_ocr_tables(payload.get("tables", [])) and _is_valid_standard_ocr_cells(payload.get("cells", [])):
         return "ready"
     return "invalid"
+
+
+def _summarize_contract_statuses(
+    records: list[dict[str, Any]], *, settings: Settings, stage: str
+) -> dict[str, int]:
+    if stage != "cell_trace":
+        return {"ready": 0, "invalid": 0, "missing": 0}
+    summary = {"ready": 0, "invalid": 0, "missing": 0}
+    for item in records:
+        if item.get("stage") != "cell_trace":
+            continue
+        status = _resolve_document_contract_status(settings, item)
+        if status in summary:
+            summary[status] += 1
+    return summary
+
+
+def _build_document_pipeline_execution_feedback(
+    *,
+    stage: str,
+    contract_status: str | None,
+    processed: int,
+    before_summary: dict[str, int],
+    after_summary: dict[str, int],
+) -> dict[str, Any]:
+    fixed_count = 0
+    remaining_count = 0
+    if stage == "cell_trace" and contract_status in {"missing", "invalid"}:
+        fixed_count = max(before_summary.get(contract_status, 0) - after_summary.get(contract_status, 0), 0)
+        remaining_count = after_summary.get(contract_status, 0)
+        headline = f"本次重跑处理 {processed} 份样本，修复 {fixed_count} 份，剩余 {remaining_count} 份 {contract_status}。"
+    else:
+        headline = f"本次执行完成 {processed} 个 {stage} 作业。"
+    return {
+        "headline": headline,
+        "processed": processed,
+        "fixed_count": fixed_count,
+        "remaining_count": remaining_count,
+        "before": before_summary,
+        "after": after_summary,
+    }
 
 
 def _load_json_if_possible(path: Path) -> dict[str, Any] | None:
