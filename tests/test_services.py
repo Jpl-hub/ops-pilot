@@ -2355,6 +2355,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(report["status"], "blocked")
             ocr_assets = next(item for item in report["checks"] if item["key"] == "ocr_assets")
             self.assertEqual(ocr_assets["status"], "blocked")
+            self.assertIn("ops-pilot-init-ocr-assets", ocr_assets["remediation"])
+            self.assertTrue(report["recommended_actions"])
             with self.assertRaisesRegex(RuntimeError, "ocr_assets"):
                 validate_delivery_runtime(StubSettings())
 

@@ -245,6 +245,7 @@ function toggleIssueFilter(issueCode: string) {
                   </div>
                   <p>{{ item.summary }}</p>
                   <code>{{ item.detail }}</code>
+                  <p v-if="item.remediation" class="runtime-remediation">{{ item.remediation }}</p>
                 </div>
               </div>
             </article>
@@ -574,6 +575,7 @@ function toggleIssueFilter(issueCode: string) {
 .runtime-check-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
 .runtime-check-card p { margin: 0 0 8px; color: #cbd5e1; font-size: 13px; line-height: 1.5; }
 .runtime-check-card code { display: block; font-size: 11px; color: #94a3b8; word-break: break-all; font-family: 'JetBrains Mono', monospace; }
+.runtime-remediation { margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(148, 163, 184, 0.18); color: #f8fafc; }
 
 /* Engines */
 .engine-list { display: flex; flex-direction: column; gap: 12px; }
