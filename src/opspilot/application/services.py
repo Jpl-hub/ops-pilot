@@ -2562,6 +2562,8 @@ class OpsPilotService:
         stage: str | None = None,
         *,
         status: str | None = None,
+        artifact_source: str | None = None,
+        contract_status: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
         jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
@@ -2571,6 +2573,12 @@ class OpsPilotService:
             if stage and item["stage"] != stage:
                 continue
             if status and item["status"] != status:
+                continue
+            item_contract_status = _resolve_document_contract_status(self.settings, item)
+            item_artifact_source = item.get("artifact_source")
+            if artifact_source and item_artifact_source != artifact_source:
+                continue
+            if contract_status and item_contract_status != contract_status:
                 continue
             filtered.append(
                 {
@@ -2582,7 +2590,8 @@ class OpsPilotService:
                     "status": item["status"],
                     "artifact_path": item.get("artifact_path"),
                     "artifact_summary": item.get("artifact_summary"),
-                    "artifact_source": item.get("artifact_source"),
+                    "artifact_source": item_artifact_source,
+                    "contract_status": item_contract_status,
                     "completed_at": item.get("completed_at"),
                     "detail_route": {
                         "path": f"/api/v1/admin/document-pipeline/results/{item['stage']}/{item['report_id']}",
@@ -2592,6 +2601,8 @@ class OpsPilotService:
         return {
             "stage": stage,
             "status": status,
+            "artifact_source": artifact_source,
+            "contract_status": contract_status,
             "total": len(filtered),
             "results": filtered[:limit],
         }
@@ -7176,6 +7187,18 @@ def _build_ocr_cell_trace_contract_audit(
         "status": "ready" if total == 0 or (summary["invalid"] == 0 and summary["missing"] == 0) else "blocked",
         "samples": samples,
     }
+
+
+def _resolve_document_contract_status(settings: Settings, item: dict[str, Any]) -> str | None:
+    if item.get("stage") != "cell_trace":
+        return None
+    ocr_artifact_path = _standard_ocr_artifact_path(settings, item)
+    if not ocr_artifact_path.exists():
+        return "missing"
+    payload = _load_json_if_possible(ocr_artifact_path)
+    if payload and _is_valid_standard_ocr_tables(payload.get("tables", [])) and _is_valid_standard_ocr_cells(payload.get("cells", [])):
+        return "ready"
+    return "invalid"
 
 
 def _load_json_if_possible(path: Path) -> dict[str, Any] | None:

@@ -189,10 +189,18 @@ def admin_document_pipeline_run(
 def admin_document_pipeline_results(
     stage: str | None = None,
     status: str | None = None,
+    artifact_source: str | None = None,
+    contract_status: str | None = None,
     limit: int = 20,
     _: dict = Depends(require_current_user),
 ) -> dict:
-    return get_service().document_pipeline_results(stage=stage, status=status, limit=limit)
+    return get_service().document_pipeline_results(
+        stage=stage,
+        status=status,
+        artifact_source=artifact_source,
+        contract_status=contract_status,
+        limit=limit,
+    )
 
 
 @router.get("/admin/document-pipeline/results/{stage}/{report_id}")

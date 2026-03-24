@@ -2685,6 +2685,31 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["delivery_readiness"]["stage"], "bootstrapping")
             self.assertEqual(payload["delivery_readiness"]["priority_actions"][0]["title"], "OCR Contract 验收")
 
+            ready_results = service.document_pipeline_results(
+                stage="cell_trace",
+                artifact_source="standard_ocr",
+                contract_status="ready",
+                limit=10,
+            )
+            self.assertEqual(ready_results["total"], 1)
+            self.assertEqual(ready_results["results"][0]["report_id"], "r-ready")
+
+            invalid_results = service.document_pipeline_results(
+                stage="cell_trace",
+                contract_status="invalid",
+                limit=10,
+            )
+            self.assertEqual(invalid_results["total"], 1)
+            self.assertEqual(invalid_results["results"][0]["report_id"], "r-invalid")
+
+            missing_results = service.document_pipeline_results(
+                stage="cell_trace",
+                contract_status="missing",
+                limit=10,
+            )
+            self.assertEqual(missing_results["total"], 1)
+            self.assertEqual(missing_results["results"][0]["report_id"], "r-missing")
+
     def test_runtime_check_blocks_when_ocr_assets_missing(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

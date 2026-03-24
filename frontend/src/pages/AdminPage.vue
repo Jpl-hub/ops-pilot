@@ -16,6 +16,8 @@ const detailState = useAsyncState<any>()
 const runningStage = ref('')
 const selectedIssueCode = ref('')
 const selectedCompanyName = ref('')
+const selectedArtifactSource = ref('')
+const selectedContractStatus = ref('')
 const route = useRoute()
 
 const selectedStage = computed(() => String(route.query.stage || ''))
@@ -65,7 +67,7 @@ const selectedCompanyIssueGuide = computed(() => {
 
 onMounted(() => {
   void state.execute(() => get('/admin/overview'))
-  void resultsState.execute(() => get('/admin/document-pipeline/results?limit=12'))
+  void loadResults()
 })
 
 watch(
@@ -98,12 +100,34 @@ async function runStage(stage: 'cross_page_merge' | 'title_hierarchy' | 'cell_tr
   runningStage.value = stage
   await pipelineRunState.execute(() => post('/admin/document-pipeline/run', { stage, limit: 5 }))
   await state.execute(() => get('/admin/overview'))
-  await resultsState.execute(() => get(`/admin/document-pipeline/results?stage=${stage}&limit=12`))
+  selectedArtifactSource.value = ''
+  selectedContractStatus.value = ''
+  await loadResults(stage)
   runningStage.value = ''
 }
 
 function toggleIssueFilter(issueCode: string) {
   selectedIssueCode.value = selectedIssueCode.value === issueCode ? '' : issueCode
+}
+
+async function loadResults(stage = '') {
+  const params = new URLSearchParams({ limit: '12' })
+  if (stage) params.set('stage', stage)
+  if (selectedArtifactSource.value) params.set('artifact_source', selectedArtifactSource.value)
+  if (selectedContractStatus.value) params.set('contract_status', selectedContractStatus.value)
+  await resultsState.execute(() => get(`/admin/document-pipeline/results?${params.toString()}`))
+}
+
+async function applyContractFilter(contractStatus = '', artifactSource = '') {
+  selectedContractStatus.value = contractStatus
+  selectedArtifactSource.value = artifactSource
+  await loadResults('cell_trace')
+}
+
+async function clearPipelineFilter() {
+  selectedContractStatus.value = ''
+  selectedArtifactSource.value = ''
+  await loadResults()
 }
 </script>
 
@@ -307,20 +331,23 @@ function toggleIssueFilter(issueCode: string) {
             </article>
 
             <article class="glass-panel p-panel mt-6" v-if="state.data.value.document_pipeline.cell_trace.contract_audit.total">
-              <h3 class="panel-sm-title mb-4">OCR Contract 批量验收</h3>
+              <div class="panel-head-compact">
+                <h3 class="panel-sm-title mb-4">OCR Contract 批量验收</h3>
+                <button class="inline-glass-link py-1 px-3" type="button" @click="clearPipelineFilter">CLEAR FILTER</button>
+              </div>
               <div class="readiness-grid">
-                <div class="readiness-stat">
+                <button class="readiness-stat" type="button" @click="applyContractFilter('ready', 'standard_ocr')">
                   <span>达标</span>
                   <strong>{{ state.data.value.document_pipeline.cell_trace.contract_audit.ready }}</strong>
-                </div>
-                <div class="readiness-stat">
+                </button>
+                <button class="readiness-stat" type="button" @click="applyContractFilter('missing')">
                   <span>缺失</span>
                   <strong>{{ state.data.value.document_pipeline.cell_trace.contract_audit.missing }}</strong>
-                </div>
-                <div class="readiness-stat">
+                </button>
+                <button class="readiness-stat" type="button" @click="applyContractFilter('invalid')">
                   <span>不合格</span>
                   <strong>{{ state.data.value.document_pipeline.cell_trace.contract_audit.invalid }}</strong>
-                </div>
+                </button>
                 <div class="readiness-stat">
                   <span>总数</span>
                   <strong>{{ state.data.value.document_pipeline.cell_trace.contract_audit.total }}</strong>
@@ -332,14 +359,17 @@ function toggleIssueFilter(issueCode: string) {
                   :key="`${item.report_id}-${item.path}`"
                   class="runtime-check-card"
                   :class="`is-${item.status === 'ready' ? 'ready' : 'blocked'}`"
-                >
-                  <div class="runtime-check-head">
-                    <strong>{{ item.company_name }} · {{ item.report_id }}</strong>
-                    <span class="tag" :class="item.status === 'ready' ? 'success-tag' : 'risk-tag'">{{ item.status }}</span>
+                  >
+                    <div class="runtime-check-head">
+                      <strong>{{ item.company_name }} · {{ item.report_id }}</strong>
+                      <span class="tag" :class="item.status === 'ready' ? 'success-tag' : 'risk-tag'">{{ item.status }}</span>
+                    </div>
+                    <p>{{ item.detail }}</p>
+                    <code>{{ item.path }}</code>
+                    <div class="mt-3">
+                      <button class="inline-glass-link py-1 px-3" type="button" @click="applyContractFilter(item.status, item.status === 'ready' ? 'standard_ocr' : '')">筛到结果日志</button>
+                    </div>
                   </div>
-                  <p>{{ item.detail }}</p>
-                  <code>{{ item.path }}</code>
-                </div>
               </div>
             </article>
 
@@ -461,7 +491,13 @@ function toggleIssueFilter(issueCode: string) {
 
              <!-- Latest Results -->
              <article class="glass-panel p-panel mb-6">
-               <h3 class="panel-sm-title mb-4">升级结果日志</h3>
+               <div class="panel-head-compact">
+                 <h3 class="panel-sm-title mb-4">升级结果日志</h3>
+                 <span class="muted text-xs">
+                   {{ selectedContractStatus ? `contract=${selectedContractStatus}` : 'all contracts' }}
+                   {{ selectedArtifactSource ? ` · source=${selectedArtifactSource}` : '' }}
+                 </span>
+               </div>
                <div class="logs-grid">
                   <div v-for="job in (resultsState.data.value?.results || []).slice(0, 16)" :key="`${job.report_id}-${job.stage}`" class="log-card glass-panel-hover">
                      <div class="lc-head">
@@ -471,7 +507,7 @@ function toggleIssueFilter(issueCode: string) {
                      <h4 class="lc-company">{{ job.company_name }}</h4>
                      <p class="lc-summary muted">{{ job.artifact_summary || 'No summary generated' }}</p>
                      <div class="lc-foot">
-                       <span>{{ job.report_period || '-' }} · {{ job.artifact_source || '-' }}</span>
+                       <span>{{ job.report_period || '-' }} · {{ job.artifact_source || '-' }} · {{ job.contract_status || '-' }}</span>
                        <RouterLink class="inline-glass-link py-1 px-3" :to="{ path: '/admin', query: { stage: job.stage, report_id: job.report_id } }">INSPECT</RouterLink>
                      </div>
                   </div>
