@@ -28,6 +28,7 @@ dev = [
 
 [project.scripts]
 ops-pilot-api = "opspilot.main:run_api"
+ops-pilot-runtime-check = "opspilot.runtime_checks:main"
 ops-pilot-ui = "opspilot.main:run_ui"
 ops-pilot-fetch-real-data = "opspilot.ingest.fetch_real_data:main"
 ops-pilot-parse-official-reports = "opspilot.ingest.parse_official_reports:main"

@@ -42,7 +42,12 @@ services:
       PYTHONPATH: /app/src
     volumes:
       - ./:/app
-    command: ["ops-pilot-api"]
+    command:
+      [
+        "sh",
+        "-c",
+        "ops-pilot-runtime-check && ops-pilot-api",
+      ]
     ports:
       - "8000:8000"
     depends_on:

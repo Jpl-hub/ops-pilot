@@ -20,6 +20,7 @@ from opspilot.application.services import (
     _infer_report_period_from_text,
     _select_research_report,
 )
+from opspilot.runtime_checks import build_runtime_report, validate_delivery_runtime
 from opspilot.infra.sample_repository import SampleRepository
 
 
@@ -2334,6 +2335,47 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["delivery_readiness"]["blocked_company_count"], 1)
             self.assertEqual(payload["delivery_readiness"]["coverage_ratio"], 50)
             self.assertEqual(payload["runtime_readiness"]["status"], "ready")
+
+    def test_runtime_check_blocks_when_ocr_assets_missing(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+                official_data_path = root / "raw"
+                silver_data_path = root / "silver"
+                ocr_runtime_enabled = True
+                ocr_assets_path = root / "models" / "missing-paddleocr-vl"
+
+            StubSettings.official_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
+
+            report = build_runtime_report(StubSettings())
+
+            self.assertEqual(report["status"], "blocked")
+            ocr_assets = next(item for item in report["checks"] if item["key"] == "ocr_assets")
+            self.assertEqual(ocr_assets["status"], "blocked")
+            with self.assertRaisesRegex(RuntimeError, "ocr_assets"):
+                validate_delivery_runtime(StubSettings())
+
+    def test_runtime_check_passes_when_delivery_assets_present(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+                official_data_path = root / "raw"
+                silver_data_path = root / "silver"
+                ocr_runtime_enabled = True
+                ocr_assets_path = root / "models" / "paddleocr-vl"
+
+            StubSettings.official_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+
+            report = validate_delivery_runtime(StubSettings())
+
+            self.assertEqual(report["status"], "ready")
 
     def test_build_label_cards_links_formula_metrics_and_evidence(self) -> None:
         company = {
