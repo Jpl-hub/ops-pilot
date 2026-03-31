@@ -45,9 +45,9 @@ docker compose up --build
 - API：`http://127.0.0.1:8000`
 - 前端：`http://127.0.0.1:8080`
 - PostgreSQL：`127.0.0.1:5432`
-- OCR 标准能力：在 `.env` 中配置 `OPS_PILOT_OCR_ASSETS_PATH` 和 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`
-- API 容器启动前会自动执行 `ops-pilot-runtime-check` 输出当前运行检查；本地开发环境不会因为 OCR 资产缺失而阻断启动
-- 首次准备模型目录可执行 `ops-pilot-init-ocr-assets`
+- OCR 标准能力：推荐使用 `PaddleOCR-VL-1.5` 服务模式，在 `.env` 中配置 `OPS_PILOT_OCR_RUNTIME_MODE=service`、`OPS_PILOT_OCR_SERVICE_URL=http://<ocr-host>:<port>` 和 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`
+- 如需本地模型目录模式，再配置 `OPS_PILOT_OCR_ASSETS_PATH` 并执行 `ops-pilot-init-ocr-assets`
+- API 容器启动前会自动执行 `ops-pilot-runtime-check` 输出当前运行检查；本地开发环境不会因为 OCR 运行时缺失而阻断启动
 - 需要导出运行周报时可执行 `ops-pilot-delivery-report --format markdown --output docs/ops_runtime_report.md`
 
 ### Docker 容器分工
@@ -93,7 +93,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\clean-workspace.ps1
 2. 访问 `http://127.0.0.1:8000/api/v1/healthz`，确认 API 返回 `status=ok`。
 3. 在运营保障中心依次检查“运行时检查”、“系统就绪度”、“OCR Contract 质量巡检”、“关键检查清单”。
 4. 确认 `OPS_PILOT_OPENAI_API_KEY`、`OPS_PILOT_POSTGRES_DSN`、数据目录路径都已配置。
-5. 确认 `OPS_PILOT_OCR_ASSETS_PATH` 已落盘且 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`，运营保障中心“OCR 标准引擎”显示 `ready`。
+5. 确认 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`，并按所选模式完成 OCR 运行时配置：服务模式检查 `OPS_PILOT_OCR_SERVICE_URL`，本地模式检查 `OPS_PILOT_OCR_ASSETS_PATH`。
 6. 如 OCR contract 存在 `missing/invalid`，先在运营保障中心筛选并执行“重跑当前筛选”，再看“最近一次执行反馈”和“治理轨迹”。
 7. 执行 `ops-pilot-delivery-report --format markdown --output docs/ops_runtime_report.md`，固化当前运行状态和治理摘要。
 8. 确认主评估周期、silver 指标覆盖、研报覆盖和 OCR contract 质检全部达到上线要求。
@@ -108,7 +108,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\clean-workspace.ps1
 | `OPS_PILOT_OPENAI_BASE_URL` | API 端点 | `https://api.openai.com/v1` |
 | `OPS_PILOT_POSTGRES_DSN` | 数据库连接 | `postgresql+psycopg://...` |
 | `OPS_PILOT_UNIVERSE_DATA_PATH` | 正式公司池目录 | `data/universe` |
-| `OPS_PILOT_OCR_ASSETS_PATH` | 标准 OCR 模型/权重目录（必填） | `models/paddleocr-vl` |
+| `OPS_PILOT_OCR_RUNTIME_MODE` | OCR 运行时模式：`service` 或 `local_assets` | `service` |
+| `OPS_PILOT_OCR_SERVICE_URL` | `PaddleOCR-VL` 服务地址，服务模式必填 | `http://127.0.0.1:8310` |
+| `OPS_PILOT_OCR_ASSETS_PATH` | 标准 OCR 模型/权重目录，本地模式必填 | `models/paddleocr-vl` |
 | `OPS_PILOT_OCR_RUNTIME_ENABLED` | 标准 OCR 运行时开关，生产环境必须为 `true` | `true` |
 | `OPS_PILOT_DEFAULT_PERIOD` | 默认分析报期 | `2025Q3` |
 | `OPS_PILOT_KAFKA_BOOTSTRAP_SERVERS` | 外部信号 Kafka 地址，可选 | `127.0.0.1:19092` |

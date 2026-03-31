@@ -5,9 +5,12 @@ from pathlib import Path
 from typing import Any
 from html import unescape
 from datetime import UTC, date, datetime
+import base64
 import json
 import re
 import time
+
+import requests
 
 try:
     from kafka import KafkaConsumer, TopicPartition
@@ -77,6 +80,7 @@ TABLE_HEADER_TERMS = (
     "合并现金流量表",
     "续表",
 )
+MARKDOWN_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$")
 ROLE_PROFILES = {
     "investor": {
         "label": "投资者",
@@ -2664,8 +2668,10 @@ class OpsPilotService:
             and cell_trace_stage.get("contract_status") in {"missing", "invalid"}
         ):
             next_action = "补齐标准 OCR 结构契约后重新运行单元格溯源"
+        elif ocr_runtime["runtime_enabled"] and ocr_runtime["mode"] == "service" and not ocr_runtime["service_url"]:
+            next_action = "配置 PaddleOCR-VL 服务地址后再运行财报扫描"
         elif not ocr_runtime["runtime_enabled"]:
-            next_action = "接通标准 OCR 引擎后再执行正式解析"
+            next_action = "接通正式 OCR 运行时后再执行财报扫描"
         elif stage_status_counts.get("pending"):
             next_action = "继续运行文档升级作业"
         elif stage_status_counts.get("completed"):
@@ -2679,6 +2685,8 @@ class OpsPilotService:
             "runtime": {
                 "provider": ocr_runtime["provider"],
                 "model": ocr_runtime["model"],
+                "mode": ocr_runtime["mode"],
+                "service_url": ocr_runtime["service_url"],
                 "runtime_enabled": ocr_runtime["runtime_enabled"],
                 "layout_engine": ocr_runtime["layout_engine"],
                 "next_action": next_action,
@@ -9902,9 +9910,15 @@ def _document_stage_label(stage: str) -> str:
 
 
 def _settings_ocr_runtime(settings: Settings) -> dict[str, Any]:
+    runtime_mode = str(getattr(settings, "ocr_runtime_mode", "local_assets") or "local_assets").strip().lower()
+    if runtime_mode not in {"service", "local_assets"}:
+        runtime_mode = "local_assets"
     return {
         "provider": getattr(settings, "ocr_provider", "PaddleOCR-VL"),
         "model": getattr(settings, "ocr_model", "PaddleOCR-VL-1.5"),
+        "mode": runtime_mode,
+        "service_url": str(getattr(settings, "ocr_service_url", "") or "").strip().rstrip("/"),
+        "request_timeout_seconds": float(getattr(settings, "ocr_request_timeout_seconds", 120.0)),
         "assets_path": str(getattr(settings, "ocr_assets_path", Path("models/paddleocr-vl"))),
         "runtime_enabled": getattr(settings, "ocr_runtime_enabled", False),
         "layout_engine": getattr(settings, "doc_layout_engine", "PP-DocLayout-V3 + PyMuPDF"),
@@ -10778,6 +10792,8 @@ def _build_cell_trace_artifact(
 ) -> dict[str, Any]:
     if ocr_payload := _load_standard_ocr_cell_trace(job, settings):
         return ocr_payload
+    if ocr_payload := _materialize_standard_ocr_cell_trace(job, settings):
+        return ocr_payload
 
     tables: list[dict[str, Any]] = []
     cells: list[dict[str, Any]] = []
@@ -10830,6 +10846,201 @@ def _standard_ocr_artifact_path(settings: Settings, record: dict[str, Any]) -> P
     security_code = record.get("security_code", "unknown")
     report_id = record.get("report_id", "unknown")
     return settings.bronze_data_path / "upgrades" / "ocr_cell_trace" / security_code / f"{report_id}.json"
+
+
+def _resolve_report_source_path(settings: Settings, value: str | None) -> Path | None:
+    if not value:
+        return None
+    candidate = Path(str(value).replace("\\", "/"))
+    if candidate.is_absolute():
+        return candidate if candidate.exists() else None
+
+    cwd_candidate = (Path.cwd() / candidate).resolve()
+    if cwd_candidate.exists():
+        return cwd_candidate
+
+    project_root = getattr(settings, "official_data_path", None)
+    if project_root is not None:
+        project_root_path = Path(project_root)
+        if len(project_root_path.parents) >= 3:
+            root_candidate = (project_root_path.parents[2] / candidate).resolve()
+            if root_candidate.exists():
+                return root_candidate
+    return None
+
+
+def _load_parsed_periodic_report_record(settings: Settings, report_id: str) -> dict[str, Any] | None:
+    manifest_records = _load_manifest_records(
+        settings.bronze_data_path / "manifests" / "parsed_periodic_reports_manifest.json"
+    )
+    return next((item for item in manifest_records if item.get("report_id") == report_id), None)
+
+
+def _resolve_source_document_path(settings: Settings, job: dict[str, Any]) -> Path | None:
+    report = _load_parsed_periodic_report_record(settings, str(job.get("report_id") or ""))
+    if report is None:
+        return None
+    for key in ("file_path", "local_path", "source_path"):
+        resolved = _resolve_report_source_path(settings, report.get(key))
+        if resolved is not None:
+            return resolved
+    return None
+
+
+def _clean_markdown_context_line(line: str) -> str:
+    cleaned = line.strip()
+    cleaned = re.sub(r"^\s*[#>\-\*\u2022]+\s*", "", cleaned)
+    cleaned = re.sub(r"^\s*\d+[\.\)]\s*", "", cleaned)
+    return cleaned.strip()
+
+
+def _looks_like_markdown_table_row(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.count("|") >= 2 and not MARKDOWN_TABLE_SEPARATOR_RE.match(stripped)
+
+
+def _split_markdown_table_row(line: str) -> list[str]:
+    stripped = line.strip().strip("|")
+    if not stripped:
+        return []
+    return [part.replace("\\|", "|").strip() for part in re.split(r"(?<!\\)\|", stripped)]
+
+
+def _infer_markdown_table_title(lines: list[str], table_start: int, *, page: int, index: int) -> str:
+    for cursor in range(table_start - 1, max(-1, table_start - 6), -1):
+        if cursor < 0:
+            break
+        candidate = _clean_markdown_context_line(lines[cursor])
+        if not candidate:
+            continue
+        if _looks_like_markdown_table_row(candidate) or MARKDOWN_TABLE_SEPARATOR_RE.match(candidate):
+            continue
+        return candidate
+    return f"表格 P{page}-{index:02d}"
+
+
+def _extract_tables_from_markdown(markdown_text: str, *, page: int, report_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    lines = markdown_text.splitlines()
+    tables: list[dict[str, Any]] = []
+    cells: list[dict[str, Any]] = []
+    cursor = 0
+    table_index = 0
+    while cursor < len(lines):
+        if cursor + 1 >= len(lines):
+            break
+        current = lines[cursor].rstrip()
+        separator = lines[cursor + 1].rstrip()
+        if not _looks_like_markdown_table_row(current) or not MARKDOWN_TABLE_SEPARATOR_RE.match(separator.strip()):
+            cursor += 1
+            continue
+        header = _split_markdown_table_row(current)
+        body_rows: list[list[str]] = []
+        cursor += 2
+        while cursor < len(lines) and _looks_like_markdown_table_row(lines[cursor]):
+            body_rows.append(_split_markdown_table_row(lines[cursor]))
+            cursor += 1
+        rows = [header, *body_rows]
+        if not rows or max((len(row) for row in rows), default=0) < 2:
+            continue
+        table_index += 1
+        table_id = f"{report_id}-p{page}-ocr{table_index:02d}"
+        title = _infer_markdown_table_title(lines, cursor - len(body_rows) - 2, page=page, index=table_index)
+        column_count = max(len(row) for row in rows)
+        tables.append(
+            {
+                "table_id": table_id,
+                "page": page,
+                "title": title,
+                "continued": "续表" in title,
+                "row_count": len(rows),
+                "column_count": column_count,
+                "bbox": None,
+                "header_rows": 1,
+            }
+        )
+        for row_index, row in enumerate(rows, start=1):
+            for column_index, text in enumerate(row, start=1):
+                cells.append(
+                    {
+                        "table_id": table_id,
+                        "page": page,
+                        "row_index": row_index,
+                        "column_index": column_index,
+                        "text": text,
+                        "bbox": None,
+                        "kind": "header" if row_index == 1 else "cell",
+                        "source_block_indexes": [],
+                    }
+                )
+    return tables, cells
+
+
+def _build_standard_ocr_contract_from_layout_pages(
+    job: dict[str, Any], layout_pages: list[dict[str, Any]]
+) -> dict[str, Any]:
+    tables: list[dict[str, Any]] = []
+    cells: list[dict[str, Any]] = []
+    for page_index, item in enumerate(layout_pages, start=1):
+        markdown_text = (
+            item.get("markdown_text")
+            or ((item.get("markdown") or {}).get("text") if isinstance(item.get("markdown"), dict) else "")
+            or ""
+        )
+        page_tables, page_cells = _extract_tables_from_markdown(
+            markdown_text,
+            page=page_index,
+            report_id=job["report_id"],
+        )
+        tables.extend(page_tables)
+        cells.extend(page_cells)
+    return {
+        "report_id": job["report_id"],
+        "company_name": job["company_name"],
+        "source": "standard_ocr",
+        "summary": f"标准 OCR 服务输出 {len(tables)} 个表格片段、{len(cells)} 个单元格。",
+        "tables": tables,
+        "cells": cells,
+    }
+
+
+def _fetch_standard_ocr_layout_pages(source_path: Path, *, settings: Settings) -> list[dict[str, Any]]:
+    ocr_runtime = _settings_ocr_runtime(settings)
+    service_url = ocr_runtime["service_url"]
+    if not service_url:
+        raise RuntimeError("未配置 OPS_PILOT_OCR_SERVICE_URL，无法调用标准 OCR 服务。")
+    suffix = source_path.suffix.lower()
+    payload = {
+        "file": base64.b64encode(source_path.read_bytes()).decode("utf-8"),
+        "fileType": 0 if suffix == ".pdf" else 1,
+    }
+    response = requests.post(
+        f"{service_url}/layout-parsing",
+        json=payload,
+        timeout=ocr_runtime["request_timeout_seconds"],
+    )
+    response.raise_for_status()
+    data = response.json()
+    layout_pages = data.get("result", {}).get("layoutParsingResults")
+    if not isinstance(layout_pages, list):
+        raise RuntimeError("标准 OCR 服务返回缺少 layoutParsingResults。")
+    return layout_pages
+
+
+def _materialize_standard_ocr_cell_trace(job: dict[str, Any], settings: Settings) -> dict[str, Any] | None:
+    ocr_runtime = _settings_ocr_runtime(settings)
+    if not ocr_runtime["runtime_enabled"] or ocr_runtime["mode"] != "service":
+        return None
+    source_path = _resolve_source_document_path(settings, job)
+    if source_path is None:
+        raise RuntimeError(f"未找到原始财报文件：{job.get('report_id')}")
+    layout_pages = _fetch_standard_ocr_layout_pages(source_path, settings=settings)
+    payload = _build_standard_ocr_contract_from_layout_pages(job, layout_pages)
+    artifact_path = _standard_ocr_artifact_path(settings, job)
+    _write_json(artifact_path, payload)
+    return {
+        **payload,
+        "ocr_artifact_path": str(artifact_path),
+    }
 
 
 def _load_standard_ocr_cell_trace(settings_record: dict[str, Any], settings: Settings) -> dict[str, Any] | None:

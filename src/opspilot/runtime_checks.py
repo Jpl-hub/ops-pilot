@@ -115,8 +115,17 @@ def _resolve_universe_manifest_path(settings: Settings) -> Path:
     return official_root.parent / "universe" / "formal_company_pool.json"
 
 
+def _normalize_ocr_runtime_mode(settings: Settings) -> str:
+    mode = str(getattr(settings, "ocr_runtime_mode", "local_assets") or "local_assets").strip().lower()
+    if mode in {"service", "remote_service"}:
+        return "service"
+    return "local_assets"
+
+
 def build_runtime_report(settings: Settings) -> dict[str, Any]:
     ocr_assets_path = Path(settings.ocr_assets_path)
+    ocr_runtime_mode = _normalize_ocr_runtime_mode(settings)
+    ocr_service_url = str(getattr(settings, "ocr_service_url", "") or "").strip()
     universe_manifest_path = _resolve_universe_manifest_path(settings)
     checks = [
         {
@@ -172,11 +181,55 @@ def build_runtime_report(settings: Settings) -> dict[str, Any]:
             "blocking_profiles": [PROFILE_DELIVERY],
         },
         {
+            "key": "ocr_runtime_mode",
+            "status": "ready" if ocr_runtime_mode in {"service", "local_assets"} else "blocked",
+            "detail": ocr_runtime_mode,
+            "summary": (
+                "OCR 运行时采用服务模式。"
+                if ocr_runtime_mode == "service"
+                else "OCR 运行时采用本地模型目录模式。"
+            ),
+            "remediation": "将 OPS_PILOT_OCR_RUNTIME_MODE 设置为 service 或 local_assets。",
+            "blocking_profiles": [PROFILE_DELIVERY],
+        },
+        {
             "key": "ocr_assets",
-            "status": "ready" if ocr_assets_path.exists() else "blocked",
+            "status": (
+                "ready"
+                if ocr_runtime_mode == "service" or ocr_assets_path.exists()
+                else "blocked"
+            ),
             "detail": str(ocr_assets_path),
-            "summary": "OCR 模型目录存在。" if ocr_assets_path.exists() else "OCR 模型目录不存在。",
-            "remediation": f"先执行 ops-pilot-init-ocr-assets，再把正式模型文件放入 {ocr_assets_path}。",
+            "summary": (
+                "服务模式不要求本地 OCR 模型目录。"
+                if ocr_runtime_mode == "service"
+                else ("OCR 模型目录存在。" if ocr_assets_path.exists() else "OCR 模型目录不存在。")
+            ),
+            "remediation": (
+                "无需处理。"
+                if ocr_runtime_mode == "service"
+                else f"先执行 ops-pilot-init-ocr-assets，再把正式模型文件放入 {ocr_assets_path}。"
+            ),
+            "blocking_profiles": [PROFILE_DELIVERY],
+        },
+        {
+            "key": "ocr_service",
+            "status": (
+                "ready"
+                if ocr_runtime_mode != "service" or bool(ocr_service_url)
+                else "blocked"
+            ),
+            "detail": ocr_service_url or "missing",
+            "summary": (
+                f"OCR 服务地址已配置：{ocr_service_url}"
+                if ocr_runtime_mode == "service" and ocr_service_url
+                else (
+                    "OCR 服务地址未配置。"
+                    if ocr_runtime_mode == "service"
+                    else "当前模式不要求 OCR 服务地址。"
+                )
+            ),
+            "remediation": "在 .env 或 docker-compose 环境中配置 OPS_PILOT_OCR_SERVICE_URL。",
             "blocking_profiles": [PROFILE_DELIVERY],
         },
     ]

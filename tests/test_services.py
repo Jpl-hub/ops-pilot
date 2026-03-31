@@ -2629,7 +2629,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(runtime_before["stages"][0]["label"], "跨页拼接")
             self.assertTrue(any(item["status"] == "pending" for item in runtime_before["stages"]))
             self.assertFalse(any(item["status"] == "blocked" for item in runtime_before["stages"]))
-            self.assertEqual(runtime_before["runtime"]["next_action"], "接通标准 OCR 引擎后再执行正式解析")
+            self.assertEqual(runtime_before["runtime"]["next_action"], "接通正式 OCR 运行时后再执行财报扫描")
 
             pipeline_result = service.run_company_vision_pipeline(
                 "测试公司",
@@ -4228,6 +4228,159 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 service.run_document_pipeline_stage("cell_trace", 1, contract_status="ready")
 
+    @patch("opspilot.application.services.requests.post")
+    def test_run_document_pipeline_stage_materializes_standard_ocr_contract_via_service(self, mock_post) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return []
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                return {
+                    "company_name": "测试公司",
+                    "report_period": "2025Q3",
+                    "subindustry": "储能",
+                    "metrics": {"G1": 12.0, "G2": 8.0, "C1": 1.3, "C3": 24.0, "S1": 1.1, "S4": 0.9},
+                    "history": [],
+                    "metric_evidence": {},
+                    "formula_context": {},
+                    "label_evidence": {},
+                }
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = True
+            ocr_runtime_mode = "service"
+            ocr_service_url = "http://ocr.test"
+            ocr_request_timeout_seconds = 30.0
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
+
+            def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+                self.ocr_assets_path = root / "models" / "paddleocr-vl"
+                self.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+
+        class FakeResponse:
+            def __init__(self, payload: dict[str, object]) -> None:
+                self._payload = payload
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, object]:
+                return self._payload
+
+        mock_post.return_value = FakeResponse(
+            {
+                "result": {
+                    "layoutParsingResults": [
+                        {
+                            "markdown": {
+                                "text": (
+                                    "## 合并利润表\n"
+                                    "| 项目 | 本报告期 | 年初至报告期末 |\n"
+                                    "| --- | --- | --- |\n"
+                                    "| 营业收入 | 100.5 | 320.8 |\n"
+                                    "| 归母净利润 | 12.4 | 35.7 |\n"
+                                )
+                            }
+                        }
+                    ]
+                }
+            }
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bootstrap").mkdir(parents=True, exist_ok=True)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+            source_pdf = root / "raw" / "official" / "periodic_reports" / "SZSE" / "000001" / "demo-service.pdf"
+            source_pdf.parent.mkdir(parents=True, exist_ok=True)
+            source_pdf.write_bytes(b"%PDF-1.4\\n% fake report\\n")
+            page_json = root / "bronze" / "page_text" / "SZSE" / "000001" / "demo-service.json"
+            page_json.parent.mkdir(parents=True, exist_ok=True)
+            page_json.write_text(
+                json.dumps(
+                    {
+                        "pages": [
+                            {
+                                "page": 1,
+                                "blocks": [{"text": "合并利润表", "bbox": [0, 20, 120, 30]}],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "bronze" / "manifests" / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司：2025年三季度报告",
+                                "report_id": "demo-service",
+                                "report_period": "2025Q3",
+                                "page_json_path": str(page_json),
+                                "file_path": str(source_pdf),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+            rerun = service.run_document_pipeline_stage("cell_trace", 1)
+
+            self.assertEqual(rerun["processed"], 1)
+            self.assertEqual(rerun["results"][0]["source"], "standard_ocr")
+            artifact_path = Path(rerun["results"][0]["artifact_path"])
+            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(artifact_payload["source"], "standard_ocr")
+            self.assertEqual(artifact_payload["tables"][0]["title"], "合并利润表")
+            self.assertEqual(artifact_payload["cells"][0]["text"], "项目")
+            contract_path = (
+                root / "bronze" / "upgrades" / "ocr_cell_trace" / "000001" / "demo-service.json"
+            )
+            self.assertTrue(contract_path.exists())
+            runtime = service.company_vision_runtime("测试公司", "2025Q3", user_role="management")
+            cell_trace_stage = next(item for item in runtime["stages"] if item["stage"] == "cell_trace")
+            self.assertEqual(cell_trace_stage["contract_status"], "ready")
+            self.assertEqual(runtime["vision"]["quality_summary"]["artifact_source"], "standard_ocr")
+
     def test_runtime_check_blocks_when_ocr_assets_missing(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -4240,6 +4393,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 official_data_path = root / "raw"
                 universe_data_path = root / "universe"
                 silver_data_path = root / "silver"
+                ocr_runtime_mode = "local_assets"
                 ocr_runtime_enabled = True
                 ocr_assets_path = root / "models" / "missing-paddleocr-vl"
 
@@ -4273,6 +4427,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 official_data_path = root / "raw"
                 universe_data_path = root / "universe"
                 silver_data_path = root / "silver"
+                ocr_runtime_mode = "local_assets"
                 ocr_runtime_enabled = True
                 ocr_assets_path = root / "models" / "paddleocr-vl"
 
@@ -4280,6 +4435,67 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             StubSettings.universe_data_path.mkdir(parents=True, exist_ok=True)
             StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
             StubSettings.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+            (StubSettings.universe_data_path / "formal_company_pool.json").write_text(
+                json.dumps([{"company_name": "测试公司"}], ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            report = validate_delivery_runtime(StubSettings())
+
+            self.assertEqual(report["status"], "ready")
+
+    def test_runtime_check_blocks_when_ocr_service_url_missing(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                env = "test"
+                postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+                openai_api_key = "test-key"
+                openai_base_url = "https://api.openai.com/v1"
+                official_data_path = root / "raw"
+                universe_data_path = root / "universe"
+                silver_data_path = root / "silver"
+                ocr_runtime_mode = "service"
+                ocr_runtime_enabled = True
+                ocr_service_url = ""
+                ocr_assets_path = root / "models" / "paddleocr-vl"
+
+            StubSettings.official_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.universe_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
+            (StubSettings.universe_data_path / "formal_company_pool.json").write_text(
+                json.dumps([{"company_name": "测试公司"}], ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            report = build_runtime_report(StubSettings())
+
+            ocr_service = next(item for item in report["checks"] if item["key"] == "ocr_service")
+            self.assertEqual(ocr_service["status"], "blocked")
+            with self.assertRaisesRegex(RuntimeError, "ocr_service"):
+                validate_delivery_runtime(StubSettings())
+
+    def test_runtime_check_passes_when_ocr_service_url_present(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                env = "test"
+                postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+                openai_api_key = "test-key"
+                openai_base_url = "https://api.openai.com/v1"
+                official_data_path = root / "raw"
+                universe_data_path = root / "universe"
+                silver_data_path = root / "silver"
+                ocr_runtime_mode = "service"
+                ocr_runtime_enabled = True
+                ocr_service_url = "http://ocr.test"
+                ocr_assets_path = root / "models" / "paddleocr-vl"
+
+            StubSettings.official_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.universe_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
             (StubSettings.universe_data_path / "formal_company_pool.json").write_text(
                 json.dumps([{"company_name": "测试公司"}], ensure_ascii=False),
                 encoding="utf-8",

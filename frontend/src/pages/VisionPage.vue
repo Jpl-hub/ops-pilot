@@ -93,6 +93,14 @@ function displayPipelineStage(stage?: string) {
   return map[stage || ''] || stage || '-'
 }
 
+function displayRuntimeMode(mode?: string) {
+  const map: Record<string, string> = {
+    service: 'OCR 服务模式',
+    local_assets: '本地模型模式',
+  }
+  return map[mode || ''] || mode || '运行时'
+}
+
 function qualityTone(status?: string): 'default' | 'risk' | 'success' {
   if (status === 'ready') return 'success'
   if (status === 'blocked') return 'risk'
@@ -244,6 +252,7 @@ watch(
               <TagPill v-if="selectedResult.company_name" :label="selectedResult.company_name" />
               <TagPill v-if="qualitySummary" :label="qualitySummary.label" :tone="qualityTone(qualitySummary.status)" />
               <TagPill v-if="qualitySummary?.artifact_source" :label="qualitySummary.artifact_source_label" />
+              <TagPill v-if="runtimeSummary?.mode" :label="displayRuntimeMode(runtimeSummary.mode)" />
             </div>
             <p v-if="sourcePreviewText" class="hero-preview muted">
               {{ sourcePreviewText }}

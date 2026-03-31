@@ -29,6 +29,9 @@ class Settings:
     doc_layout_engine: str = "PP-DocLayout-V3 + PyMuPDF"
     ocr_provider: str = "PaddleOCR-VL"
     ocr_model: str = "PaddleOCR-VL-1.5"
+    ocr_runtime_mode: str = "local_assets"
+    ocr_service_url: str = ""
+    ocr_request_timeout_seconds: float = 120.0
     ocr_assets_path: Path = Path("models/paddleocr-vl")
     ocr_runtime_enabled: bool = False
     openai_api_key: str = ""
@@ -93,6 +96,11 @@ def get_settings() -> Settings:
         ),
         ocr_provider=os.getenv("OPS_PILOT_OCR_PROVIDER", "PaddleOCR-VL"),
         ocr_model=os.getenv("OPS_PILOT_OCR_MODEL", "PaddleOCR-VL-1.5"),
+        ocr_runtime_mode=os.getenv("OPS_PILOT_OCR_RUNTIME_MODE", "local_assets"),
+        ocr_service_url=os.getenv("OPS_PILOT_OCR_SERVICE_URL", "").strip(),
+        ocr_request_timeout_seconds=float(
+            os.getenv("OPS_PILOT_OCR_REQUEST_TIMEOUT_SECONDS", "120")
+        ),
         ocr_assets_path=_resolve_data_path(
             root, os.getenv("OPS_PILOT_OCR_ASSETS_PATH", "models/paddleocr-vl")
         ),
