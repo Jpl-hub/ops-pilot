@@ -7771,16 +7771,23 @@ def _build_brain_command_surface(
     dominant_market = market_tape[0] if market_tape else {"label": "主周期", "value": "0", "tone": "accent"}
     focus_company = attention_matrix[0] if attention_matrix else {"company_name": "等待公司", "headline": "等待关注信号"}
     latest_execution = execution_flash[0] if execution_flash else {"status": "idle"}
+    focus_count = len(attention_matrix)
+    dominant_label = str(dominant_market["label"])
+    focus_subindustry = str(focus_company.get("subindustry") or "重点板块")
+    summary = f"{focus_subindustry}板块正在抬升，{focus_company['company_name']} 已进入跟踪。"
+    if focus_count > 1:
+        summary = f"{focus_subindustry}板块正在抬升，{focus_company['company_name']} 等 {focus_count} 家公司同步进入跟踪。"
     return {
-        "title": f"{preferred_period} 产业大脑",
-        "headline": focus_company["company_name"],
+        "title": f"{preferred_period} 行业脉冲",
+        "headline": f"{dominant_label}与重点公司异动正在同步刷新",
         "metric": dominant_market["value"],
-        "intensity": 52 + min(36, len(attention_matrix) * 6),
+        "intensity": 52 + min(36, focus_count * 6),
         "watch_items": [
             {"label": dominant_market["label"], "value": dominant_market["value"]},
-            {"label": "关注公司", "value": str(len(attention_matrix))},
+            {"label": "重点公司", "value": str(focus_count)},
             {"label": "最近运行", "value": latest_execution["status"]},
         ],
+        "summary": summary,
         "dominant_signal": {
             "label": focus_company["company_name"],
             "value": focus_company["headline"],

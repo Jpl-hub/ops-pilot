@@ -34,12 +34,6 @@ const pulseSteps = computed(() => brainSignalTape.value.slice(0, 4))
 const tapeItems = computed(() => marketTape.value.slice(0, 6))
 const leadMetric = computed(() => marketTape.value[0] || null)
 const supportMetrics = computed(() => marketTape.value.slice(1, 4))
-const documentPipeline = computed(() => payload.value?.document_pipeline || {})
-const documentStats = computed(() => [
-  { label: '正式财报', value: documentPipeline.value?.periodic_reports || 0 },
-  { label: '页级结果', value: documentPipeline.value?.bronze_reports || 0 },
-  { label: '结构化指标', value: documentPipeline.value?.silver_metrics || 0 },
-])
 
 const signalFreshnessTone = computed(() => {
   const status = externalSignalStream.value?.status
@@ -163,7 +157,7 @@ onBeforeUnmount(() => {
 
       <template v-else-if="payload">
         <section class="brain-ribbon">
-          <span class="brain-ribbon-label">实时信号带</span>
+          <span class="brain-ribbon-label">行业脉冲</span>
           <div class="brain-ribbon-track">
             <span v-for="item in tapeItems" :key="item.label" :class="['brain-ribbon-item', `is-${item.tone || 'default'}`]">
               {{ item.label }} · {{ item.value }} · {{ item.delta }}
@@ -186,11 +180,13 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <h1 class="brain-title">
-              {{ brainCommandSurface?.headline || focusCompanies[0]?.company_name || '等待关注对象' }}
+              {{ brainCommandSurface?.title || '行业脉冲' }}
             </h1>
             <p class="brain-summary">
               {{
-                brainCommandSurface?.dominant_signal?.value
+                brainCommandSurface?.summary
+                  || brainCommandSurface?.headline
+                  || brainCommandSurface?.dominant_signal?.value
                   || signalCards[0]?.headline
                   || streamingAnomalies?.summary?.focus_line
                   || '正式行业信号会先汇聚到这里，再分发到企业判断链路。'
@@ -228,11 +224,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface brain-canvas">
             <div class="brain-section-head">
               <div>
-                <span class="brain-section-kicker">主画布</span>
-                <h2>行业脉冲</h2>
-              </div>
-              <div class="brain-doc-strip">
-                <span v-for="item in documentStats" :key="item.label">{{ item.label }} {{ item.value }}</span>
+                <h2>走势</h2>
               </div>
             </div>
 
@@ -261,8 +253,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface brain-stream">
             <div class="brain-section-head">
               <div>
-                <span class="brain-section-kicker">正式来源</span>
-                <h2>行业信号流</h2>
+                <h2>最新动态</h2>
               </div>
               <span class="brain-section-meta">{{ externalSignalStream?.signal_count || 0 }} 条</span>
             </div>
@@ -292,8 +283,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <span class="brain-section-kicker">迁移图</span>
-                <h2>子行业热度迁移</h2>
+                <h2>子行业热度</h2>
               </div>
             </div>
             <ChartPanel
@@ -308,8 +298,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <span class="brain-section-kicker">异动</span>
-                <h2>实时异常传导</h2>
+                <h2>异动传导</h2>
               </div>
               <span class="brain-section-meta">
                 {{ streamingAnomalies?.summary?.detected_count || 0 }} 家
@@ -342,8 +331,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <span class="brain-section-kicker">关注池</span>
-                <h2>热点公司</h2>
+                <h2>重点公司</h2>
               </div>
               <span class="brain-section-meta">{{ focusCompanies.length }} 家</span>
             </div>
@@ -368,8 +356,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <span class="brain-section-kicker">风险抬升</span>
-                <h2>需要先看</h2>
+                <h2>优先处理</h2>
               </div>
               <span class="brain-section-meta">{{ riskCompanies.length }} 家</span>
             </div>
@@ -396,8 +383,7 @@ onBeforeUnmount(() => {
         <section class="brain-surface brain-radar">
           <div class="brain-section-head">
             <div>
-              <span class="brain-section-kicker">外部变量</span>
-              <h2>技术与政策雷达</h2>
+              <h2>政策与技术动态</h2>
             </div>
           </div>
 
@@ -430,8 +416,11 @@ onBeforeUnmount(() => {
 .brain-page {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   min-height: 100%;
+  width: 100%;
+  max-width: 1480px;
+  margin: 0 auto;
   color: #edf2f7;
 }
 
@@ -481,10 +470,10 @@ onBeforeUnmount(() => {
 .brain-ribbon {
   display: flex;
   align-items: center;
-  gap: 14px;
-  min-height: 46px;
-  padding: 0 16px;
-  border-radius: 16px;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 14px;
   border: 1px solid rgba(52, 211, 153, 0.16);
   background: rgba(9, 28, 22, 0.66);
   overflow: hidden;
@@ -501,7 +490,7 @@ onBeforeUnmount(() => {
 
 .brain-ribbon-track {
   display: flex;
-  gap: 24px;
+  gap: 20px;
   white-space: nowrap;
   min-width: 0;
   animation: brain-marquee 28s linear infinite;
@@ -525,9 +514,9 @@ onBeforeUnmount(() => {
 .brain-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
-  padding: 24px 28px 22px;
-  border-radius: 28px;
+  gap: 16px;
+  padding: 20px 22px 18px;
+  border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background:
     radial-gradient(circle at top left, rgba(16, 185, 129, 0.12), transparent 26%),
@@ -536,7 +525,7 @@ onBeforeUnmount(() => {
 
 .brain-hero-copy {
   display: grid;
-  gap: 16px;
+  gap: 14px;
 }
 
 .brain-kicker-row {
@@ -579,31 +568,31 @@ onBeforeUnmount(() => {
 
 .brain-title {
   margin: 0;
-  font-size: clamp(28px, 5vw, 44px);
-  line-height: 0.98;
+  font-size: clamp(22px, 3.8vw, 34px);
+  line-height: 1.02;
   letter-spacing: -0.04em;
   color: #f8fafc;
 }
 
 .brain-summary {
   margin: 0;
-  max-width: 780px;
-  font-size: 14px;
-  line-height: 1.7;
+  max-width: 720px;
+  font-size: 13px;
+  line-height: 1.65;
   color: rgba(200, 211, 228, 0.84);
 }
 
 .brain-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .brain-metric {
   display: grid;
   gap: 6px;
-  padding: 14px 16px;
-  border-radius: 18px;
+  padding: 12px 14px;
+  border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.03);
 }
@@ -616,12 +605,12 @@ onBeforeUnmount(() => {
 
 .brain-metric strong {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 22px;
+  font-size: 18px;
   color: #f8fafc;
 }
 
 .brain-metric-lead strong {
-  font-size: 26px;
+  font-size: 22px;
 }
 
 .brain-metric.is-risk {
@@ -638,8 +627,8 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-content: flex-start;
   justify-content: flex-end;
-  gap: 10px;
-  max-width: 360px;
+  gap: 8px;
+  max-width: 320px;
 }
 
 .brain-sector-pill {
@@ -668,14 +657,14 @@ onBeforeUnmount(() => {
 .brain-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.95fr);
-  gap: 18px;
+  gap: 16px;
 }
 
 .brain-canvas,
 .brain-stream,
 .brain-radar,
 .brain-grid > .brain-surface {
-  padding: 22px;
+  padding: 18px;
 }
 
 .brain-section-head {
@@ -683,7 +672,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .brain-section-kicker {
@@ -698,8 +687,8 @@ onBeforeUnmount(() => {
 
 .brain-section-head h2 {
   margin: 0;
-  font-size: 22px;
-  line-height: 1.05;
+  font-size: 18px;
+  line-height: 1.1;
   color: #f8fafc;
 }
 
@@ -710,32 +699,15 @@ onBeforeUnmount(() => {
   color: rgba(156, 169, 188, 0.84);
 }
 
-.brain-doc-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.brain-doc-strip span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(188, 200, 218, 0.82);
-  font-size: 11px;
-}
-
 .brain-canvas-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 14px;
   align-items: stretch;
 }
 
 .brain-chart-stage {
-  min-height: 360px;
+  min-height: 320px;
 }
 
 :deep(.brain-chart-panel) {
@@ -748,15 +720,15 @@ onBeforeUnmount(() => {
 
 .brain-pulse-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .brain-pulse-card {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
-  gap: 12px;
-  padding: 14px;
-  border-radius: 18px;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -777,14 +749,14 @@ onBeforeUnmount(() => {
 .brain-pulse-card strong {
   display: block;
   margin-bottom: 6px;
-  font-size: 14px;
+  font-size: 13px;
   color: #f8fafc;
 }
 
 .brain-pulse-card p {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.65;
+  font-size: 11px;
+  line-height: 1.6;
   color: rgba(191, 205, 223, 0.82);
 }
 
@@ -793,7 +765,7 @@ onBeforeUnmount(() => {
 .brain-risk-list,
 .brain-anomaly-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .brain-stream-item,
@@ -802,8 +774,8 @@ onBeforeUnmount(() => {
 .brain-anomaly-card {
   display: grid;
   gap: 6px;
-  padding: 14px 15px;
-  border-radius: 18px;
+  padding: 12px 13px;
+  border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.03);
   color: inherit;
@@ -855,8 +827,8 @@ onBeforeUnmount(() => {
 .brain-anomaly-card p,
 .brain-radar-card p {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.65;
+  font-size: 12px;
+  line-height: 1.6;
   color: rgba(197, 210, 227, 0.84);
 }
 
@@ -882,14 +854,14 @@ onBeforeUnmount(() => {
 .brain-radar-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .brain-radar-card {
   display: grid;
   gap: 10px;
-  padding: 18px;
-  border-radius: 20px;
+  padding: 14px;
+  border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.03);
   color: inherit;
@@ -898,14 +870,14 @@ onBeforeUnmount(() => {
 
 .brain-radar-card h3 {
   margin: 0;
-  font-size: 15px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .brain-empty-state {
   display: grid;
   place-items: center;
-  min-height: 220px;
+  min-height: 160px;
   color: rgba(152, 167, 187, 0.72);
   text-align: center;
   font-size: 13px;
@@ -936,7 +908,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 860px) {
   .brain-title {
-    font-size: 30px;
+    font-size: 26px;
   }
 
   .brain-metrics {
