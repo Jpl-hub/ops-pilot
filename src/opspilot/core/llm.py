@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import UTC, datetime
 from typing import Any, Callable
 from inspect import isawaitable
 
@@ -41,6 +42,15 @@ class ToolCallTrace:
 
     def __init__(self) -> None:
         self.records: list[dict[str, Any]] = []
+        self.meta: dict[str, Any] = {}
+
+    def begin(self, *, model: str, temperature: float, max_tool_rounds: int) -> None:
+        self.meta = {
+            "model": model,
+            "temperature": temperature,
+            "max_tool_rounds": max_tool_rounds,
+            "started_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+        }
 
     def record(
         self,
@@ -49,6 +59,9 @@ class ToolCallTrace:
         result_summary: str,
         elapsed_ms: float,
         success: bool,
+        *,
+        round_index: int,
+        tool_call_id: str | None,
     ) -> None:
         self.records.append({
             "tool_name": tool_name,
@@ -56,7 +69,38 @@ class ToolCallTrace:
             "result_summary": result_summary[:500],
             "elapsed_ms": round(elapsed_ms, 1),
             "success": success,
+            "round_index": round_index,
+            "tool_call_id": tool_call_id,
+            "executed_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
         })
+
+    def finalize(
+        self,
+        *,
+        completion_id: str | None,
+        finish_reason: str | None,
+        total_rounds: int,
+        llm_elapsed_ms: float,
+    ) -> None:
+        tool_elapsed_ms = sum(float(item.get("elapsed_ms") or 0.0) for item in self.records)
+        self.meta.update(
+            {
+                "completion_id": completion_id,
+                "finish_reason": finish_reason,
+                "finished_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+                "total_rounds": total_rounds,
+                "llm_elapsed_ms": round(llm_elapsed_ms, 1),
+                "tool_elapsed_ms": round(tool_elapsed_ms, 1),
+                "total_elapsed_ms": round(llm_elapsed_ms + tool_elapsed_ms, 1),
+                "tool_call_count": len(self.records),
+                "successful_tool_count": sum(1 for item in self.records if item.get("success")),
+                "failed_tool_count": sum(1 for item in self.records if not item.get("success")),
+                "tool_round_count": len({item.get("round_index") for item in self.records}) if self.records else 0,
+            }
+        )
+
+    def snapshot(self) -> dict[str, Any]:
+        return dict(self.meta)
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +126,8 @@ async def generate_completion(
     """
     client = get_llm_client()
     trace = ToolCallTrace()
+    trace.begin(model=model, temperature=temperature, max_tool_rounds=max_tool_rounds)
+    request_started_at = time.perf_counter()
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
@@ -102,9 +148,17 @@ async def generate_completion(
         for _round in range(max_tool_rounds + 1):
             response = await client.chat.completions.create(**kwargs)
             message = response.choices[0].message
+            completion_id = getattr(response, "id", None)
+            finish_reason = response.choices[0].finish_reason
 
             if not message.tool_calls:
                 # No more tool calls — return final text
+                trace.finalize(
+                    completion_id=completion_id,
+                    finish_reason=finish_reason,
+                    total_rounds=_round + 1,
+                    llm_elapsed_ms=(time.perf_counter() - request_started_at) * 1000,
+                )
                 return (message.content or ""), trace
 
             # Process tool calls: real execution
@@ -149,6 +203,8 @@ async def generate_completion(
                     result_summary=result_content[:500],
                     elapsed_ms=elapsed_ms,
                     success=success,
+                    round_index=_round + 1,
+                    tool_call_id=getattr(tool_call, "id", None),
                 )
 
                 logger.info(
@@ -172,6 +228,12 @@ async def generate_completion(
         # Exhausted rounds — do a final call without tools
         kwargs.pop("tools", None)
         final_response = await client.chat.completions.create(**kwargs)
+        trace.finalize(
+            completion_id=getattr(final_response, "id", None),
+            finish_reason=final_response.choices[0].finish_reason,
+            total_rounds=max_tool_rounds + 1,
+            llm_elapsed_ms=(time.perf_counter() - request_started_at) * 1000,
+        )
         return (final_response.choices[0].message.content or ""), trace
 
     except Exception as e:

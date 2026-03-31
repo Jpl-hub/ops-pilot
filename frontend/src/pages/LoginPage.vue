@@ -26,7 +26,7 @@ async function submit() {
     })
     saveAuth(payload)
     session.setUser(payload.user)
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/workspace'
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     await router.push(redirect)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '登录失败。'
@@ -39,7 +39,7 @@ async function submit() {
 <template>
   <AppShell
     kicker="账号登录"
-    title="登录 OpsPilot-X"
+    title="登录系统"
     subtitle="登录后即可查看企业体检、行业风险、研报核验和证据详情。"
   >
     <section class="auth-grid">

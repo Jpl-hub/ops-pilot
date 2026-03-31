@@ -12,4 +12,4 @@ RUN pip install --no-cache-dir --upgrade pip && \
 EXPOSE 8000
 EXPOSE 8080
 
-CMD ["ops-pilot-api"]
+CMD ["sh", "-c", "ops-pilot-runtime-check --profile startup && ops-pilot-api"]

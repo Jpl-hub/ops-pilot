@@ -1,4 +1,5 @@
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+export const WS_BASE = import.meta.env.VITE_WS_BASE_URL || API_BASE
 const TOKEN_KEY = 'ops-pilot-access-token'
 const USER_KEY = 'ops-pilot-user'
 
@@ -19,6 +20,19 @@ export interface AuthPayload {
   user: AuthUser
 }
 
+function parseErrorDetail(detail: string, status: number): string {
+  if (!detail) return `请求失败：${status}`
+  try {
+    const payload = JSON.parse(detail) as { detail?: string }
+    if (typeof payload.detail === 'string' && payload.detail.trim()) {
+      return payload.detail
+    }
+  } catch {
+    // fall through and keep raw detail
+  }
+  return detail
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = loadAccessToken()
   const response = await fetch(`${API_BASE}${path}`, {
@@ -37,7 +51,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       }
     }
     const detail = await response.text()
-    throw new Error(detail || `Request failed: ${response.status}`)
+    throw new Error(parseErrorDetail(detail, response.status))
   }
   return response.json() as Promise<T>
 }
@@ -59,7 +73,7 @@ async function requestText(path: string, init?: RequestInit): Promise<string> {
       }
     }
     const detail = await response.text()
-    throw new Error(detail || `Request failed: ${response.status}`)
+    throw new Error(parseErrorDetail(detail, response.status))
   }
   return response.text()
 }
@@ -102,10 +116,17 @@ export function loadCurrentUser(): AuthUser | null {
 }
 
 export function buildWebSocketUrl(path: string): string {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  if (API_BASE.startsWith('http://') || API_BASE.startsWith('https://')) {
-    const base = new URL(API_BASE)
+  if (
+    WS_BASE.startsWith('ws://') ||
+    WS_BASE.startsWith('wss://') ||
+    WS_BASE.startsWith('http://') ||
+    WS_BASE.startsWith('https://')
+  ) {
+    const base = new URL(WS_BASE)
+    const protocol =
+      base.protocol === 'https:' ? 'wss:' : base.protocol === 'http:' ? 'ws:' : base.protocol
     return `${protocol}//${base.host}${base.pathname}${path}`
   }
-  return `${protocol}//${window.location.host}${API_BASE}${path}`
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}${WS_BASE}${path}`
 }

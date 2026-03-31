@@ -1,14 +1,22 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ErrorState from '@/components/ErrorState.vue'
-import TagPill from '@/components/TagPill.vue'
 import { useWorkspaceRole } from '@/composables/useWorkspaceRole'
+import type { UserRole } from '@/lib/api'
 import { useSession } from '@/lib/session'
 import { useWorkspaceStore } from '@/stores/workspace'
 
+type AnswerBlock = {
+  title: string
+  paragraphs: string[]
+  bullets: string[]
+}
+
+const route = useRoute()
 const session = useSession()
 const workspace = useWorkspaceStore()
 const {
@@ -16,111 +24,287 @@ const {
   selectedCompany,
   query,
   messages,
-  agentFlow,
   latestPayload,
+  overview,
+  companyWorkspace,
+  loadingCompanies,
+  loadingOverview,
+  loadingCompanyWorkspace,
   loadingTurn,
+  companiesError,
+  overviewError,
+  companyWorkspaceError,
   turnError,
 } = storeToRefs(workspace)
 
-const chatScrollRef = ref<HTMLElement | null>(null)
+const appliedScenarioKey = ref('')
+const watchBusy = ref(false)
+const scanBusy = ref(false)
+
 const { roleCopy } = useWorkspaceRole(() => session.activeRole.value || 'investor')
 
-// 快捷问题来自后端 role_profile，缺省时回到角色默认问题集
 const starterQueries = computed(
-  () => latestPayload.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries,
+  () => overview.value?.role_profile?.starter_queries || latestPayload.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries,
+)
+const roleFocusTitle = computed(
+  () => overview.value?.role_profile?.focus_title || roleCopy.value.title,
 )
 
-const agentBlueprint = [
-  { step: 1, agent_key: 'router', agent_label: 'Router', title: '识别问题类型', hint: '锁定问题意图、公司主体和目标报期' },
-  { step: 2, agent_key: 'data', agent_label: 'Data Agent', title: '拉取真实数据与工具', hint: '调取评分、图谱、压力、研报、多模态等真实服务' },
-  { step: 3, agent_key: 'risk', agent_label: 'Risk Agent', title: '校验证据与风险', hint: '回放页级证据、公式链与风险标签' },
-  { step: 4, agent_key: 'strategy', agent_label: 'Strategy Agent', title: '生成角色动作', hint: '按投资者、管理层、监管方视角输出下一步' },
-]
-
-const agentLane = computed(() =>
-  agentBlueprint.map((blueprint, index) => {
-    const matched = agentFlow.value.find((item: any) => item.agent_key === blueprint.agent_key)
-    const status = loadingTurn.value
-      ? 'processing'
-      : matched
-      ? 'completed'
-      : 'idle'
-    return {
-      ...blueprint,
-      summary: matched?.summary || blueprint.hint,
-      status,
-      isCurrent: loadingTurn.value && index === 1,
-    }
-  }),
-)
-
-// 最新一条 AI 回答
-const latestAnswer = computed(() => {
-  const results = messages.value.filter(m => m.kind === 'result')
-  return results.length > 0 ? results[results.length - 1].payload : null
-})
-
-// 右侧面板数据
-const insightCards = computed(() => latestAnswer.value?.insight_cards ?? [])
-const actionCards  = computed(() => latestAnswer.value?.action_cards  ?? [])
-const aiAssurance = computed(() => latestAnswer.value?.ai_assurance ?? null)
-const hasCompanies = computed(() => companies.value.length > 0)
-const canRunQuery = computed(() => !!selectedCompany.value && !!query.value.trim() && !loadingTurn.value)
-
-// 角色显示
 const roleLabel = computed(() => {
-  const map: Record<string, string> = { investor: '投资者', management: '管理层', regulator: '监管方' }
+  const map: Record<string, string> = {
+    investor: '投资者',
+    management: '管理层',
+    regulator: '监管风控',
+  }
   return map[session.activeRole.value || 'investor'] ?? '投资者'
 })
 
-const roleDot = computed(() => {
-  const map: Record<string, string> = { investor: '#60a5fa', management: '#a78bfa', regulator: '#f59e0b' }
-  return map[session.activeRole.value || 'investor'] ?? '#60a5fa'
+const latestAnswer = computed(() => {
+  const results = messages.value.filter((message) => message.kind === 'result')
+  return results.length ? results[results.length - 1].payload : null
 })
 
-function displayPriority(priority?: string) {
-  const map: Record<string, string> = {
-    high: '高优先级',
-    medium: '中优先级',
-    low: '低优先级',
+const latestUserMessage = computed(() => {
+  const queries = messages.value.filter((message) => message.kind === 'query')
+  return queries.length ? queries[queries.length - 1] : null
+})
+
+const workflowSteps = computed<any[]>(() => workspace.agentFlow || [])
+const controlPlane = computed<any>(() => workspace.controlPlane || latestAnswer.value?.control_plane || null)
+const aiAssurance = computed<any>(() => latestAnswer.value?.ai_assurance || null)
+const insightNumbers = computed<any[]>(() => (latestAnswer.value?.insight_cards || []).slice(0, 4))
+const latestActionCards = computed<any[]>(() => (latestAnswer.value?.action_cards || []).slice(0, 3))
+const latestEvidenceGroups = computed<any[]>(() => (latestAnswer.value?.evidence_groups || []).slice(0, 3))
+
+const companySummary = computed(() => companyWorkspace.value?.score_summary ?? null)
+const companyTopRisks = computed(() => companyWorkspace.value?.top_risks ?? [])
+const companyActions = computed(() => (companyWorkspace.value?.action_cards ?? []).slice(0, 3))
+const companyWatch = computed(() => companyWorkspace.value?.watchboard ?? { tracked: false })
+const companyResearch = computed(() => companyWorkspace.value?.research ?? null)
+const timelineSnapshot = computed(() => companyWorkspace.value?.timeline?.snapshots?.[0] ?? null)
+
+const answerBlocks = computed<AnswerBlock[]>(() =>
+  parseAnswerMarkdown(latestAnswer.value?.answer_markdown || '', latestAnswer.value?.answer_sections || []),
+)
+
+const resultLinks = computed(() => {
+  const seen = new Set<string>()
+  const links: Array<{ label: string; path: string; query?: Record<string, string> }> = []
+  for (const step of workflowSteps.value) {
+    const route = step?.route
+    if (!route?.path) continue
+    const key = `${route.path}-${JSON.stringify(route.query || {})}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    links.push({
+      label: route.label || step.title || '进入下钻',
+      path: route.path,
+      query: route.query || {},
+    })
   }
-  return map[(priority || '').toLowerCase()] || priority || '待定级'
+  return links.slice(0, 4)
+})
+
+const companySignals = computed(() => {
+  const snapshotLabel = timelineSnapshot.value?.score_delta === undefined
+    ? '等待刷新'
+    : timelineSnapshot.value.score_delta > 0
+      ? `较上期 +${timelineSnapshot.value.score_delta}`
+      : timelineSnapshot.value.score_delta < 0
+        ? `较上期 ${timelineSnapshot.value.score_delta}`
+        : '较上期持平'
+
+  return [
+    {
+      label: '当前评级',
+      value: companySummary.value ? `${companySummary.value.total_score} / ${companySummary.value.grade}` : '--',
+    },
+    {
+      label: '重点风险',
+      value: companyTopRisks.value[0] || '等待识别',
+    },
+    {
+      label: '报期状态',
+      value: snapshotLabel,
+    },
+    {
+      label: '持续跟踪',
+      value: companyWatch.value?.tracked ? '已纳入' : '未纳入',
+    },
+  ]
+})
+
+const workspaceStatus = computed(() => [
+  controlPlane.value?.report_period ? `报期 ${controlPlane.value.report_period}` : '',
+  controlPlane.value?.data_sources?.length ? controlPlane.value.data_sources.join(' · ') : '',
+  aiAssurance.value?.label ? aiAssurance.value.label : '',
+].filter(Boolean))
+
+const pageLoadError = computed(() => companiesError.value || overviewError.value || companyWorkspaceError.value || '')
+const hasCompanies = computed(() => companies.value.length > 0)
+const canRunQuery = computed(() => !!selectedCompany.value && !!query.value.trim() && !loadingTurn.value)
+
+const companySelectPlaceholder = computed(() => {
+  if (loadingCompanies.value) return '正在载入公司池'
+  if (companiesError.value) return '公司池加载失败'
+  if (!companies.value.length) return '当前无公司'
+  return '选择公司'
+})
+
+const consoleSyncLabel = computed(() => {
+  if (loadingCompanies.value) return '公司池载入中'
+  if (loadingOverview.value) return '协同面同步中'
+  if (loadingCompanyWorkspace.value) return '企业状态刷新中'
+  if (pageLoadError.value) return '数据载入异常'
+  if (selectedCompany.value) return `${selectedCompany.value} · ${roleLabel.value}`
+  return roleLabel.value
+})
+
+function parseAnswerMarkdown(markdown: string, fallbackSections: any[]): AnswerBlock[] {
+  const lines = markdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (!lines.length) {
+    return fallbackSections.map((section: any) => ({
+      title: section.title || '分析结果',
+      paragraphs: [],
+      bullets: section.lines || [],
+    }))
+  }
+
+  const blocks: AnswerBlock[] = []
+  let current: AnswerBlock = { title: '本轮结论', paragraphs: [], bullets: [] }
+
+  for (const line of lines) {
+    if (line.startsWith('### ')) {
+      if (current.paragraphs.length || current.bullets.length || blocks.length === 0) {
+        blocks.push(current)
+      }
+      current = { title: line.replace(/^###\s+/, ''), paragraphs: [], bullets: [] }
+      continue
+    }
+    if (line.startsWith('- ')) {
+      current.bullets.push(line.replace(/^- /, ''))
+      continue
+    }
+    current.paragraphs.push(line)
+  }
+
+  if (current.title || current.paragraphs.length || current.bullets.length) {
+    blocks.push(current)
+  }
+
+  return blocks.filter((block) => block.paragraphs.length || block.bullets.length)
 }
 
-function displayAssuranceStatus(status?: string) {
+function displayFlowStatus(status?: string) {
   const map: Record<string, string> = {
-    grounded: '强支撑',
-    review: '待复核',
+    completed: 'Done',
+    done: 'Done',
+    active: 'Live',
+    running: 'Live',
+    failed: 'Error',
+    blocked: 'Blocked',
   }
-  return map[status || ''] || status || '未判定'
+  return map[(status || '').toLowerCase()] || 'Done'
 }
 
-// ------------------------------------------------------------------
-// Input handling
-// ------------------------------------------------------------------
-function handleEnter(e: KeyboardEvent) {
-  if (!e.shiftKey) {
-    e.preventDefault()
-    runQuery()
+function displayMetricValue(item: any) {
+  if (item?.unit) return `${item.value}${item.unit}`
+  return `${item?.value ?? '--'}`
+}
+
+function formatExecutionMs(value?: number) {
+  if (!value) return ''
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}s`
+  return `${Math.round(value)}ms`
+}
+
+function readQueryString(value: unknown) {
+  const normalized = Array.isArray(value) ? value[0] : value
+  return typeof normalized === 'string' ? normalized.trim() : ''
+}
+
+function parseRoleQuery(value: unknown): UserRole | null {
+  const normalized = readQueryString(value)
+  if (normalized === 'investor' || normalized === 'management' || normalized === 'regulator') return normalized
+  return null
+}
+
+async function primeScenarioFromRoute() {
+  const targetRole = parseRoleQuery(route.query.role)
+  if (targetRole && session.activeRole.value !== targetRole) {
+    session.setActiveRole(targetRole)
+    return
   }
+
+  const prompt = readQueryString(route.query.prompt)
+  const targetCompany = readQueryString(route.query.company)
+  if (targetCompany && companies.value.includes(targetCompany) && selectedCompany.value !== targetCompany) {
+    selectedCompany.value = targetCompany
+  }
+
+  if (!prompt) return
+  query.value = prompt
+
+  const shouldAutoRun = readQueryString(route.query.auto_run) === '1'
+  const scenarioKey = `${route.fullPath}::${selectedCompany.value || ''}`
+  if (!shouldAutoRun || !selectedCompany.value || loadingTurn.value || appliedScenarioKey.value === scenarioKey) return
+  appliedScenarioKey.value = scenarioKey
+  await runQuery(prompt)
 }
 
 async function runQuery(inputQuery?: string) {
   if (inputQuery) query.value = inputQuery
   await workspace.sendQuery(session.activeRole.value || 'investor', query.value)
-  if (!workspace.turnError) {
-    await nextTick()
-    if (chatScrollRef.value) {
-      chatScrollRef.value.scrollTo({ top: chatScrollRef.value.scrollHeight, behavior: 'smooth' })
+}
+
+function pickStarterQuery(question: string) {
+  query.value = question
+  if (selectedCompany.value) runQuery(question)
+}
+
+function handleComposerKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && canRunQuery.value) {
+    event.preventDefault()
+    runQuery()
+  }
+}
+
+async function toggleWatchCompany() {
+  if (!selectedCompany.value) return
+  watchBusy.value = true
+  try {
+    if (companyWatch.value.tracked) {
+      await workspace.removeCurrentCompanyFromWatchboard(session.activeRole.value || 'investor')
+    } else {
+      await workspace.addCurrentCompanyToWatchboard(session.activeRole.value || 'investor', `${roleLabel.value}持续跟踪`)
     }
+  } finally {
+    watchBusy.value = false
+  }
+}
+
+async function scanTrackedCompanies() {
+  scanBusy.value = true
+  try {
+    await workspace.scanWatchboard(session.activeRole.value || 'investor')
+  } finally {
+    scanBusy.value = false
   }
 }
 
 onMounted(async () => {
+  const initialRole = parseRoleQuery(route.query.role)
+  if (initialRole && session.activeRole.value !== initialRole) session.setActiveRole(initialRole)
   workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
-  await workspace.loadOverview(session.activeRole.value || 'investor')
-  if (!companies.value.includes(selectedCompany.value)) {
-    selectedCompany.value = companies.value[0] || ''
+  try {
+    await workspace.bootstrap(session.activeRole.value || 'investor')
+    await primeScenarioFromRoute()
+  } catch {
+    // 错误已写入 store。
   }
 })
 
@@ -128,813 +312,835 @@ watch(
   () => session.activeRole.value,
   async () => {
     workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
-    await workspace.loadOverview(session.activeRole.value || 'investor')
-    if (!companies.value.includes(selectedCompany.value)) {
-      selectedCompany.value = companies.value[0] || ''
+    try {
+      await workspace.bootstrap(session.activeRole.value || 'investor')
+      await primeScenarioFromRoute()
+    } catch {
+      // 错误已写入 store。
     }
   },
 )
 
+watch(() => route.fullPath, async () => {
+  await primeScenarioFromRoute()
+})
+
 watch(selectedCompany, async (company, previous) => {
-  if (!company || company === previous) return
+  if (!company || company === previous || loadingCompanies.value) return
   await workspace.loadCompanyWorkspace(session.activeRole.value || 'investor')
 })
 </script>
 
 <template>
   <AppShell title="">
-    <div class="chat-shell">
+    <div class="workspace-console">
+      <section class="console-header">
+        <div class="console-heading">
+          <span class="console-kicker">Data x Risk x Strategy x Self-Reflection</span>
+          <h1>多智能体协同研判</h1>
+          <p>{{ consoleSyncLabel }}</p>
+        </div>
 
-      <!-- ── HEADER ─────────────────────────────────────────── -->
-      <header class="chat-header">
-        <div class="chat-header-left">
-          <!-- logo mark -->
-          <div class="chat-logo">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-          </div>
-          <span class="chat-brand">OpsPilot-X</span>
-          <div class="chat-divider"/>
-          <!-- company selector -->
-          <div class="chat-target">
-            <span class="chat-target-label">分析公司</span>
-            <select v-model="selectedCompany" class="chat-select">
-              <option v-if="!companies.length" value="">暂无公司</option>
-              <option v-for="c in companies" :key="c" :value="c">{{ c }}</option>
+        <div class="console-toolbar">
+          <label class="toolbar-select">
+            <span>企业</span>
+            <select v-model="selectedCompany" :disabled="loadingCompanies || !companies.length">
+              <option value="" disabled>{{ companySelectPlaceholder }}</option>
+              <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
             </select>
-          </div>
+          </label>
+          <button type="button" class="toolbar-button is-primary" :disabled="!selectedCompany || watchBusy" @click="toggleWatchCompany">
+            {{ watchBusy ? '处理中...' : companyWatch.tracked ? '移出跟踪' : '加入跟踪' }}
+          </button>
+          <button type="button" class="toolbar-button" :disabled="scanBusy || !hasCompanies" @click="scanTrackedCompanies">
+            {{ scanBusy ? '刷新中...' : '刷新' }}
+          </button>
         </div>
+      </section>
 
-        <div class="chat-header-right">
-          <!-- role badge -->
-          <div class="chat-role-badge">
-            <span class="chat-role-dot" :style="{ background: roleDot }"/>
-            {{ roleLabel }}
-          </div>
-        </div>
-      </header>
+      <ErrorState v-if="pageLoadError" :message="pageLoadError" class="workspace-state" />
+      <section v-else-if="!hasCompanies && !loadingCompanies" class="workspace-state workspace-empty">
+        <span class="console-kicker">Workspace Offline</span>
+        <h2>公司池尚未就绪。</h2>
+        <p>先把真实公司数据接进来，再开始协同研判。</p>
+      </section>
 
-      <!-- ── BODY ───────────────────────────────────────────── -->
-      <div class="chat-body">
-
-        <!-- LEFT/CENTER: messages + input ─────────────────── -->
-        <div class="chat-main">
-          <section class="chat-agent-lane">
-            <div
-              v-for="item in agentLane"
-              :key="item.agent_key"
-              class="chat-agent-card"
-              :class="`is-${item.status}`"
-            >
-              <div class="chat-agent-card-head">
-                <span class="chat-agent-step">0{{ item.step }}</span>
-                <span class="chat-agent-name">{{ item.agent_label }}</span>
-              </div>
-              <strong class="chat-agent-title">{{ item.title }}</strong>
-              <p class="chat-agent-summary">{{ item.summary }}</p>
-            </div>
-          </section>
-
-          <!-- messages scroll area -->
-          <div class="chat-messages" ref="chatScrollRef">
-
-            <!-- welcome / empty state -->
-            <div v-if="!hasCompanies" class="chat-welcome">
-              <div class="chat-welcome-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="1.5">
-                  <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>
-                </svg>
-              </div>
-              <p class="chat-welcome-text">
-                当前还没有可分析企业<br>
-                <span class="chat-welcome-sub">请先完成正式公司池和页级/指标数据接入，再进入协同分析。</span>
+      <section v-else class="console-stage">
+        <div class="console-stream">
+          <article class="console-message is-assistant">
+            <div class="message-glyph">AI</div>
+            <div class="message-panel intro-panel">
+              <strong>你好，我是协同研判台。</strong>
+              <p>
+                围绕 {{ selectedCompany || '目标企业' }} 的收益质量、风险暴露、证据链和下一步动作，直接给出一轮可继续追问的判断。
               </p>
-            </div>
-            <div v-else-if="messages.length <= 1" class="chat-welcome">
-              <div class="chat-welcome-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="1.5">
-                  <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73A2 2 0 0 1 10 4a2 2 0 0 1 2-2z"/>
-                </svg>
-              </div>
-              <p class="chat-welcome-text">
-                正在分析 <strong>{{ selectedCompany || '...' }}</strong>，作为 <strong>{{ roleLabel }}</strong> 视角<br>
-                <span class="chat-welcome-sub">从下方快捷问题开始，或直接输入你的分析指令</span>
-              </p>
-            </div>
 
-            <!-- message loop -->
-            <template v-for="message in messages" :key="message.id">
-
-              <!-- user query — right aligned -->
-              <div v-if="message.kind === 'query'" class="chat-row chat-row-user">
-                <div class="chat-bubble-user">
-                  <p class="chat-bubble-text">{{ message.text }}</p>
-                </div>
-                <div class="chat-avatar chat-avatar-user">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
-                  </svg>
-                </div>
-              </div>
-
-              <!-- AI result — left aligned -->
-              <div v-else-if="message.kind === 'result'" class="chat-row chat-row-ai">
-                <div class="chat-avatar chat-avatar-ai">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="3"/>
-                    <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-                  </svg>
-                </div>
-
-                <div class="chat-bubble-ai">
-                  <!-- answer sections -->
-                  <template v-if="message.payload?.answer_sections?.length">
-                    <section
-                      v-for="section in message.payload.answer_sections"
-                      :key="section.title"
-                      class="chat-answer-section"
-                    >
-                      <div class="chat-section-title">{{ section.title }}</div>
-                      <p
-                        v-for="line in section.lines"
-                        :key="line"
-                        class="chat-section-line"
-                      >{{ line }}</p>
-                    </section>
-                  </template>
-                  <p v-else-if="message.payload?.summary" class="chat-section-line">
-                    {{ message.payload.summary }}
-                  </p>
-
-                  <!-- key numbers strip -->
-                  <div v-if="message.payload?.key_numbers?.length" class="chat-key-nums">
-                    <span
-                      v-for="kn in message.payload.key_numbers"
-                      :key="kn.label"
-                      class="chat-kn-badge"
-                    >
-                      <span class="chat-kn-label">{{ kn.label }}</span>
-                      <span class="chat-kn-value">{{ kn.value }}<em v-if="kn.unit">{{ kn.unit }}</em></span>
-                    </span>
-                  </div>
-
-                  <!-- follow-up suggestions -->
-                  <div v-if="message.payload?.follow_up_questions?.length" class="chat-followup">
-                    <span class="chat-followup-label">追问</span>
-                    <button
-                      v-for="q in message.payload.follow_up_questions.slice(0, 3)"
-                      :key="q"
-                      class="chat-followup-btn"
-                      @click="runQuery(q)"
-                    >{{ q }}</button>
-                  </div>
-                </div>
-              </div>
-
-            </template>
-
-            <!-- loading: live agent thinking block -->
-            <div v-if="loadingTurn" class="chat-row chat-row-ai">
-              <div class="chat-avatar chat-avatar-ai thinking-pulse">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-                </svg>
-              </div>
-              <div class="chat-bubble-ai chat-bubble-loading">
-                <div class="chat-live-flow">
-                  <div class="chat-live-header">
-                    <span class="chat-live-spinner"/>
-                    正在执行真实分析服务，请查看上方协同工作流
-                  </div>
-                  <div class="chat-typing">
-                    <span/><span/><span/>
-                  </div>
-                </div>
-                <div v-if="!agentLane.length" class="chat-typing">
-                  <span/><span/><span/>
-                </div>
+              <div class="intro-signal-row">
+                <span v-for="item in companySignals" :key="item.label" class="signal-chip">
+                  <em>{{ item.label }}</em>
+                  <strong>{{ item.value }}</strong>
+                </span>
               </div>
             </div>
+          </article>
 
-            <ErrorState v-if="turnError" :message="turnError" />
-          </div><!-- /chat-messages -->
-
-          <!-- input zone -->
-          <footer class="chat-footer">
-            <!-- quick prompts (horizontal scroll, no line break) -->
-            <div class="chat-prompts">
-              <button
-                v-for="item in starterQueries.slice(0, 5)"
-                :key="item"
-                class="chat-prompt-pill"
-                :disabled="!selectedCompany"
-                @click="runQuery(`${selectedCompany} ${item}`)"
-              >{{ item }}</button>
+          <article v-if="latestUserMessage" class="console-message is-user">
+            <div class="user-query-panel">
+              <span>本轮问题</span>
+              <strong>{{ latestUserMessage.text }}</strong>
             </div>
+          </article>
 
-            <div class="chat-input-wrap" :class="{ 'is-loading': loadingTurn }">
-              <textarea
-                v-model="query"
-                class="chat-textarea"
-                :placeholder="selectedCompany ? `向 ${selectedCompany} 发起分析，Shift+Enter 换行` : '当前无可分析企业，请先完成数据接入'"
-                @keydown.enter="handleEnter"
-                rows="1"
-              />
-              <button
-                class="chat-send"
-                :disabled="!canRunQuery"
-                @click="runQuery()"
-              >
-                <svg v-if="loadingTurn" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-              </button>
+          <article v-if="loadingTurn" class="console-message is-assistant">
+            <div class="message-glyph">AI</div>
+            <div class="message-stack">
+              <section class="workflow-panel">
+                <div class="workflow-head">
+                  <span>Executing Multi-Agent Workflow</span>
+                  <strong>Running</strong>
+                </div>
+                <p>正在检索真实评分、风险扫描、证据链与动作建议。</p>
+              </section>
             </div>
-          </footer>
+          </article>
 
-        </div><!-- /chat-main -->
-
-        <!-- RIGHT PANEL: insight + charts ──────────────────── -->
-        <aside class="chat-panel">
-          <div class="panel-header">分析结果</div>
-          <div class="panel-body">
-
-            <template v-if="insightCards.length || actionCards.length">
-
-              <div v-if="aiAssurance" class="panel-block">
-                <div class="panel-block-title">
-                  <span class="panel-dot" :style="{ background: aiAssurance.status === 'grounded' ? '#10b981' : aiAssurance.status === 'review' ? '#f59e0b' : '#f43f5e' }"/>
-                  可信分析卡
+          <article v-else-if="latestAnswer" class="console-message is-assistant">
+            <div class="message-glyph">AI</div>
+            <div class="message-stack">
+              <section class="workflow-panel">
+                <div class="workflow-head">
+                  <span>Executing Multi-Agent Workflow</span>
+                  <strong>{{ aiAssurance?.label || 'Done' }}</strong>
                 </div>
-                <div class="panel-assurance-card" :class="`is-${aiAssurance.status}`">
-                  <div class="panel-assurance-head">
-                    <strong>{{ displayAssuranceStatus(aiAssurance.status) }}</strong>
-                    <span class="panel-assurance-badge">{{ aiAssurance.tool_call_count }} 工具</span>
-                  </div>
-                  <p>{{ aiAssurance.summary }}</p>
-                  <div class="panel-assurance-grid">
-                    <span>证据 {{ aiAssurance.evidence_count }}</span>
-                    <span>证据组 {{ aiAssurance.evidence_group_count }}</span>
-                    <span>公式 {{ aiAssurance.formula_count }}</span>
-                    <span>关键数 {{ aiAssurance.key_number_count }}</span>
-                  </div>
-                  <div v-if="aiAssurance.tool_labels?.length" class="panel-tags">
-                    <TagPill
-                      v-for="tool in aiAssurance.tool_labels"
-                      :key="tool"
-                      :label="tool"
-                      tone="default"
-                    />
-                  </div>
-                  <p v-if="aiAssurance.failed_tool_count" class="panel-assurance-warning">
-                    本轮有 {{ aiAssurance.failed_tool_count }} 个工具执行失败，本轮结果需要复核。
-                  </p>
-                  <p v-if="aiAssurance.retrieval_attempted" class="panel-assurance-foot">
-                    文本检索补证 {{ aiAssurance.retrieval_enriched_count }} 条，状态 {{ aiAssurance.retrieval_status || '已记录' }}。
-                  </p>
-                </div>
-              </div>
 
-              <!-- key metrics grid -->
-              <div v-if="insightCards.length" class="panel-block">
-                <div class="panel-block-title">
-                  <span class="panel-dot" style="background:#10b981"/>
-                  核心指标
-                </div>
-                <div class="panel-metrics-grid">
-                  <div v-for="item in insightCards" :key="item.label" class="panel-metric-card">
-                    <div class="panel-metric-label">{{ item.label }}</div>
-                    <div class="panel-metric-value">
-                      {{ item.value }}
-                      <em v-if="item.unit">{{ item.unit }}</em>
+                <div class="workflow-list">
+                  <div v-for="step in workflowSteps" :key="step.step" class="workflow-row">
+                    <div class="workflow-copy">
+                      <strong>[{{ step.agent_label || step.agent }}]</strong>
+                      <p>{{ step.summary }}</p>
                     </div>
+                    <em>{{ displayFlowStatus(step.status) }}</em>
                   </div>
                 </div>
-              </div>
+              </section>
 
-              <!-- action / risk tags -->
-              <div v-if="actionCards.length" class="panel-block">
-                <div class="panel-block-title">
-                  <span class="panel-dot" style="background:#f43f5e"/>
-                  风险与动作
+              <section class="analysis-sheet">
+                <div class="analysis-head">
+                  <span>当前结论</span>
+                  <h2>{{ latestAnswer.summary || '已生成当前轮次研判' }}</h2>
+                  <div class="analysis-meta">
+                    <span v-for="item in workspaceStatus" :key="item">{{ item }}</span>
+                    <span v-if="controlPlane?.steps_completed">流程 {{ controlPlane.steps_completed }}/{{ controlPlane.step_total }}</span>
+                    <span v-if="controlPlane?.execution_ms">耗时 {{ formatExecutionMs(controlPlane.execution_ms) }}</span>
+                  </div>
                 </div>
-                <div class="panel-tags">
-                  <TagPill
-                    v-for="item in actionCards"
-                    :key="item.title"
-                    :label="`[${displayPriority(item.priority)}] ${item.title}`"
-                    :tone="item.priority?.toLowerCase() === 'high' ? 'risk' : 'default'"
-                  />
+
+                <div class="analysis-grid">
+                  <div class="analysis-copy">
+                    <section v-for="block in answerBlocks" :key="block.title" class="analysis-block">
+                      <h3>{{ block.title }}</h3>
+                      <p v-for="line in block.paragraphs" :key="line">{{ line }}</p>
+                      <ul v-if="block.bullets.length">
+                        <li v-for="line in block.bullets" :key="line">{{ line }}</li>
+                      </ul>
+                    </section>
+                  </div>
+
+                  <aside class="analysis-side">
+                    <section v-if="insightNumbers.length" class="side-stack">
+                      <span class="side-label">关键数字</span>
+                      <article v-for="item in insightNumbers" :key="item.label" class="metric-row">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ displayMetricValue(item) }}</strong>
+                      </article>
+                    </section>
+
+                    <section v-if="latestActionCards.length" class="side-stack">
+                      <span class="side-label">下一步动作</span>
+                      <article v-for="item in latestActionCards" :key="item.title" class="action-row">
+                        <em>{{ item.priority || 'Action' }}</em>
+                        <strong>{{ item.title }}</strong>
+                        <p>{{ item.action || item.reason }}</p>
+                      </article>
+                    </section>
+                  </aside>
                 </div>
-              </div>
+              </section>
 
-            </template>
+              <section v-if="latestEvidenceGroups.length || resultLinks.length" class="evidence-dock">
+                <div v-if="latestEvidenceGroups.length" class="evidence-groups">
+                  <article v-for="group in latestEvidenceGroups" :key="group.title || group.code" class="evidence-group">
+                    <strong>{{ group.title || group.group_type || '证据组' }}</strong>
+                    <p>{{ group.subtitle || '真实证据已挂接到当前判断。' }}</p>
+                    <ul v-if="group.items?.length">
+                      <li v-for="item in group.items.slice(0, 2)" :key="item.chunk_id || item.source_title">
+                        {{ item.source_title }} · 第{{ item.page }}页
+                      </li>
+                    </ul>
+                  </article>
+                </div>
 
-            <!-- empty state -->
-            <div v-else class="panel-empty">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
-              </svg>
-              <span>发起分析后结果将展示于此</span>
+                <div v-if="resultLinks.length" class="evidence-links">
+                  <RouterLink
+                    v-for="link in resultLinks"
+                    :key="`${link.label}-${link.path}`"
+                    :to="{ path: link.path, query: link.query || {} }"
+                    class="evidence-link"
+                  >
+                    <span>{{ link.label }}</span>
+                    <strong>进入</strong>
+                  </RouterLink>
+                </div>
+              </section>
             </div>
+          </article>
 
+          <article v-else class="console-message is-assistant">
+            <div class="message-glyph">AI</div>
+            <div class="message-panel prep-panel">
+              <strong>从一个判断问题开始。</strong>
+              <p>我会调用真实评分、行业风险扫描、证据校验和动作规划，把结果压成一轮结论。</p>
+
+              <div class="prep-grid">
+                <article class="prep-cell">
+                  <span>当前研报</span>
+                  <strong>{{ companyResearch?.status === 'ready' ? companyResearch.report_title : '等待核验' }}</strong>
+                </article>
+                <article class="prep-cell">
+                  <span>重点风险</span>
+                  <strong>{{ companyTopRisks[0] || '等待识别' }}</strong>
+                </article>
+                <article class="prep-cell">
+                  <span>优先动作</span>
+                  <strong>{{ companyActions[0]?.title || '等待生成' }}</strong>
+                </article>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="console-composer">
+          <div class="composer-shell">
+            <textarea
+              v-model="query"
+              :disabled="loadingCompanies || !hasCompanies"
+              :placeholder="selectedCompany ? `输入你要围绕 ${selectedCompany} 继续判断的问题` : '先选择公司，再发起协同研判'"
+              rows="4"
+              @keydown="handleComposerKeydown"
+            ></textarea>
+
+            <button
+              type="button"
+              class="composer-submit"
+              :disabled="!canRunQuery"
+              @click="runQuery()"
+            >
+              {{ loadingTurn ? '研判中...' : '发起研判' }}
+            </button>
           </div>
-        </aside>
 
-      </div><!-- /chat-body -->
+          <div class="composer-prompts">
+            <button
+              v-for="question in starterQueries.slice(0, 3)"
+              :key="question"
+              type="button"
+              class="prompt-chip"
+              @click="pickStarterQuery(question)"
+            >
+              {{ question }}
+            </button>
+          </div>
+
+          <ErrorState v-if="turnError" :message="turnError" />
+        </div>
+      </section>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-/* ── SHELL ───────────────────────────────────────────────────── */
-.chat-shell {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  width: 100%;
-  background: #141414;
-  color: #e2e8f0;
-  overflow: hidden;
-  margin: -16px -24px -24px;
-  padding: 0;
-  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-}
-* { box-sizing: border-box; }
-
-/* ── HEADER ──────────────────────────────────────────────────── */
-.chat-header {
-  height: 52px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-  background: #1a1a1a;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-}
-.chat-header-left { display: flex; align-items: center; gap: 12px; }
-.chat-logo {
-  width: 30px; height: 30px;
-  background: rgba(16,185,129,0.1);
-  border: 1px solid rgba(16,185,129,0.3);
-  border-radius: 7px;
-  display: flex; align-items: center; justify-content: center;
-}
-.chat-brand { font-size: 14px; font-weight: 600; color: #fff; letter-spacing: 0.02em; }
-.chat-divider { width: 1px; height: 18px; background: rgba(255,255,255,0.12); }
-.chat-target { display: flex; align-items: center; gap: 8px; }
-.chat-target-label { font-size: 12px; color: #6b7280; }
-.chat-select {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 6px;
-  color: #10b981;
-  font-size: 13px;
-  font-weight: 500;
-  padding: 3px 8px;
-  outline: none;
-  cursor: pointer;
-}
-.chat-select:focus { border-color: rgba(16,185,129,0.4); }
-.chat-header-right { display: flex; align-items: center; gap: 12px; }
-.chat-role-badge {
-  display: flex; align-items: center; gap: 6px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 20px;
-  padding: 3px 12px;
-  font-size: 12px;
-  color: #d1d5db;
-}
-.chat-role-dot { width: 7px; height: 7px; border-radius: 50%; }
-
-/* ── BODY ────────────────────────────────────────────────────── */
-.chat-body { flex: 1; display: flex; overflow: hidden; }
-
-/* ── MAIN (chat + input) ─────────────────────────────────────── */
-.chat-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
-
-.chat-agent-lane {
-  flex-shrink: 0;
+.workspace-console {
+  min-height: 100%;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 14px 18px 12px;
-  background: #171717;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 18px;
 }
 
-.chat-agent-card {
-  min-height: 106px;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.03);
+.console-header {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.chat-agent-card.is-idle {
-  opacity: 0.88;
-}
-
-.chat-agent-card.is-processing {
-  border-color: rgba(16,185,129,0.34);
-  box-shadow: 0 0 0 1px rgba(16,185,129,0.14), inset 0 0 18px rgba(16,185,129,0.06);
-}
-
-.chat-agent-card.is-completed {
-  border-color: rgba(59,130,246,0.26);
-}
-
-.chat-agent-card-head {
-  display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.console-heading {
+  display: grid;
   gap: 8px;
 }
 
-.chat-agent-step {
-  font-size: 11px;
-  color: #10b981;
+.console-kicker,
+.toolbar-select span,
+.user-query-panel span,
+.workflow-head span,
+.side-label,
+.signal-chip em,
+.prep-cell span {
   font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
-.chat-agent-name {
-  font-size: 11px;
-  color: #94a3b8;
-  font-family: 'JetBrains Mono', monospace;
+.console-kicker {
+  color: rgba(94, 234, 212, 0.72);
 }
 
-.chat-agent-title {
-  font-size: 13px;
+.console-heading h1,
+.analysis-head h2,
+.analysis-block h3 {
+  margin: 0;
+  letter-spacing: -0.05em;
   color: #f8fafc;
 }
 
-.chat-agent-summary {
+.console-heading h1 {
+  font-size: clamp(34px, 4vw, 46px);
+  line-height: 0.98;
+}
+
+.console-heading p {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.55;
-  color: #94a3b8;
+  color: rgba(148, 163, 184, 0.92);
 }
 
-/* ── MESSAGES ────────────────────────────────────────────────── */
-.chat-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px 28px;
+.console-toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 20px;
-  scroll-behavior: smooth;
-}
-.chat-messages::-webkit-scrollbar { width: 6px; }
-.chat-messages::-webkit-scrollbar-thumb { background: rgba(16,185,129,0.25); border-radius: 3px; }
-.chat-messages::-webkit-scrollbar-track { background: transparent; }
-
-/* welcome */
-.chat-welcome {
-  display: flex; align-items: center; gap: 16px;
-  padding: 20px 24px;
-  background: rgba(16,185,129,0.05);
-  border: 1px solid rgba(16,185,129,0.15);
-  border-radius: 12px;
-  max-width: 600px;
-  align-self: center;
-  margin: auto 0;
-}
-.chat-welcome-icon {
-  width: 48px; height: 48px;
-  background: rgba(16,185,129,0.1);
-  border: 1px solid rgba(16,185,129,0.25);
-  border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.chat-welcome-text { font-size: 14px; line-height: 1.7; color: #d1d5db; margin: 0; }
-.chat-welcome-text strong { color: #10b981; font-weight: 600; }
-.chat-welcome-sub { font-size: 12px; color: #6b7280; }
-
-/* message rows */
-.chat-row { display: flex; gap: 12px; max-width: 840px; width: 100%; }
-.chat-row-user { align-self: flex-end; flex-direction: row-reverse; }
-.chat-row-ai   { align-self: flex-start; }
-
-/* avatars */
-.chat-avatar {
-  width: 32px; height: 32px;
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.chat-avatar-user { background: rgba(37,99,235,0.25); border: 1px solid rgba(59,130,246,0.4); color: #60a5fa; }
-.chat-avatar-ai   { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #10b981; }
-.thinking-pulse { animation: avatar-pulse 1.6s ease-in-out infinite; }
-@keyframes avatar-pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
-
-/* user bubble */
-.chat-bubble-user {
-  background: rgba(37,99,235,0.2);
-  border: 1px solid rgba(59,130,246,0.3);
-  border-radius: 14px 4px 14px 14px;
-  padding: 10px 16px;
-  max-width: 72%;
-}
-.chat-bubble-text { margin: 0; font-size: 14px; line-height: 1.6; color: #e2e8f0; }
-
-/* AI bubble */
-.chat-bubble-ai {
-  background: #1e1e1e;
-  border: 1px solid rgba(255,255,255,0.09);
-  border-radius: 4px 14px 14px 14px;
-  padding: 16px 18px;
-  max-width: 88%;
-  position: relative;
-  overflow: hidden;
-}
-.chat-bubble-loading { min-width: 220px; }
-
-/* answer sections */
-.chat-answer-section { margin-bottom: 14px; }
-.chat-answer-section:last-of-type { margin-bottom: 0; }
-.chat-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #10b981;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  margin-bottom: 6px;
-}
-.chat-section-line {
-  margin: 0 0 4px;
-  font-size: 13.5px;
-  line-height: 1.65;
-  color: #d1d5db;
-}
-
-/* key numbers strip */
-.chat-key-nums {
-  display: flex; flex-wrap: wrap; gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255,255,255,0.07);
-}
-.chat-kn-badge {
-  display: flex; align-items: baseline; gap: 5px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 6px;
-  padding: 4px 10px;
-}
-.chat-kn-label { font-size: 11px; color: #6b7280; }
-.chat-kn-value { font-size: 14px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
-.chat-kn-value em { font-style: normal; font-size: 11px; color: #9ca3af; margin-left: 2px; }
-
-/* live flow (while loading) */
-.chat-live-flow { display: flex; flex-direction: column; gap: 10px; }
-.chat-live-header {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12px;
-  color: #9ca3af;
-  font-family: 'JetBrains Mono', monospace;
-}
-.chat-live-spinner {
-  width: 10px; height: 10px;
-  border: 2px solid rgba(16,185,129,0.3);
-  border-top-color: #10b981;
-  border-radius: 50%;
-  animation: spin 0.9s linear infinite;
-  flex-shrink: 0;
-}
-
-/* typing dots */
-.chat-typing { display: flex; align-items: center; gap: 5px; padding: 4px 0; }
-.chat-typing span {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: #4b5563;
-  animation: typing-bounce 1.2s ease-in-out infinite;
-}
-.chat-typing span:nth-child(2) { animation-delay: .15s; }
-.chat-typing span:nth-child(3) { animation-delay: .30s; }
-@keyframes typing-bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
-
-/* follow-up suggestions */
-.chat-followup {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255,255,255,0.07);
-}
-.chat-followup-label { font-size: 11px; color: #6b7280; }
-.chat-followup-btn {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 20px;
-  color: #94a3b8;
-  font-size: 12px;
-  padding: 4px 12px;
-  cursor: pointer;
-  transition: all .2s;
-  white-space: nowrap;
-}
-.chat-followup-btn:hover { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); color: #10b981; }
-
-/* ── FOOTER (prompts + input) ────────────────────────────────── */
-.chat-footer {
-  flex-shrink: 0;
-  background: #1a1a1a;
-  border-top: 1px solid rgba(255,255,255,0.07);
-  padding: 12px 20px 14px;
-  display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
-/* quick prompts: horizontal scroll row */
-.chat-prompts {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: none;
-}
-.chat-prompts::-webkit-scrollbar { display: none; }
-.chat-prompt-pill {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 20px;
-  color: #9ca3af;
-  font-size: 12px;
-  padding: 5px 14px;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: all .2s;
-}
-.chat-prompt-pill:hover { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.3); color: #10b981; }
-
-/* input wrap */
-.chat-input-wrap {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px;
-  padding: 8px 10px 8px 14px;
-  transition: border-color .2s;
-}
-.chat-input-wrap:focus-within { border-color: rgba(16,185,129,0.4); }
-.chat-input-wrap.is-loading { opacity: .7; pointer-events: none; }
-.chat-textarea {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: #e2e8f0;
-  font-size: 14px;
-  line-height: 1.55;
-  resize: none;
-  min-height: 22px;
-  max-height: 110px;
-  font-family: inherit;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-.chat-textarea::placeholder { color: #4b5563; }
-.chat-send {
-  width: 36px; height: 36px;
-  background: rgba(16,185,129,0.15);
-  border: 1px solid rgba(16,185,129,0.3);
-  border-radius: 8px;
-  color: #10b981;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all .2s;
-}
-.chat-send:hover:not(:disabled) { background: rgba(16,185,129,0.25); border-color: rgba(16,185,129,0.5); }
-.chat-send:disabled { opacity: .4; cursor: not-allowed; }
-
-/* ── RIGHT PANEL ─────────────────────────────────────────────── */
-.chat-panel {
-  width: 300px;
-  flex-shrink: 0;
-  background: #1a1a1a;
-  border-left: 1px solid rgba(255,255,255,0.07);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.panel-header {
-  height: 46px;
-  flex-shrink: 0;
-  display: flex; align-items: center;
-  padding: 0 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #9ca3af;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
-  letter-spacing: 0.03em;
-}
-.panel-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 14px 14px 20px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(16,185,129,0.2) transparent;
-}
-
-.panel-block { margin-bottom: 20px; }
-.panel-block:last-child { margin-bottom: 0; }
-.panel-block-title {
-  display: flex; align-items: center; gap: 7px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #6b7280;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin-bottom: 10px;
-}
-.panel-dot { width: 7px; height: 7px; border-radius: 50%; }
-.panel-assurance-card {
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-  padding: 12px;
-  background: rgba(255,255,255,0.03);
-}
-.panel-assurance-card.is-grounded { border-color: rgba(16,185,129,0.28); background: rgba(16,185,129,0.06); }
-.panel-assurance-card.is-review { border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.06); }
-.panel-assurance-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.panel-assurance-head strong { font-size: 13px; color: #f8fafc; }
-.panel-assurance-badge {
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.12);
-  padding: 2px 8px;
-  font-size: 11px;
-  color: #cbd5e1;
-}
-.panel-assurance-card p { margin: 0 0 8px; font-size: 12px; line-height: 1.5; color: #cbd5e1; }
-.panel-assurance-grid {
+.toolbar-select {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: 8px;
 }
-.panel-assurance-grid span {
-  font-size: 11px;
-  color: #94a3b8;
-  background: rgba(0,0,0,0.22);
-  border-radius: 6px;
-  padding: 6px 8px;
+
+.toolbar-select span {
+  color: rgba(120, 143, 172, 0.82);
 }
-.panel-assurance-warning { color: #fecaca; }
-.panel-assurance-foot { color: #93c5fd; }
 
-/* metrics 2-col grid */
-.panel-metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.panel-metric-card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 8px;
-  padding: 10px 12px;
+.toolbar-select select {
+  min-width: 220px;
+  min-height: 46px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #eef2f7;
 }
-.panel-metric-label { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
-.panel-metric-value { font-size: 17px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
-.panel-metric-value em { font-style: normal; font-size: 11px; color: #9ca3af; margin-left: 2px; }
 
-/* tags */
-.panel-tags { display: flex; flex-direction: column; gap: 6px; }
+.toolbar-button {
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #d7dee8;
+  cursor: pointer;
+}
 
-/* empty state */
-.panel-empty {
-  height: 100%;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 12px;
-  color: #374151;
-  font-size: 13px;
-  padding: 40px 20px;
+.toolbar-button.is-primary {
+  border-color: rgba(52, 211, 153, 0.24);
+  background: rgba(18, 62, 45, 0.9);
+  color: #f0fdf4;
+}
+
+.toolbar-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.workspace-state,
+.console-stage {
+  min-height: 0;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(16, 17, 20, 0.98), rgba(12, 13, 17, 0.98));
+}
+
+.workspace-empty {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 60px 24px;
   text-align: center;
 }
 
-/* ── UTILS ───────────────────────────────────────────────────── */
-.spin { animation: spin .9s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* responsive: collapse panel below 1100px */
-@media (max-width: 1100px) {
-  .chat-panel { display: none; }
+.workspace-empty h2,
+.workspace-empty p {
+  margin: 0;
 }
-@media (max-width: 720px) {
-  .chat-agent-lane { grid-template-columns: 1fr; padding: 12px 14px 10px; }
-  .chat-messages { padding: 16px; }
-  .chat-footer { padding: 10px 14px 12px; }
-  .chat-row { max-width: 100%; }
+
+.workspace-empty p {
+  color: rgba(148, 163, 184, 0.88);
+}
+
+.console-stage {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.console-stream {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 24px 8px;
+  display: grid;
+  gap: 18px;
+}
+
+.console-message {
+  display: grid;
+  gap: 16px;
+}
+
+.console-message.is-assistant {
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: flex-start;
+}
+
+.message-glyph {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(52, 211, 153, 0.22);
+  background: rgba(18, 62, 45, 0.92);
+  color: #73f0c7;
+  display: grid;
+  place-items: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+}
+
+.message-panel,
+.workflow-panel,
+.analysis-sheet,
+.evidence-dock,
+.user-query-panel {
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.message-panel {
+  padding: 18px 20px;
+  display: grid;
+  gap: 12px;
+}
+
+.message-panel strong,
+.workflow-copy strong,
+.action-row strong,
+.prep-cell strong,
+.signal-chip strong {
+  color: #f8fafc;
+}
+
+.message-panel p,
+.workflow-copy p,
+.analysis-block p,
+.analysis-block li,
+.action-row p,
+.evidence-group p,
+.evidence-group li,
+.prep-cell strong {
+  margin: 0;
+  color: rgba(221, 228, 238, 0.9);
+  line-height: 1.75;
+}
+
+.intro-signal-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.signal-chip {
+  display: grid;
+  gap: 6px;
+  min-width: 120px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.signal-chip em,
+.workflow-head span,
+.side-label,
+.prep-cell span,
+.user-query-panel span {
+  color: rgba(120, 143, 172, 0.86);
+  font-style: normal;
+}
+
+.user-query-panel {
+  margin-left: auto;
+  max-width: min(780px, 78%);
+  padding: 18px 22px;
+  display: grid;
+  gap: 8px;
+  background: rgba(27, 43, 108, 0.72);
+  border-color: rgba(82, 118, 255, 0.24);
+}
+
+.user-query-panel strong {
+  color: #f8fafc;
+  font-size: 22px;
+  line-height: 1.45;
+}
+
+.message-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.workflow-panel {
+  padding: 18px 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.workflow-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-head strong {
+  color: #73f0c7;
+  font-size: 14px;
+}
+
+.workflow-panel > p {
+  margin: 0;
+  color: rgba(148, 163, 184, 0.88);
+}
+
+.workflow-list {
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workflow-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.workflow-row em {
+  color: #73f0c7;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.analysis-sheet {
+  padding: 20px 22px;
+  display: grid;
+  gap: 18px;
+}
+
+.analysis-head {
+  display: grid;
+  gap: 10px;
+}
+
+.analysis-head > span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(120, 143, 172, 0.86);
+}
+
+.analysis-head h2 {
+  font-size: clamp(28px, 3vw, 40px);
+  line-height: 1.02;
+}
+
+.analysis-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analysis-meta span {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(203, 213, 225, 0.88);
+  font-size: 12px;
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.7fr);
+  gap: 18px;
+}
+
+.analysis-copy,
+.analysis-side,
+.side-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.analysis-block {
+  display: grid;
+  gap: 10px;
+}
+
+.analysis-block + .analysis-block {
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.analysis-block h3 {
+  font-size: 18px;
+}
+
+.analysis-block ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.side-stack {
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.metric-row,
+.action-row {
+  display: grid;
+  gap: 6px;
+}
+
+.metric-row span {
+  color: rgba(148, 163, 184, 0.82);
+  font-size: 13px;
+}
+
+.metric-row strong {
+  color: #f8fafc;
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+
+.action-row {
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.action-row:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+
+.action-row em {
+  font-family: 'JetBrains Mono', monospace;
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #73f0c7;
+}
+
+.evidence-dock {
+  padding: 16px 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.evidence-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.evidence-group {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.evidence-group strong {
+  color: #f8fafc;
+}
+
+.evidence-group ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: rgba(203, 213, 225, 0.86);
+}
+
+.evidence-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.evidence-link {
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #dbe7f3;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.evidence-link strong {
+  color: #73f0c7;
+  font-size: 12px;
+}
+
+.prep-panel {
+  gap: 14px;
+}
+
+.prep-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.prep-cell {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.console-composer {
+  padding: 14px 24px 24px;
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(12, 13, 17, 0), rgba(12, 13, 17, 0.96) 26%);
+}
+
+.composer-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 148px;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(8, 10, 14, 0.96);
+}
+
+.composer-shell textarea {
+  width: 100%;
+  resize: none;
+  border: none;
+  background: transparent;
+  color: #eef2f7;
+  font: inherit;
+  line-height: 1.7;
+  outline: none;
+}
+
+.composer-submit {
+  min-height: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  background: rgba(18, 62, 45, 0.92);
+  color: #f0fdf4;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.composer-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.composer-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.prompt-chip {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.025);
+  color: #dbe7f3;
+  cursor: pointer;
+}
+
+@media (max-width: 1100px) {
+  .analysis-grid,
+  .evidence-groups {
+    grid-template-columns: 1fr;
+  }
+
+  .prep-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 800px) {
+  .console-header,
+  .console-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .composer-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .console-stream,
+  .console-composer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .console-message.is-assistant {
+    grid-template-columns: 1fr;
+  }
+
+  .message-glyph {
+    display: none;
+  }
+
+  .user-query-panel {
+    max-width: 100%;
+  }
 }
 </style>

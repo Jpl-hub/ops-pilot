@@ -13,8 +13,15 @@ const state = useAsyncState<any>()
 
 const contextText = computed(() => String(route.query.context || route.params.chunkId))
 const anchorTerms = computed(() => {
-  const raw = typeof route.query.anchors === 'string' ? route.query.anchors : ''
-  return raw ? raw.split('|').filter(Boolean) : []
+  const rawAnchors =
+    typeof route.query.anchors === 'string'
+      ? route.query.anchors
+      : typeof route.query.terms === 'string'
+      ? route.query.terms
+      : ''
+  return rawAnchors
+    ? rawAnchors.split(/[|,]/).map((term) => term.trim()).filter(Boolean)
+    : []
 })
 const highlightedExcerpt = computed(() => {
   const excerpt = String(state.data.value?.excerpt || '')
@@ -32,9 +39,13 @@ const highlightedExcerpt = computed(() => {
 const sourceTypeLabel = computed(() => {
   const map: Record<string, string> = {
     official_summary_page: '定期报告页级摘要',
-    research_report: '研报证据',
-    annual_report: '年度报告',
-    periodic_report: '定期报告',
+    official_statement_page: '定期报告财务页',
+    official_event_page: '定期报告事项页',
+    official_snapshot_page: '文档快照页',
+    hybrid_rag_chunk: '检索证据片段',
+    research_report_excerpt: '研报证据',
+    research_forecast_excerpt: '盈利预测摘录',
+    bootstrap_note: '补充说明',
   }
   const sourceType = String(state.data.value?.source_type || '')
   return map[sourceType] || sourceType || '未标注'

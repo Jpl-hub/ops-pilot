@@ -14,6 +14,7 @@ Architecture:
 """
 from __future__ import annotations
 
+from collections import Counter
 import json
 import logging
 import re
@@ -61,6 +62,28 @@ ROLE_PROFILES: dict[str, dict[str, Any]] = {
             "把研报观点和真实财报偏差最大的点列出来。",
         ],
     },
+}
+
+TOOL_DISPLAY_LABELS: dict[str, str] = {
+    "tool_score_company": "企业评分",
+    "tool_risk_scan": "行业风险扫描",
+    "tool_verify_claim": "研报核验",
+    "tool_benchmark_company": "同业对标",
+    "tool_stress_test": "压力测试",
+    "tool_graph_query": "图谱检索",
+    "tool_company_timeline": "时间线回放",
+}
+
+QUERY_TYPE_DISPLAY_LABELS: dict[str, str] = {
+    "company_scoring": "经营体检",
+    "claim_verification": "研报核验",
+    "peer_benchmark": "同业对标",
+    "risk_scan": "行业预警",
+    "metric_query": "指标直查",
+    "graph_query": "图谱检索",
+    "stress_test": "压力测试",
+    "company_timeline": "时间线回放",
+    "brief_generation": "经营简报",
 }
 
 
@@ -174,7 +197,7 @@ class WorkspaceService:
     ) -> dict[str, Any]:
         """Direct metric lookup with formula replay and evidence chain."""
         if not company_name:
-            raise ValueError("当前样本问答需要显式包含公司名。")
+            raise ValueError("当前问答需要显式包含公司名。")
         company = self._resolve_company(company_name, report_period)
         if company is None:
             raise ValueError(f"未找到公司：{company_name}")
@@ -242,6 +265,161 @@ class WorkspaceService:
             raise ValueError(f"运行记录损坏：{run_id}") from exc
         return {"run": record, "detail": detail}
 
+    def workspace_runtime_audit(
+        self,
+        *,
+        limit: int = 10,
+        lookback: int = 60,
+    ) -> dict[str, Any]:
+        manifest = _load_workspace_run_manifest(self.settings)
+        records = sorted(
+            manifest["records"],
+            key=lambda item: item.get("created_at") or "",
+            reverse=True,
+        )
+        selected_records = records[:lookback]
+
+        model_counter: Counter[str] = Counter()
+        tool_counter: Counter[str] = Counter()
+        query_type_counter: Counter[str] = Counter()
+        role_counter: Counter[str] = Counter()
+        company_counter: Counter[str] = Counter()
+
+        audited_runs = 0
+        grounded_runs = 0
+        complete_trace_runs = 0
+        tool_enabled_runs = 0
+        execution_total = 0.0
+        llm_total = 0.0
+        tool_total = 0.0
+        execution_samples = 0
+        llm_samples = 0
+        tool_samples = 0
+        tool_call_total = 0
+        evidence_total = 0
+        evidence_samples = 0
+
+        recent_runs: list[dict[str, Any]] = []
+        company_stats: dict[str, dict[str, Any]] = {}
+
+        for record in selected_records:
+            detail = _load_workspace_run_detail_safe(self.settings, record)
+            sample = _build_workspace_runtime_sample(record, detail)
+            recent_runs.append(sample)
+
+            query_type_counter[sample["query_type_label"]] += 1
+            role_counter[sample["role_label"]] += 1
+            if sample["company_name"]:
+                company_counter[sample["company_name"]] += 1
+                stats = company_stats.setdefault(
+                    sample["company_name"],
+                    {
+                        "company_name": sample["company_name"],
+                        "run_count": 0,
+                        "grounded_count": 0,
+                        "execution_total": 0.0,
+                        "execution_samples": 0,
+                        "latest_run_at": sample["created_at"],
+                    },
+                )
+                stats["run_count"] += 1
+                if sample["created_at"] and sample["created_at"] > (stats.get("latest_run_at") or ""):
+                    stats["latest_run_at"] = sample["created_at"]
+                if sample["execution_ms"] is not None:
+                    stats["execution_total"] += float(sample["execution_ms"])
+                    stats["execution_samples"] += 1
+
+            if not detail:
+                continue
+
+            audited_runs += 1
+            if sample["model"]:
+                model_counter[sample["model"]] += 1
+            if sample["assurance_status"] == "grounded":
+                grounded_runs += 1
+                if sample["company_name"]:
+                    company_stats[sample["company_name"]]["grounded_count"] += 1
+
+            if sample["trace_complete"]:
+                complete_trace_runs += 1
+            if sample["tool_call_count"] > 0:
+                tool_enabled_runs += 1
+            tool_call_total += sample["tool_call_count"]
+
+            if sample["execution_ms"] is not None:
+                execution_total += float(sample["execution_ms"])
+                execution_samples += 1
+            if sample["llm_elapsed_ms"] is not None:
+                llm_total += float(sample["llm_elapsed_ms"])
+                llm_samples += 1
+            if sample["tool_elapsed_ms"] is not None:
+                tool_total += float(sample["tool_elapsed_ms"])
+                tool_samples += 1
+            if sample["evidence_count"] is not None:
+                evidence_total += int(sample["evidence_count"])
+                evidence_samples += 1
+
+            for label in sample["tool_labels"]:
+                tool_counter[label] += 1
+
+        company_heat = []
+        for stats in company_stats.values():
+            avg_execution_ms = None
+            if stats["execution_samples"]:
+                avg_execution_ms = round(stats["execution_total"] / stats["execution_samples"], 1)
+            company_heat.append(
+                {
+                    "company_name": stats["company_name"],
+                    "run_count": stats["run_count"],
+                    "grounded_count": stats["grounded_count"],
+                    "avg_execution_ms": avg_execution_ms,
+                    "latest_run_at": stats["latest_run_at"],
+                }
+            )
+        company_heat.sort(
+            key=lambda item: (
+                -int(item.get("run_count") or 0),
+                -int(item.get("grounded_count") or 0),
+                item.get("company_name") or "",
+            )
+        )
+
+        grounded_ratio = _ratio_percent(grounded_runs, audited_runs)
+        trace_ratio = _ratio_percent(complete_trace_runs, audited_runs)
+        tool_ratio = _ratio_percent(tool_enabled_runs, audited_runs)
+        audit_status, audit_label = _resolve_workspace_runtime_audit_status(
+            audited_runs=audited_runs,
+            grounded_ratio=grounded_ratio,
+            trace_ratio=trace_ratio,
+        )
+
+        return {
+            "generated_at": _utcnow_iso(),
+            "status": audit_status,
+            "label": audit_label,
+            "window_size": len(selected_records),
+            "total_runs": len(records),
+            "audited_runs": audited_runs,
+            "summary_cards": {
+                "grounded_ratio": grounded_ratio,
+                "trace_ratio": trace_ratio,
+                "tool_ratio": tool_ratio,
+                "avg_execution_ms": _average_or_none(execution_total, execution_samples),
+                "avg_llm_elapsed_ms": _average_or_none(llm_total, llm_samples),
+                "avg_tool_elapsed_ms": _average_or_none(tool_total, tool_samples),
+                "avg_tool_call_count": _average_or_none(tool_call_total, audited_runs),
+                "avg_evidence_count": _average_or_none(evidence_total, evidence_samples),
+            },
+            "model_mix": _counter_to_ranked_items(model_counter, limit=4),
+            "tool_mix": _counter_to_ranked_items(tool_counter, limit=6),
+            "query_mix": _counter_to_ranked_items(query_type_counter, limit=6),
+            "role_mix": _counter_to_ranked_items(role_counter, limit=3),
+            "company_heat": company_heat[:6],
+            "recent_runs": recent_runs[:limit],
+            "latest_run_at": recent_runs[0]["created_at"] if recent_runs else None,
+            "latest_company_name": recent_runs[0]["company_name"] if recent_runs else None,
+        }
+
     # ------------------------------------------------------------------ #
     #  Private helpers                                                     #
     # ------------------------------------------------------------------ #
@@ -267,7 +445,9 @@ class WorkspaceService:
             "query_type": payload.get("query_type"),
             "control_plane": payload.get("control_plane"),
             "ai_assurance": payload.get("ai_assurance"),
+            "agent_runtime": payload.get("agent_runtime"),
             "agent_flow": payload.get("agent_flow"),
+            "tool_trace": payload.get("tool_trace"),
             "answer_sections": payload.get("answer_sections"),
             "insight_cards": payload.get("insight_cards"),
             "follow_up_questions": payload.get("follow_up_questions"),
@@ -287,6 +467,9 @@ class WorkspaceService:
             "detail_path": str(detail_path),
             "created_at": detail_payload["created_at"],
             "control_plane_status": payload.get("control_plane", {}).get("session_label"),
+            "agent_model": payload.get("agent_runtime", {}).get("model"),
+            "tool_call_count": payload.get("agent_runtime", {}).get("tool_call_count", 0),
+            "execution_ms": payload.get("agent_runtime", {}).get("total_elapsed_ms"),
         }
         manifest["records"] = [
             item for item in manifest["records"] if item.get("run_id") != run_id
@@ -323,12 +506,13 @@ def _build_workspace_payload(
 ) -> dict[str, Any]:
     """Assemble full workspace response including agent flow, answer sections, etc."""
     role_profile = _build_role_profile(user_role)
+    agent_runtime = _build_agent_runtime(payload)
     answer_sections = _build_answer_sections(payload, role_profile["key"])
     insight_cards = _build_workspace_insight_cards(payload)
     follow_up_questions = _build_follow_up_questions(payload, role_profile["key"])
     agent_flow = _build_agent_flow(payload, query, role_profile["key"])
-    ai_assurance = _build_ai_assurance(payload)
-    control_plane = _build_control_plane(payload, query, role_profile["key"], agent_flow, ai_assurance)
+    ai_assurance = _build_ai_assurance(payload, agent_runtime)
+    control_plane = _build_control_plane(payload, query, role_profile["key"], agent_flow, ai_assurance, agent_runtime)
     return {
         **payload,
         "role_profile": role_profile,
@@ -338,6 +522,7 @@ def _build_workspace_payload(
         "agent_flow": agent_flow,
         "control_plane": control_plane,
         "ai_assurance": ai_assurance,
+        "agent_runtime": agent_runtime,
     }
 
 
@@ -361,7 +546,7 @@ def _build_answer_sections(payload: dict[str, Any], role_key: str) -> list[dict[
         return [
             {"title": "经营结论", "lines": [
                 f"{company_name} 在 {report_period} 的总分为 {scorecard.get('total_score')}，等级 {scorecard.get('grade')}。",
-                f"当前处于 {payload.get('subindustry', '所属子行业')} 样本的 {scorecard.get('subindustry_percentile')}pct 位置。",
+                f"当前处于 {payload.get('subindustry', '所属子行业')} 公司池的 {scorecard.get('subindustry_percentile')}pct 位置。",
             ]},
             {"title": "重点风险", "lines": [
                 item["name"] for item in scorecard.get("risk_labels", [])
@@ -467,23 +652,26 @@ def _build_workspace_insight_cards(payload: dict[str, Any]) -> list[dict[str, An
 def _build_follow_up_questions(payload: dict[str, Any], role_key: str) -> list[str]:
     company_name = payload.get("company_name")
     report_period = payload.get("report_period")
+    company_period = (
+        f"{company_name} {report_period}" if company_name and report_period else company_name
+    )
     if payload.get("query_type") == "company_scoring" and company_name and report_period:
         if role_key == "management":
             return [
-                f"{company_name}{report_period}最先要修复的经营环节是什么？",
-                f"{company_name}{report_period}现金和应收谁的问题更重？",
-                f"{company_name}{report_period}有哪些动作能在一个季度内见效？",
+                f"{company_period}最先要修复的经营环节是什么？",
+                f"{company_period}现金和应收谁的问题更重？",
+                f"{company_period}有哪些动作能在一个季度内见效？",
             ]
         if role_key == "regulator":
             return [
-                f"{company_name}{report_period}有哪些需要持续跟踪的事件信号？",
-                f"{company_name}{report_period}和上一期相比新增了哪些风险？",
-                f"{company_name}{report_period}是否存在研报与财报偏差？",
+                f"{company_period}有哪些需要持续跟踪的事件信号？",
+                f"{company_period}和上一期相比新增了哪些风险？",
+                f"{company_period}是否存在研报与财报偏差？",
             ]
         return [
-            f"{company_name}{report_period}和同业龙头差距主要在哪？",
-            f"{company_name}{report_period}最新研报观点是否可信？",
-            f"{company_name}{report_period}最影响估值的风险是什么？",
+            f"{company_period}和同业龙头差距主要在哪？",
+            f"{company_period}最新研报观点是否可信？",
+            f"{company_period}最影响估值的风险是什么？",
         ]
     if payload.get("query_type") == "claim_verification" and company_name:
         return [
@@ -525,7 +713,7 @@ def _build_agent_flow(
     tools_called = [t["tool_name"] for t in payload.get("tool_trace", []) if t.get("success")]
     return [
         {
-            "step": 1, "agent_key": "router", "agent_label": "Router", "agent": "Router",
+            "step": 1, "agent_key": "router", "agent_label": "任务识别", "agent": "任务识别",
             "status": "completed", "title": "识别任务并锁定公司",
             "summary": f"已将问题归类为 {query_type}，目标问题是：{query}",
             "source": "问题文本 + 公司池 + 报期索引", "tool": "intent_router", "handoff": "data",
@@ -537,7 +725,7 @@ def _build_agent_flow(
             ],
         },
         {
-            "step": 2, "agent_key": "data", "agent_label": "Data Agent", "agent": "Data Agent",
+            "step": 2, "agent_key": "data", "agent_label": "数据分析", "agent": "数据分析",
             "status": "completed", "title": "抽取经营与风险信号",
             "summary": (
                 f"调用了 {len(tools_called)} 个工具: {', '.join(tools_called) or '无'}。"
@@ -551,7 +739,7 @@ def _build_agent_flow(
             "metrics": _build_signal_agent_metrics(payload, risk_count, formula_count, claim_count),
         },
         {
-            "step": 3, "agent_key": "risk", "agent_label": "Risk Agent", "agent": "Risk Agent",
+            "step": 3, "agent_key": "risk", "agent_label": "证据校验", "agent": "证据校验",
             "status": "completed", "title": "回放来源与可核查证据",
             "summary": f"当前返回 {evidence_count} 条证据引用，优先暴露页码和来源片段。",
             "source": "官方财报页级解析 + 研报详情页 + 公式输入字段", "tool": "evidence_auditor",
@@ -563,8 +751,8 @@ def _build_agent_flow(
             ],
         },
         {
-            "step": 4, "agent_key": "strategy", "agent_label": "Strategy Agent",
-            "agent": "Strategy Agent", "status": "completed", "title": "按角色给出下一步",
+            "step": 4, "agent_key": "strategy", "agent_label": "策略生成",
+            "agent": "策略生成", "status": "completed", "title": "按角色给出下一步",
             "summary": (
                 f"已生成 {action_count} 条角色相关动作。" if action_count
                 else f"已切换到 {ROLE_PROFILES[role_key]['label']} 视角的后续问题建议。"
@@ -586,6 +774,7 @@ def _build_control_plane(
     role_key: str,
     agent_flow: list[dict[str, Any]],
     ai_assurance: dict[str, Any],
+    agent_runtime: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "session_label": f"{ROLE_PROFILES[role_key]['label']} · {payload.get('company_name', '行业视图')}",
@@ -598,10 +787,13 @@ def _build_control_plane(
         "data_sources": _build_control_plane_sources(payload),
         "assurance_label": ai_assurance.get("label"),
         "assurance_status": ai_assurance.get("status"),
+        "model": agent_runtime.get("model"),
+        "execution_ms": agent_runtime.get("total_elapsed_ms"),
+        "tool_round_count": agent_runtime.get("tool_round_count"),
     }
 
 
-def _build_ai_assurance(payload: dict[str, Any]) -> dict[str, Any]:
+def _build_ai_assurance(payload: dict[str, Any], agent_runtime: dict[str, Any]) -> dict[str, Any]:
     tool_trace = payload.get("tool_trace", [])
     successful_tools = [item["tool_name"] for item in tool_trace if item.get("success") and item.get("tool_name")]
     failed_tools = [item["tool_name"] for item in tool_trace if not item.get("success") and item.get("tool_name")]
@@ -612,16 +804,17 @@ def _build_ai_assurance(payload: dict[str, Any]) -> dict[str, Any]:
     retrieval_meta = payload.get("retrieval_meta", {})
     retrieval_attempted = bool(retrieval_meta.get("attempted"))
     retrieval_enriched_count = int(retrieval_meta.get("enriched_count", 0) or 0)
+    has_runtime_trace = bool(agent_runtime.get("model")) and bool(agent_runtime.get("total_elapsed_ms"))
 
-    if not successful_tools:
+    if not successful_tools or not has_runtime_trace:
         status = "review"
         label = "待复核"
-        summary = "当前轮已有结构化结果，但工具执行轨迹未完整保留，不能直接作为正式交付结论。"
+        summary = "当前轮已有结构化结果，但智能体执行轨迹未完整落盘，不能直接作为正式交付结论。"
         tone = "warning"
     elif evidence_count >= 2 or evidence_group_count >= 1 or formula_count >= 1:
         status = "grounded"
         label = "强支撑"
-        summary = "当前结论已绑定真实工具链和证据链，可回放、可抽检、可继续下钻。"
+        summary = "当前结论已绑定真实模型调用、工具执行和证据链，可回放、可抽检、可继续下钻。"
         tone = "success"
     else:
         status = "review"
@@ -645,7 +838,219 @@ def _build_ai_assurance(payload: dict[str, Any]) -> dict[str, Any]:
         "retrieval_attempted": retrieval_attempted,
         "retrieval_enriched_count": retrieval_enriched_count,
         "retrieval_status": retrieval_meta.get("status"),
+        "model": agent_runtime.get("model"),
+        "tool_round_count": agent_runtime.get("tool_round_count"),
+        "llm_elapsed_ms": agent_runtime.get("llm_elapsed_ms"),
+        "total_elapsed_ms": agent_runtime.get("total_elapsed_ms"),
     }
+
+
+def _build_agent_runtime(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_runtime = payload.get("agent_runtime") or {}
+    tool_trace = payload.get("tool_trace", [])
+    trace_records = [
+        {
+            "index": index,
+            "round_index": int(item.get("round_index") or 1),
+            "tool_name": item.get("tool_name"),
+            "tool_label": TOOL_DISPLAY_LABELS.get(str(item.get("tool_name") or ""), "工具执行"),
+            "success": bool(item.get("success")),
+            "elapsed_ms": round(float(item.get("elapsed_ms") or 0.0), 1),
+            "arguments": item.get("arguments", {}),
+            "arguments_preview": _compact_json_preview(item.get("arguments", {}), limit=132),
+            "result_preview": _compact_json_preview(item.get("result_summary", ""), limit=180),
+            "executed_at": item.get("executed_at"),
+        }
+        for index, item in enumerate(tool_trace, start=1)
+        if isinstance(item, dict)
+    ]
+    tool_elapsed_ms = round(
+        sum(float(item.get("elapsed_ms") or 0.0) for item in trace_records),
+        1,
+    )
+    llm_elapsed_ms = round(float(raw_runtime.get("llm_elapsed_ms") or 0.0), 1)
+    total_elapsed_ms = round(float(raw_runtime.get("total_elapsed_ms") or llm_elapsed_ms + tool_elapsed_ms), 1)
+    return {
+        "model": raw_runtime.get("model"),
+        "temperature": raw_runtime.get("temperature"),
+        "max_tool_rounds": raw_runtime.get("max_tool_rounds"),
+        "started_at": raw_runtime.get("started_at"),
+        "finished_at": raw_runtime.get("finished_at"),
+        "completion_id": raw_runtime.get("completion_id"),
+        "finish_reason": raw_runtime.get("finish_reason"),
+        "total_rounds": int(raw_runtime.get("total_rounds") or 0),
+        "tool_round_count": int(raw_runtime.get("tool_round_count") or len({item["round_index"] for item in trace_records})),
+        "tool_call_count": len(trace_records),
+        "successful_tool_count": sum(1 for item in trace_records if item.get("success")),
+        "failed_tool_count": sum(1 for item in trace_records if not item.get("success")),
+        "llm_elapsed_ms": llm_elapsed_ms,
+        "tool_elapsed_ms": tool_elapsed_ms,
+        "total_elapsed_ms": total_elapsed_ms,
+        "trace": trace_records,
+    }
+
+
+def _build_workspace_runtime_sample(
+    record: dict[str, Any],
+    detail: dict[str, Any] | None,
+) -> dict[str, Any]:
+    detail_payload = detail or {}
+    agent_runtime = detail_payload.get("agent_runtime") or {}
+    ai_assurance = detail_payload.get("ai_assurance") or {}
+    trace_records = agent_runtime.get("trace") or []
+    if not trace_records:
+        trace_records = [
+            {
+                "tool_name": item.get("tool_name"),
+                "tool_label": TOOL_DISPLAY_LABELS.get(str(item.get("tool_name") or ""), "工具执行"),
+            }
+            for item in detail_payload.get("tool_trace", [])
+            if isinstance(item, dict)
+        ]
+
+    tool_labels = [
+        str(item.get("tool_label") or TOOL_DISPLAY_LABELS.get(str(item.get("tool_name") or ""), "工具执行"))
+        for item in trace_records
+        if item.get("tool_label") or item.get("tool_name")
+    ]
+    model = agent_runtime.get("model") or record.get("agent_model")
+    tool_call_count = int(
+        agent_runtime.get("tool_call_count")
+        or record.get("tool_call_count")
+        or len(trace_records)
+        or 0
+    )
+    execution_ms = _to_float_or_none(agent_runtime.get("total_elapsed_ms") or record.get("execution_ms"))
+    llm_elapsed_ms = _to_float_or_none(agent_runtime.get("llm_elapsed_ms"))
+    tool_elapsed_ms = _to_float_or_none(agent_runtime.get("tool_elapsed_ms"))
+    evidence_count = ai_assurance.get("evidence_count")
+    if evidence_count is None:
+        evidence_groups = detail_payload.get("evidence_groups") or []
+        evidence_count = sum(
+            len(group.get("items", []))
+            for group in evidence_groups
+            if isinstance(group, dict)
+        ) or None
+    trace_complete = bool(
+        detail
+        and model
+        and execution_ms is not None
+        and (tool_call_count == 0 or len(trace_records) >= tool_call_count)
+    )
+    return {
+        "run_id": record.get("run_id"),
+        "query": record.get("query"),
+        "company_name": record.get("company_name"),
+        "report_period": record.get("report_period"),
+        "created_at": record.get("created_at"),
+        "role_label": ROLE_PROFILES.get(
+            str(record.get("user_role") or ""),
+            ROLE_PROFILES["investor"],
+        )["label"],
+        "query_type": record.get("query_type"),
+        "query_type_label": QUERY_TYPE_DISPLAY_LABELS.get(
+            str(record.get("query_type") or ""),
+            record.get("query_type") or "未知任务",
+        ),
+        "assurance_status": ai_assurance.get("status") or "unavailable",
+        "assurance_label": ai_assurance.get("label") or ("未审计" if detail is None else "待复核"),
+        "model": model,
+        "tool_call_count": tool_call_count,
+        "tool_labels": list(dict.fromkeys(tool_labels)),
+        "execution_ms": execution_ms,
+        "llm_elapsed_ms": llm_elapsed_ms,
+        "tool_elapsed_ms": tool_elapsed_ms,
+        "evidence_count": int(evidence_count) if evidence_count is not None else None,
+        "trace_complete": trace_complete,
+        "trace_status_label": "完整" if trace_complete else ("缺详情" if detail is None else "待补齐"),
+    }
+
+
+def _load_workspace_run_detail_safe(
+    settings: Settings,
+    record: dict[str, Any],
+) -> dict[str, Any] | None:
+    candidate_paths: list[Path] = []
+    detail_path = record.get("detail_path")
+    if detail_path:
+        candidate_paths.append(Path(str(detail_path)))
+    run_id = str(record.get("run_id") or "")
+    if run_id:
+        candidate_paths.append(_workspace_run_detail_path(settings, run_id))
+
+    seen_paths: set[str] = set()
+    for path in candidate_paths:
+        path_key = str(path)
+        if path_key in seen_paths:
+            continue
+        seen_paths.add(path_key)
+        if not path.exists():
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as file:
+                return json.load(file)
+        except (json.JSONDecodeError, OSError):
+            logger.warning("workspace run detail unreadable: %s", path)
+            return None
+    return None
+
+
+def _counter_to_ranked_items(counter: Counter[str], *, limit: int) -> list[dict[str, Any]]:
+    return [
+        {"label": label, "count": count}
+        for label, count in counter.most_common(limit)
+        if label
+    ]
+
+
+def _resolve_workspace_runtime_audit_status(
+    *,
+    audited_runs: int,
+    grounded_ratio: int,
+    trace_ratio: int,
+) -> tuple[str, str]:
+    if audited_runs == 0:
+        return ("unavailable", "暂无审计数据")
+    if grounded_ratio >= 80 and trace_ratio >= 80:
+        return ("stable", "执行稳定")
+    if grounded_ratio >= 60 and trace_ratio >= 60:
+        return ("warming", "持续升温")
+    return ("review", "待继续加固")
+
+
+def _ratio_percent(numerator: int, denominator: int) -> int:
+    if denominator <= 0:
+        return 0
+    return int(round((numerator / denominator) * 100))
+
+
+def _average_or_none(total: float, count: int) -> float | None:
+    if count <= 0:
+        return None
+    return round(total / count, 1)
+
+
+def _to_float_or_none(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return round(float(value), 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _compact_json_preview(value: Any, *, limit: int) -> str:
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            text = json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
+        except TypeError:
+            text = str(value)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 1]}…"
 
 
 def _build_agent_route(agent_name: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -674,9 +1079,15 @@ def _build_agent_route(agent_name: str, payload: dict[str, Any]) -> dict[str, An
             return {
                 "label": "打开证据", "path": f"/evidence/{first_item['chunk_id']}",
                 "query": {"context": first_group.get("title", "证据"),
-                           "terms": ",".join(first_group.get("anchor_terms", []))},
+                           "anchors": "|".join(first_group.get("anchor_terms", []))},
             }
-        return {"label": "查看证据页", "path": "/admin", "query": {}}
+        if company_name:
+            return {
+                "label": "回到企业体检",
+                "path": "/score",
+                "query": {"company": company_name, "period": report_period},
+            }
+        return {"label": "返回工作台", "path": "/workspace", "query": {}}
     if agent_name == "action_planner" and query_type == "claim_verification" and company_name:
         return {"label": "进入研报核验", "path": "/verify", "query": {"company": company_name}}
     if query_type == "risk_scan":
@@ -688,7 +1099,7 @@ def _build_control_plane_sources(payload: dict[str, Any]) -> list[str]:
     mapping = {
         "company_scoring": ["真实财报指标", "规则引擎", "页级证据", "公式回放"],
         "claim_verification": ["真实财报指标", "东方财富研报详情页", "观点核验规则"],
-        "peer_benchmark": ["真实财报指标", "同子行业样本池", "横向评分结果"],
+        "peer_benchmark": ["真实财报指标", "同子行业公司池", "横向评分结果"],
         "risk_scan": ["全公司评分快照", "主周期预警板", "行业研报观察"],
         "graph_query": ["企业关系图谱", "执行流记录", "文档升级结果"],
         "stress_test": ["企业体检结果", "图谱关系", "压力场景推演"],
@@ -701,7 +1112,7 @@ def _resolve_agent_signal_source(query_type: str | None) -> str:
     mapping = {
         "company_scoring": "真实财报指标 + 风险规则 + 历史报期对比",
         "claim_verification": "真实财报指标 + 研报观点抽取",
-        "peer_benchmark": "同子行业评分样本 + 分位结果",
+        "peer_benchmark": "同子行业公司池 + 分位结果",
         "risk_scan": "主周期公司池 + 历史报期预警板",
         "graph_query": "企业关系图谱 + 执行流记录 + 文档升级结果",
         "stress_test": "企业体检结果 + 压力场景推演 + 图谱传导链",
@@ -748,7 +1159,7 @@ def _build_signal_agent_metrics(
         ]
     if query_type == "peer_benchmark":
         return [
-            {"label": "样本公司", "value": len(payload.get("benchmark", []))},
+            {"label": "对标公司", "value": len(payload.get("benchmark", []))},
             {"label": "图表", "value": len(payload.get("charts", []))},
             {"label": "关键数", "value": len(payload.get("key_numbers", []))},
         ]

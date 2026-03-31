@@ -17,9 +17,11 @@ class Settings:
     port: int
     default_period: str
     sample_data_path: Path
+    allow_sample_fallback: bool
     official_data_path: Path
     bronze_data_path: Path
     silver_data_path: Path
+    gold_data_path: Path
     postgres_dsn: str
     auth_session_days: int
     cors_allowed_origins: tuple[str, ...]
@@ -31,6 +33,8 @@ class Settings:
     ocr_runtime_enabled: bool = False
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai-proxy.org/v1"
+    kafka_bootstrap_servers: str = ""
+    kafka_signal_topic: str = "opspilot.external_signals"
 
 
 def _resolve_data_path(root: Path, value: str) -> Path:
@@ -56,6 +60,8 @@ def get_settings() -> Settings:
         port=int(os.getenv("OPS_PILOT_PORT", "8000")),
         default_period=os.getenv("OPS_PILOT_DEFAULT_PERIOD", "2024Q3"),
         sample_data_path=_resolve_data_path(root, sample_path),
+        allow_sample_fallback=os.getenv("OPS_PILOT_ALLOW_SAMPLE_FALLBACK", "false").lower()
+        in {"1", "true", "yes", "on"},
         official_data_path=_resolve_data_path(
             root, os.getenv("OPS_PILOT_OFFICIAL_DATA_PATH", "data/raw/official")
         ),
@@ -64,6 +70,9 @@ def get_settings() -> Settings:
         ),
         silver_data_path=_resolve_data_path(
             root, os.getenv("OPS_PILOT_SILVER_DATA_PATH", "data/silver/official")
+        ),
+        gold_data_path=_resolve_data_path(
+            root, os.getenv("OPS_PILOT_GOLD_DATA_PATH", "data/gold/official")
         ),
         postgres_dsn=os.getenv(
             "OPS_PILOT_POSTGRES_DSN",
@@ -92,7 +101,12 @@ def get_settings() -> Settings:
         openai_api_key=os.getenv("OPS_PILOT_OPENAI_API_KEY", ""),
         openai_base_url=os.getenv(
             "OPS_PILOT_OPENAI_BASE_URL",
-            "https://api.openai-proxy.org/v1",
+            "https://api.openai.com/v1",
+        ),
+        kafka_bootstrap_servers=os.getenv("OPS_PILOT_KAFKA_BOOTSTRAP_SERVERS", ""),
+        kafka_signal_topic=os.getenv(
+            "OPS_PILOT_KAFKA_SIGNAL_TOPIC",
+            "opspilot.external_signals",
         ),
     )
 

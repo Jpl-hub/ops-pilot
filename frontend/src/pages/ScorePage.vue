@@ -22,6 +22,13 @@ const syncingFromRoute = ref(false)
 
 const scoreCommandSurface = computed(() => scoreState.data.value?.score_command_surface || null)
 const scoreSignalTape = computed(() => scoreState.data.value?.score_signal_tape || [])
+const scoreWatchItems = computed(() => scoreCommandSurface.value?.watch_items || [])
+const dominantSignal = computed(() => scoreCommandSurface.value?.dominant_signal || null)
+const scorePrimaryActions = computed(() => scoreState.data.value?.action_cards?.slice(0, 3) || [])
+const scoreTagGroups = computed(() => ({
+  risks: scoreState.data.value?.scorecard?.risk_labels?.slice(0, 4) || [],
+  opportunities: scoreState.data.value?.scorecard?.opportunity_labels?.slice(0, 3) || [],
+}))
 
 async function loadCompanies() {
   const data = await get<any>('/workspace/companies')
@@ -225,6 +232,26 @@ watch(
               </div>
             </div>
 
+            <div v-if="scoreCommandSurface" class="hero-summary">
+              <div class="hero-summary-head">
+                <strong>{{ scoreCommandSurface.headline }}</strong>
+                <span class="hero-summary-badge">{{ scoreCommandSurface.metric }} · {{ scoreCommandSurface.delta_label }}</span>
+              </div>
+              <p v-if="dominantSignal" class="hero-summary-copy">
+                当前主判断：{{ dominantSignal.value }}
+              </p>
+              <div v-if="scoreWatchItems.length" class="watch-grid">
+                <div
+                  v-for="item in scoreWatchItems"
+                  :key="item.label"
+                  class="watch-card"
+                >
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+            </div>
+
             <!-- Signal Tape -->
             <div class="signal-tape scroll-area" v-if="scoreSignalTape && scoreSignalTape.length">
               <div
@@ -244,16 +271,16 @@ watch(
 
           <!-- Tags & Actions -->
           <article class="glass-panel support-panel scroll-area">
-            <h3 class="panel-sm-title">经营标签与动作</h3>
+            <h3 class="panel-sm-title">优先动作与标签</h3>
             <div class="tag-row compact-tags">
               <TagPill
-                v-for="label in scoreState.data.value.scorecard.risk_labels"
+                v-for="label in scoreTagGroups.risks"
                 :key="label.code"
                 :label="label.name"
                 tone="risk"
               />
               <TagPill
-                v-for="label in scoreState.data.value.scorecard.opportunity_labels"
+                v-for="label in scoreTagGroups.opportunities"
                 :key="`op-${label.code}`"
                 :label="label.name"
                 tone="success"
@@ -262,7 +289,7 @@ watch(
             
             <div class="actions-list mt-4">
               <div
-                v-for="action in scoreState.data.value.action_cards.slice(0, 2)"
+                v-for="action in scorePrimaryActions"
                 :key="action.title"
                 class="action-item glass-panel-hover"
               >
@@ -271,6 +298,7 @@ watch(
                   <h4>{{ action.title }}</h4>
                 </div>
                 <p class="action-desc">{{ action.reason }}</p>
+                <p v-if="action.action" class="action-next">{{ action.action }}</p>
               </div>
             </div>
           </article>
@@ -517,6 +545,72 @@ watch(
 .metric-row-inline span { color: var(--muted); }
 .risk-text { color: #f43f5e; }
 
+.hero-summary {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+}
+
+.hero-summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hero-summary-head strong {
+  color: #fff;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.hero-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(16,185,129,0.1);
+  border: 1px solid rgba(16,185,129,0.2);
+  color: #86efac;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.hero-summary-copy {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #cbd5e1;
+}
+
+.watch-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.watch-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+.watch-card span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.watch-card strong {
+  color: #fff;
+  font-size: 18px;
+}
+
 .subtle-band {
   background: transparent;
   border: none;
@@ -555,6 +649,7 @@ watch(
 .priority-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 .action-item h4 { margin: 0; font-size: 16px; font-weight: 500; color: #fff; }
 .action-desc { margin: 0; font-size: 14px; color: var(--muted); line-height: 1.6; }
+.action-next { margin: 10px 0 0; font-size: 12px; line-height: 1.6; color: #cbd5e1; }
 
 /* Right Col Layout */
 .charts-row {
@@ -598,6 +693,10 @@ watch(
   min-height: 200px;
 }
 .details-panel::-webkit-scrollbar { width: 4px; }
+
+@media (max-width: 1100px) {
+  .watch-grid { grid-template-columns: 1fr; }
+}
 .details-panel::-webkit-scrollbar-track { background: transparent; }
 .details-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 .flex-2 { flex: 2; }

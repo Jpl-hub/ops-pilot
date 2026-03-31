@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import sys
@@ -56,10 +57,17 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["charts"][0]["title"], "主周期预警 / 任务 / 监测板实时跳动")
             self.assertIn("brain_command_surface", payload)
             self.assertTrue(payload["brain_signal_tape"])
+            self.assertIn("external_signal_stream", payload)
+            self.assertEqual(payload["external_signal_stream"]["status"], "unavailable")
+            self.assertEqual(payload["streaming_heatmap"]["status"], "unavailable")
+            self.assertEqual(payload["streaming_anomalies"]["status"], "unavailable")
+            self.assertEqual(payload["streaming_anomalies"]["items"], [])
             history = service.industry_brain_history(limit=4)
             self.assertGreaterEqual(history["total"], 1)
             self.assertEqual(history["records"][0]["report_period"], payload["report_period"])
             self.assertIn("market_tape", history["records"][0])
+            self.assertIn("external_signal_stream", history["records"][0])
+            self.assertIn("streaming_anomalies", history["records"][0])
 
     def test_service_falls_back_to_latest_company_period(self) -> None:
         class StubRepository:
@@ -159,6 +167,468 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["action_cards"][0]["priority"], "P1")
         self.assertIn("score_command_surface", payload)
         self.assertTrue(payload["score_signal_tape"])
+
+    def test_industry_brain_surfaces_external_official_signal_stream(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                for item in self.list_companies(report_period):
+                    if item["company_name"] == company_name:
+                        return item
+                return None
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    {
+                        "company_name": "科陆电子",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 8.0, "C3": 11.0, "S4": 0.82},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                    {
+                        "company_name": "国轩高科",
+                        "report_period": "2025Q3",
+                        "subindustry": "锂电池与电池材料",
+                        "metrics": {"G1": 7.5, "C3": 10.6, "S4": 0.84},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                ]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["科陆电子", "国轩高科"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifests_root = root / "raw" / "official" / "manifests"
+            silver_stream_root = root / "silver" / "official" / "stream"
+            gold_stream_root = root / "gold" / "official" / "stream"
+            manifests_root.mkdir(parents=True, exist_ok=True)
+            silver_stream_root.mkdir(parents=True, exist_ok=True)
+            gold_stream_root.mkdir(parents=True, exist_ok=True)
+            recent_day = date.today()
+            recent_text = recent_day.isoformat()
+            generated_at = f"{recent_text}T08:00:00"
+            (manifests_root / "research_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at": generated_at,
+                        "records": [
+                            {
+                                "source": "EASTMONEY",
+                                "company_name": "科陆电子",
+                                "security_code": "002121",
+                                "exchange": "SZSE",
+                                "subindustry": "储能",
+                                "title": "智能电网与储能业务同步提速",
+                                "publish_date": recent_text,
+                                "source_url": "https://example.com/research",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests_root / "industry_research_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at": generated_at,
+                        "records": [
+                            {
+                                "source": "EASTMONEY_INDUSTRY",
+                                "company_name": "电池",
+                                "industry_name": "电池",
+                                "security_code": "INDUSTRY",
+                                "subindustry": "电池",
+                                "title": "储能电池周度景气跟踪",
+                                "publish_date": (recent_day - timedelta(days=1)).isoformat(),
+                                "source_url": "https://example.com/industry",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests_root / "periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at": generated_at,
+                        "records": [
+                            {
+                                "source": "SZSE",
+                                "company_name": "国轩高科",
+                                "security_code": "002074",
+                                "exchange": "SZSE",
+                                "subindustry": "锂电池与电池材料",
+                                "title": "国轩高科：2025年年度报告",
+                                "publish_date": (recent_day - timedelta(days=2)).isoformat(),
+                                "source_url": "https://example.com/periodic",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests_root / "company_snapshots_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at": generated_at,
+                        "records": [
+                            {
+                                "source": "CNINFO_SNAPSHOT",
+                                "company_name": "科陆电子",
+                                "security_code": "002121",
+                                "subindustry": "储能",
+                                "title": "公司快照",
+                                "publish_date": recent_text,
+                                "source_url": "https://example.com/snapshot",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (silver_stream_root / "company_signal_snapshot.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at": generated_at,
+                        "ingest_batch_id": "20260325080000",
+                        "record_count": 2,
+                        "records": [
+                            {
+                                "ingest_batch_id": "20260325080000",
+                                "company_name": "科陆电子",
+                                "security_code": "002121",
+                                "subindustry": "储能",
+                                "latest_event_time": f"{recent_text}T00:00:00+00:00",
+                                "latest_headline": "智能电网与储能业务同步提速",
+                                "latest_signal_kind": "company_research",
+                                "latest_signal_status": "券商研报",
+                                "signal_count": 2,
+                                "source_count": 2,
+                                "external_heat": 4,
+                            },
+                            {
+                                "ingest_batch_id": "20260325080000",
+                                "company_name": "国轩高科",
+                                "security_code": "002074",
+                                "subindustry": "锂电池与电池材料",
+                                "latest_event_time": f"{recent_text}T00:00:00+00:00",
+                                "latest_headline": "国轩高科：2025年年度报告",
+                                "latest_signal_kind": "periodic_report",
+                                "latest_signal_status": "交易所公告",
+                                "signal_count": 1,
+                                "source_count": 1,
+                                "external_heat": 4,
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (gold_stream_root / "company_signal_timeline.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at": generated_at,
+                        "ingest_batch_id": "20260325080000",
+                        "window_days": 7,
+                        "date_axis": [
+                            (recent_day - timedelta(days=2)).isoformat(),
+                            (recent_day - timedelta(days=1)).isoformat(),
+                            recent_text,
+                        ],
+                        "record_count": 2,
+                        "top_companies": [
+                            {
+                                "ingest_batch_id": "20260325080000",
+                                "company_name": "科陆电子",
+                                "security_code": "002121",
+                                "subindustry": "储能",
+                                "latest_event_time": f"{recent_text}T00:00:00+00:00",
+                                "latest_headline": "智能电网与储能业务同步提速",
+                                "latest_signal_kind": "company_research",
+                                "latest_signal_status": "券商研报",
+                                "latest_heat": 3,
+                                "signal_count": 2,
+                                "total_heat": 4,
+                                "active_days": 2,
+                                "momentum": 4,
+                                "timeline": [
+                                    {"date": (recent_day - timedelta(days=2)).isoformat(), "signal_count": 0, "external_heat": 0},
+                                    {"date": (recent_day - timedelta(days=1)).isoformat(), "signal_count": 1, "external_heat": 1},
+                                    {"date": recent_text, "signal_count": 1, "external_heat": 3},
+                                ],
+                            },
+                            {
+                                "ingest_batch_id": "20260325080000",
+                                "company_name": "国轩高科",
+                                "security_code": "002074",
+                                "subindustry": "锂电池与电池材料",
+                                "latest_event_time": f"{recent_text}T00:00:00+00:00",
+                                "latest_headline": "国轩高科：2025年年度报告",
+                                "latest_signal_kind": "periodic_report",
+                                "latest_signal_status": "交易所公告",
+                                "latest_heat": 4,
+                                "signal_count": 1,
+                                "total_heat": 4,
+                                "active_days": 1,
+                                "momentum": 4,
+                                "timeline": [
+                                    {"date": (recent_day - timedelta(days=2)).isoformat(), "signal_count": 1, "external_heat": 4},
+                                    {"date": (recent_day - timedelta(days=1)).isoformat(), "signal_count": 0, "external_heat": 0},
+                                    {"date": recent_text, "signal_count": 0, "external_heat": 0},
+                                ],
+                            },
+                        ],
+                        "records": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (gold_stream_root / "subindustry_signal_heatmap.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at": generated_at,
+                        "ingest_batch_id": "20260325080000",
+                        "window_days": 7,
+                        "date_axis": [
+                            (recent_day - timedelta(days=2)).isoformat(),
+                            (recent_day - timedelta(days=1)).isoformat(),
+                            recent_text,
+                        ],
+                        "record_count": 2,
+                        "top_subindustries": [
+                            {
+                                "ingest_batch_id": "20260325080000",
+                                "subindustry": "储能",
+                                "signal_count": 2,
+                                "total_heat": 4,
+                                "latest_heat": 3,
+                                "active_days": 2,
+                                "momentum": 4,
+                                "timeline": [
+                                    {"date": (recent_day - timedelta(days=2)).isoformat(), "signal_count": 0, "external_heat": 0},
+                                    {"date": (recent_day - timedelta(days=1)).isoformat(), "signal_count": 1, "external_heat": 1},
+                                    {"date": recent_text, "signal_count": 1, "external_heat": 3},
+                                ],
+                            },
+                            {
+                                "ingest_batch_id": "20260325080000",
+                                "subindustry": "锂电池与电池材料",
+                                "signal_count": 1,
+                                "total_heat": 4,
+                                "latest_heat": 0,
+                                "active_days": 1,
+                                "momentum": 4,
+                                "timeline": [
+                                    {"date": (recent_day - timedelta(days=2)).isoformat(), "signal_count": 1, "external_heat": 4},
+                                    {"date": (recent_day - timedelta(days=1)).isoformat(), "signal_count": 0, "external_heat": 0},
+                                    {"date": recent_text, "signal_count": 0, "external_heat": 0},
+                                ],
+                            },
+                        ],
+                        "records": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.sample_data_path = Path(__file__).resolve().parents[1] / "data" / "bootstrap"
+                    self.official_data_path = root / "raw" / "official"
+                    self.bronze_data_path = root / "bronze" / "official"
+                    self.silver_data_path = root / "silver" / "official"
+                    self.gold_data_path = root / "gold" / "official"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            payload = service.industry_brain()
+
+            self.assertEqual(payload["external_signal_stream"]["status"], "fresh")
+            self.assertEqual(payload["external_signal_stream"]["signal_count"], 4)
+            self.assertEqual(payload["external_signal_stream"]["signals"][0]["company_name"], "科陆电子")
+            self.assertEqual(payload["external_signal_stream"]["signals"][0]["status"], "券商研报")
+            self.assertEqual(payload["streaming_snapshot"]["status"], "fresh")
+            self.assertEqual(payload["streaming_snapshot"]["top_companies"][0]["company_name"], "科陆电子")
+            self.assertEqual(payload["streaming_timeline"]["status"], "fresh")
+            self.assertEqual(payload["streaming_heatmap"]["status"], "fresh")
+            self.assertEqual(payload["charts"][1]["title"], "子行业外部信号热度迁移")
+            self.assertEqual(payload["attention_matrix"][0]["company_name"], "科陆电子")
+            self.assertEqual(payload["attention_matrix"][0]["external_heat"], 4)
+            self.assertEqual(payload["attention_matrix"][0]["active_days"], 2)
+            self.assertEqual(payload["attention_matrix"][0]["signal_status"], "券商研报")
+            self.assertEqual(payload["streaming_anomalies"]["status"], "fresh")
+            self.assertGreaterEqual(payload["streaming_anomalies"]["summary"]["detected_count"], 1)
+            self.assertIn(
+                payload["streaming_anomalies"]["items"][0]["anomaly_type"],
+                {"新发脉冲", "风险共振", "板块传导", "跨源汇聚", "持续抬升"},
+            )
+            self.assertGreater(payload["streaming_anomalies"]["items"][0]["score"], 0)
+            self.assertIn(
+                payload["attention_matrix"][0]["anomaly_severity"],
+                {"critical", "high", "medium", "low"},
+            )
+            self.assertEqual(payload["sector_tags"][0]["label"], "储能")
+            self.assertTrue(any(item["label"] == "外部信号" for item in payload["market_tape"]))
+            self.assertTrue(any(item["label"] == "流式异动" for item in payload["market_tape"]))
+            self.assertEqual(payload["brain_signal_tape"][3]["label"], "科陆电子")
+
+    def test_industry_brain_surfaces_kafka_signal_runtime(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                for item in self.list_companies(report_period):
+                    if item["company_name"] == company_name:
+                        return item
+                return None
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    {
+                        "company_name": "科陆电子",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 8.0, "C3": 11.0, "S4": 0.82},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    }
+                ]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["科陆电子"]
+
+        class FakeTopicPartition:
+            def __init__(self, topic: str, partition: int) -> None:
+                self.topic = topic
+                self.partition = partition
+
+            def __hash__(self) -> int:
+                return hash((self.topic, self.partition))
+
+            def __eq__(self, other: object) -> bool:
+                if not isinstance(other, FakeTopicPartition):
+                    return False
+                return (self.topic, self.partition) == (other.topic, other.partition)
+
+        class FakeRecord:
+            def __init__(self, payload: dict[str, object], *, partition: int, offset: int) -> None:
+                self.value = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                self.partition = partition
+                self.offset = offset
+
+        class FakeKafkaConsumer:
+            def __init__(self, *args, **kwargs) -> None:  # noqa: ANN003, ANN002
+                self._assigned: list[FakeTopicPartition] = []
+
+            def partitions_for_topic(self, topic: str) -> set[int]:
+                return {0, 1}
+
+            def end_offsets(
+                self,
+                partitions: list[FakeTopicPartition],
+            ) -> dict[FakeTopicPartition, int]:
+                return {
+                    partitions[0]: 12,
+                    partitions[1]: 9,
+                }
+
+            def assign(self, partitions: list[FakeTopicPartition]) -> None:
+                self._assigned = partitions
+
+            def seek(self, partition: FakeTopicPartition, offset: int) -> None:
+                return None
+
+            def poll(
+                self,
+                timeout_ms: int = 0,
+                max_records: int | None = None,
+            ) -> dict[FakeTopicPartition, list[FakeRecord]]:
+                partition = self._assigned[0]
+                payload = {
+                    "company_name": "科陆电子" if partition.partition == 1 else "国轩高科",
+                    "headline": "储能业务景气度回升" if partition.partition == 1 else "行业链报价平稳",
+                    "publish_date": date.today().isoformat(),
+                    "event_time": f"{date.today().isoformat()}T08:00:00+00:00",
+                    "signal_status": "券商研报" if partition.partition == 1 else "行业研报",
+                }
+                return {
+                    partition: [
+                        FakeRecord(payload, partition=partition.partition, offset=8 if partition.partition == 1 else 11)
+                    ]
+                }
+
+            def close(self) -> None:
+                return None
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for prefix in ("raw", "bronze", "silver", "gold"):
+                (root / prefix / "official" / "manifests").mkdir(parents=True, exist_ok=True)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                kafka_bootstrap_servers = "127.0.0.1:19092"
+                kafka_signal_topic = "opspilot.external_signals"
+
+                def __init__(self) -> None:
+                    self.sample_data_path = Path(__file__).resolve().parents[1] / "data" / "bootstrap"
+                    self.official_data_path = root / "raw" / "official"
+                    self.bronze_data_path = root / "bronze" / "official"
+                    self.silver_data_path = root / "silver" / "official"
+                    self.gold_data_path = root / "gold" / "official"
+
+            with patch("opspilot.application.services.KafkaConsumer", FakeKafkaConsumer), patch(
+                "opspilot.application.services.TopicPartition",
+                FakeTopicPartition,
+            ):
+                service = OpsPilotService(StubRepository(), StubSettings())
+                payload = service.industry_brain()
+
+            self.assertEqual(payload["kafka_signal_runtime"]["status"], "fresh")
+            self.assertEqual(payload["kafka_signal_runtime"]["message_count"], 21)
+            self.assertEqual(payload["kafka_signal_runtime"]["latest_company_name"], "科陆电子")
+            self.assertEqual(payload["kafka_signal_runtime"]["latest_signal_status"], "券商研报")
+            self.assertTrue(any(item["label"] == "Kafka 主题" for item in payload["market_tape"]))
+            self.assertTrue(any(item["label"] == "实时流状态" for item in payload["market_tape"]))
 
     def test_company_timeline_returns_period_snapshots(self) -> None:
         class StubRepository:
@@ -512,11 +982,17 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                     self.silver_data_path = root / "silver"
 
             service = OpsPilotService(StubRepository(), StubSettings())
-            payload = service.company_graph_query(
-                "测试公司",
-                "应收扩张和风险传导",
-                user_role="management",
-            )
+            with (
+                patch.object(service, "company_timeline", side_effect=AssertionError("图谱查询不应加载时间轴面板")),
+                patch.object(service, "benchmark_company", side_effect=AssertionError("图谱查询不应加载对标面板")),
+                patch.object(service, "company_runtime_capsule", side_effect=AssertionError("图谱查询不应加载运行胶囊")),
+                patch.object(service, "company_intelligence_runtime", side_effect=AssertionError("图谱查询不应加载情报运行态")),
+            ):
+                payload = service.company_graph_query(
+                    "测试公司",
+                    "应收扩张和风险传导",
+                    user_role="management",
+                )
 
             self.assertEqual(payload["company_name"], "测试公司")
             self.assertIn("run_id", payload)
@@ -531,9 +1007,15 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(payload["graph_route_bands"])
             self.assertEqual(payload["inference_path"][0]["title"], "测试公司")
             self.assertIn("动作收口", payload["inference_path"][-1]["title"])
+            self.assertIn("graph_retrieval", payload)
+            self.assertGreaterEqual(payload["graph_retrieval"]["query_term_count"], 2)
+            self.assertGreaterEqual(payload["graph_retrieval"]["path_count"], 1)
+            self.assertIn("风险", "".join(payload["graph_retrieval"]["query_terms"]))
+            self.assertIn("rank_explain", payload["focal_nodes"][0])
             self.assertIn("links", payload["evidence_navigation"])
             self.assertTrue(payload["graph"]["nodes"])
             self.assertTrue(payload["graph"]["edges"])
+            self.assertGreaterEqual(payload["graph"]["retrieved_path_count"], 1)
             self.assertTrue((root / "bronze" / "manifests" / "graph_query_runs.json").exists())
 
             runs = service.graph_query_runs(
@@ -554,6 +1036,177 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 user_role="management",
             )
             self.assertIn("graph_query", {item["stream_type"] for item in execution_stream["records"]})
+
+    def test_company_graph_query_surfaces_temporal_signal_context(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                return {
+                    "company_name": "测试公司",
+                    "report_period": "2025Q3",
+                    "subindustry": "储能",
+                    "metrics": {"G1": 6.0, "G2": 4.0, "C3": 3.8, "S4": 0.96, "S1": 1.12},
+                    "history": [],
+                    "metric_evidence": {},
+                    "formula_context": {},
+                    "label_evidence": {},
+                }
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [self.get_company("测试公司", "2025Q3")]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def find_company_from_query(self, query: str, report_period: str | None = None) -> str | None:
+                return "测试公司" if "测试公司" in query else None
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bronze" / "manifests").mkdir(parents=True, exist_ok=True)
+            (root / "silver" / "stream").mkdir(parents=True, exist_ok=True)
+            (root / "gold" / "stream").mkdir(parents=True, exist_ok=True)
+
+            (root / "silver" / "stream" / "company_signal_snapshot.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2026-03-31T00:00:00+00:00",
+                        "record_count": 1,
+                        "records": [
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "subindustry": "储能",
+                                "latest_event_time": "2026-03-31T00:00:00+00:00",
+                                "latest_headline": "测试公司公司快照更新",
+                                "latest_signal_kind": "company_snapshot",
+                                "latest_signal_status": "公司快照",
+                                "signal_count": 3,
+                                "source_count": 2,
+                                "external_heat": 7,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            timeline_payload = {
+                "generated_at": "2026-03-31T00:00:00+00:00",
+                "record_count": 1,
+                "date_axis": [
+                    "2026-03-25",
+                    "2026-03-26",
+                    "2026-03-27",
+                    "2026-03-28",
+                    "2026-03-29",
+                    "2026-03-30",
+                    "2026-03-31",
+                ],
+                "top_companies": [
+                    {
+                        "company_name": "测试公司",
+                        "security_code": "000001",
+                        "subindustry": "储能",
+                        "latest_event_time": "2026-03-31T00:00:00+00:00",
+                        "latest_headline": "测试公司公司快照更新",
+                        "latest_signal_kind": "company_snapshot",
+                        "latest_signal_status": "公司快照",
+                        "latest_heat": 5,
+                        "signal_count": 3,
+                        "total_heat": 7,
+                        "active_days": 2,
+                        "momentum": 4,
+                        "timeline": [
+                            {"date": "2026-03-25", "signal_count": 0, "external_heat": 0},
+                            {"date": "2026-03-26", "signal_count": 0, "external_heat": 0},
+                            {"date": "2026-03-27", "signal_count": 1, "external_heat": 2},
+                            {"date": "2026-03-28", "signal_count": 0, "external_heat": 0},
+                            {"date": "2026-03-29", "signal_count": 0, "external_heat": 0},
+                            {"date": "2026-03-30", "signal_count": 1, "external_heat": 0},
+                            {"date": "2026-03-31", "signal_count": 1, "external_heat": 5},
+                        ],
+                    }
+                ],
+            }
+            (root / "gold" / "stream" / "company_signal_timeline.json").write_text(
+                json.dumps(timeline_payload, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (root / "gold" / "stream" / "subindustry_signal_heatmap.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2026-03-31T00:00:00+00:00",
+                        "record_count": 1,
+                        "date_axis": timeline_payload["date_axis"],
+                        "top_subindustries": [
+                            {
+                                "subindustry": "储能",
+                                "signal_count": 8,
+                                "total_heat": 12,
+                                "latest_heat": 8,
+                                "active_days": 2,
+                                "momentum": 6,
+                                "timeline": [
+                                    {"date": "2026-03-25", "signal_count": 0, "external_heat": 0},
+                                    {"date": "2026-03-26", "signal_count": 0, "external_heat": 0},
+                                    {"date": "2026-03-27", "signal_count": 1, "external_heat": 2},
+                                    {"date": "2026-03-28", "signal_count": 0, "external_heat": 0},
+                                    {"date": "2026-03-29", "signal_count": 1, "external_heat": 2},
+                                    {"date": "2026-03-30", "signal_count": 2, "external_heat": 0},
+                                    {"date": "2026-03-31", "signal_count": 4, "external_heat": 8},
+                                ],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+                    self.gold_data_path = root / "gold"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            payload = service.company_graph_query(
+                "测试公司",
+                "最近实时异动和供应链传导",
+                user_role="management",
+            )
+
+            node_types = {item["type"] for item in payload["graph"]["nodes"]}
+            self.assertIn("signal_event", node_types)
+            self.assertIn("signal_timeline", node_types)
+            self.assertIn("subindustry_signal", node_types)
+            self.assertEqual(payload["graph_retrieval"]["signal_count"], 3)
+            self.assertEqual(payload["graph_retrieval"]["max_momentum"], 4)
+            self.assertEqual(payload["graph_retrieval"]["time_window_days"], 7)
+            self.assertEqual(payload["graph_retrieval"]["freshness_status"], "fresh")
+            self.assertTrue(any(item["label"] == "信号时效" for item in payload["graph_command_surface"]["watch_items"]))
+            self.assertTrue(any(item["label"] == "最新事件" for item in payload["signal_stream"]))
+            self.assertIn("最近信号", payload["inference_path"][1]["detail"])
 
     def test_document_pipeline_results_tolerates_broken_manifest_json(self) -> None:
         class StubRepository:
@@ -935,9 +1588,41 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                     self.silver_data_path = root / "silver"
 
             service = OpsPilotService(StubRepository(), StubSettings())
+            orchestrator_payload = {
+                **service.score_company("测试公司", "2025Q3"),
+                "query_type": "company_scoring",
+                "tool_trace": [
+                    {
+                        "tool_name": "tool_score_company",
+                        "arguments": {"company_name": "测试公司", "report_period": "2025Q3"},
+                        "result_summary": "{\"total_score\": 81.0, \"grade\": \"A-\"}",
+                        "elapsed_ms": 18.4,
+                        "success": True,
+                        "round_index": 1,
+                        "executed_at": "2026-03-25T04:55:00+00:00",
+                    }
+                ],
+                "agent_runtime": {
+                    "model": "gpt-4o-mini",
+                    "temperature": 0.3,
+                    "max_tool_rounds": 3,
+                    "started_at": "2026-03-25T04:55:00+00:00",
+                    "finished_at": "2026-03-25T04:55:01+00:00",
+                    "completion_id": "chatcmpl-test",
+                    "finish_reason": "stop",
+                    "total_rounds": 2,
+                    "llm_elapsed_ms": 621.0,
+                    "tool_elapsed_ms": 18.4,
+                    "total_elapsed_ms": 639.4,
+                    "tool_call_count": 1,
+                    "successful_tool_count": 1,
+                    "failed_tool_count": 0,
+                    "tool_round_count": 1,
+                },
+            }
             with patch(
                 "opspilot.application.agents.run_orchestrator",
-                new=AsyncMock(return_value=service.score_company("测试公司", "2025Q3")),
+                new=AsyncMock(return_value=orchestrator_payload),
             ):
                 payload = await service.chat_turn(
                     query="请给测试公司做一份经营体检评分",
@@ -952,6 +1637,12 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(detail["run"]["run_id"], payload["run_id"])
             self.assertEqual(detail["detail"]["query"], "请给测试公司做一份经营体检评分")
             self.assertIn("ai_assurance", detail["detail"])
+            self.assertEqual(payload["agent_runtime"]["model"], "gpt-4o-mini")
+            self.assertEqual(payload["agent_runtime"]["tool_call_count"], 1)
+            self.assertEqual(payload["agent_runtime"]["trace"][0]["tool_label"], "企业评分")
+            self.assertEqual(payload["control_plane"]["model"], "gpt-4o-mini")
+            self.assertEqual(detail["detail"]["agent_runtime"]["completion_id"], "chatcmpl-test")
+            self.assertEqual(detail["detail"]["tool_trace"][0]["tool_name"], "tool_score_company")
 
     def test_task_queue_returns_prioritized_actions(self) -> None:
         class StubRepository:
@@ -1753,6 +2444,9 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["result"]["status_label"], "已生成")
             self.assertTrue(payload["result"]["items"])
             self.assertTrue(payload["result"]["sections"])
+            self.assertEqual(payload["result"]["items"][0]["stage_label"], "标题层级")
+            self.assertEqual(payload["result"]["quality_summary"]["status"], "blocked")
+            self.assertEqual(payload["result"]["quality_summary"]["stage_label"], "标题层级")
             self.assertTrue((bronze / "manifests" / "vision_analyze_runs.json").exists())
 
             runs = service.vision_runs(
@@ -1932,8 +2626,10 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(runtime_before["runtime"]["provider"], "PaddleOCR-VL")
             self.assertEqual(runtime_before["runtime"]["model"], "PaddleOCR-VL-1.5")
             self.assertFalse(runtime_before["runtime"]["runtime_enabled"])
+            self.assertEqual(runtime_before["stages"][0]["label"], "跨页拼接")
             self.assertTrue(any(item["status"] == "pending" for item in runtime_before["stages"]))
             self.assertFalse(any(item["status"] == "blocked" for item in runtime_before["stages"]))
+            self.assertEqual(runtime_before["runtime"]["next_action"], "接通标准 OCR 引擎后再执行正式解析")
 
             pipeline_result = service.run_company_vision_pipeline(
                 "测试公司",
@@ -1953,6 +2649,11 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(stage_status["cross_page_merge"], "completed")
             self.assertEqual(stage_status["title_hierarchy"], "completed")
             self.assertEqual(stage_status["cell_trace"], "completed")
+            cell_trace_stage = next(item for item in runtime_after["stages"] if item["stage"] == "cell_trace")
+            self.assertEqual(cell_trace_stage["contract_status"], "missing")
+            self.assertEqual(runtime_after["runtime"]["next_action"], "补齐标准 OCR 结构契约后重新运行单元格溯源")
+            self.assertEqual(runtime_after["vision"]["quality_summary"]["artifact_source"], "geometric_fallback")
+            self.assertEqual(runtime_after["vision"]["quality_summary"]["contract_status"], "missing")
 
     def test_company_workspace_and_graph_aggregate_core_system_state(self) -> None:
         class StubRepository:
@@ -2259,6 +2960,40 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(graph["summary"]["watch_tracked"])
             self.assertTrue(any(node["type"] == "execution_stream" for node in graph["nodes"]))
 
+    def test_workspace_overview_keeps_company_pool_when_risk_board_is_empty(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                if report_period is None:
+                    return [
+                        {"company_name": "测试公司", "report_period": "2025Q3"},
+                        {"company_name": "对标公司", "report_period": "2024FY"},
+                    ]
+                return []
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司", "对标公司"]
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+
+            def __init__(self, root: Path) -> None:
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+
+        with TemporaryDirectory() as temp_dir:
+            service = OpsPilotService(StubRepository(), StubSettings(Path(temp_dir)))
+            overview = service.workspace_overview(user_role="management")
+
+        self.assertEqual(overview["companies"], ["测试公司", "对标公司"])
+        self.assertEqual(overview["alert_summary"]["total_alerts"], 0)
+
     def test_admin_overview_returns_health_data_and_job_catalog(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
@@ -2321,6 +3056,9 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["acceptance_checklist"]["total"], 5)
             self.assertIn("innovation_radar", payload)
             self.assertIn("workspace_history", payload)
+            self.assertIn("workspace_runtime_audit", payload)
+            self.assertEqual(payload["streaming_runtime"]["status"], "unavailable")
+            self.assertEqual(payload["workspace_runtime_audit"]["status"], "unavailable")
             self.assertGreaterEqual(payload["innovation_radar"]["summary"]["total"], 1)
 
             report = service.delivery_report()
@@ -2331,8 +3069,277 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(report["acceptance_checklist"]["status_label"], "阻断")
             self.assertTrue(report["executive_summary"])
             markdown = build_delivery_report_markdown(report)
-            self.assertIn("# OpsPilot 交付报告", markdown)
+            self.assertIn("# OpsPilot 运行周报", markdown)
             self.assertIn("## 执行摘要", markdown)
+            self.assertIn("## 智能体执行审计", markdown)
+
+    def test_admin_overview_surfaces_workspace_runtime_audit(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [{"company_name": "测试公司", "report_period": report_period or "2025Q3"}]
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = True
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
+
+            def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+                self.ocr_assets_path = root / "models" / "paddleocr-vl"
+                self.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bootstrap").mkdir(parents=True, exist_ok=True)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+            (root / "bronze" / "runs").mkdir(parents=True, exist_ok=True)
+
+            run_1_path = root / "bronze" / "runs" / "run-1.json"
+            run_2_path = root / "bronze" / "runs" / "run-2.json"
+            (root / "bronze" / "manifests" / "workspace_runs.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "run_id": "run-1",
+                                "query": "请给测试公司做经营体检",
+                                "company_name": "测试公司",
+                                "report_period": "2025Q3",
+                                "query_type": "company_scoring",
+                                "user_role": "management",
+                                "created_at": "2026-03-25T06:00:00+00:00",
+                                "detail_path": str(run_1_path),
+                                "agent_model": "gpt-4o-mini",
+                                "tool_call_count": 1,
+                                "execution_ms": 4820.5,
+                            },
+                            {
+                                "run_id": "run-2",
+                                "query": "测试公司当前最值得警惕的风险是什么？",
+                                "company_name": "测试公司",
+                                "report_period": "2025Q3",
+                                "query_type": "risk_scan",
+                                "user_role": "investor",
+                                "created_at": "2026-03-25T05:40:00+00:00",
+                                "detail_path": str(run_2_path),
+                                "agent_model": "gpt-4o-mini",
+                                "tool_call_count": 1,
+                                "execution_ms": 4581.2,
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            run_1_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": "run-1",
+                        "query": "请给测试公司做经营体检",
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "user_role": "management",
+                        "query_type": "company_scoring",
+                        "ai_assurance": {
+                            "status": "grounded",
+                            "label": "强支撑",
+                            "evidence_count": 4,
+                        },
+                        "agent_runtime": {
+                            "model": "gpt-4o-mini",
+                            "tool_call_count": 1,
+                            "llm_elapsed_ms": 4200.0,
+                            "tool_elapsed_ms": 620.5,
+                            "total_elapsed_ms": 4820.5,
+                            "trace": [
+                                {
+                                    "tool_name": "tool_score_company",
+                                    "tool_label": "企业评分",
+                                }
+                            ],
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            run_2_path.write_text(
+                json.dumps(
+                    {
+                        "run_id": "run-2",
+                        "query": "测试公司当前最值得警惕的风险是什么？",
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "user_role": "investor",
+                        "query_type": "risk_scan",
+                        "ai_assurance": {
+                            "status": "grounded",
+                            "label": "强支撑",
+                            "evidence_count": 3,
+                        },
+                        "agent_runtime": {
+                            "model": "gpt-4o-mini",
+                            "tool_call_count": 1,
+                            "llm_elapsed_ms": 4011.0,
+                            "tool_elapsed_ms": 570.2,
+                            "total_elapsed_ms": 4581.2,
+                            "trace": [
+                                {
+                                    "tool_name": "tool_risk_scan",
+                                    "tool_label": "行业风险扫描",
+                                }
+                            ],
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+            payload = service.admin_overview()
+
+            self.assertEqual(payload["workspace_runtime_audit"]["status"], "stable")
+            self.assertEqual(payload["workspace_runtime_audit"]["audited_runs"], 2)
+            self.assertEqual(payload["workspace_runtime_audit"]["summary_cards"]["grounded_ratio"], 100)
+            self.assertEqual(payload["workspace_runtime_audit"]["summary_cards"]["trace_ratio"], 100)
+            self.assertEqual(payload["workspace_runtime_audit"]["model_mix"][0]["label"], "gpt-4o-mini")
+            self.assertEqual(payload["workspace_runtime_audit"]["tool_mix"][0]["count"], 1)
+            self.assertEqual(payload["workspace_runtime_audit"]["company_heat"][0]["company_name"], "测试公司")
+            self.assertEqual(payload["workspace_runtime_audit"]["recent_runs"][0]["trace_status_label"], "完整")
+            report = service.delivery_report()
+            self.assertEqual(report["workspace_runtime_audit"]["status"], "stable")
+
+    def test_admin_overview_surfaces_kafka_streaming_runtime(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [{"company_name": "测试公司", "report_period": report_period or "2025Q3"}]
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+        class FakeTopicPartition:
+            def __init__(self, topic: str, partition: int) -> None:
+                self.topic = topic
+                self.partition = partition
+
+            def __hash__(self) -> int:
+                return hash((self.topic, self.partition))
+
+            def __eq__(self, other: object) -> bool:
+                if not isinstance(other, FakeTopicPartition):
+                    return False
+                return (self.topic, self.partition) == (other.topic, other.partition)
+
+        class FakeRecord:
+            def __init__(self, payload: dict[str, object], *, partition: int, offset: int) -> None:
+                self.value = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                self.partition = partition
+                self.offset = offset
+
+        class FakeKafkaConsumer:
+            def __init__(self, *args, **kwargs) -> None:  # noqa: ANN003, ANN002
+                self._assigned: list[FakeTopicPartition] = []
+
+            def partitions_for_topic(self, topic: str) -> set[int]:
+                return {0}
+
+            def end_offsets(
+                self,
+                partitions: list[FakeTopicPartition],
+            ) -> dict[FakeTopicPartition, int]:
+                return {partitions[0]: 5}
+
+            def assign(self, partitions: list[FakeTopicPartition]) -> None:
+                self._assigned = partitions
+
+            def seek(self, partition: FakeTopicPartition, offset: int) -> None:
+                return None
+
+            def poll(
+                self,
+                timeout_ms: int = 0,
+                max_records: int | None = None,
+            ) -> dict[FakeTopicPartition, list[FakeRecord]]:
+                partition = self._assigned[0]
+                payload = {
+                    "company_name": "测试公司",
+                    "headline": "正式外部信号已进入 Kafka",
+                    "publish_date": date.today().isoformat(),
+                    "event_time": f"{date.today().isoformat()}T08:00:00+00:00",
+                    "signal_status": "交易所公告",
+                }
+                return {partition: [FakeRecord(payload, partition=partition.partition, offset=4)]}
+
+            def close(self) -> None:
+                return None
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = True
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
+            kafka_bootstrap_servers = "127.0.0.1:19092"
+            kafka_signal_topic = "opspilot.external_signals"
+
+            def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+                self.gold_data_path = root / "gold"
+                self.ocr_assets_path = root / "models" / "paddleocr-vl"
+                self.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bootstrap").mkdir(parents=True, exist_ok=True)
+            (root / "universe").mkdir(parents=True, exist_ok=True)
+            for prefix in ("raw", "bronze", "silver", "gold"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+
+            with patch("opspilot.application.services.KafkaConsumer", FakeKafkaConsumer), patch(
+                "opspilot.application.services.TopicPartition",
+                FakeTopicPartition,
+            ):
+                service = OpsPilotService(StubRepository(), StubSettings(root))
+                payload = service.admin_overview()
+
+            self.assertEqual(payload["streaming_runtime"]["status"], "fresh")
+            self.assertEqual(payload["streaming_runtime"]["message_count"], 5)
+            self.assertEqual(payload["streaming_runtime"]["latest_company_name"], "测试公司")
+            self.assertEqual(payload["streaming_runtime"]["latest_signal_status"], "交易所公告")
 
     def test_document_pipeline_run_creates_upgrade_artifact(self) -> None:
         class StubRepository:
@@ -2977,7 +3984,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(audit["status"], "blocked")
             self.assertEqual(payload["delivery_readiness"]["contract_ratio"], 33)
             self.assertEqual(payload["delivery_readiness"]["stage"], "bootstrapping")
-            self.assertEqual(payload["delivery_readiness"]["priority_actions"][0]["title"], "OCR Contract 验收")
+            self.assertEqual(payload["delivery_readiness"]["priority_actions"][0]["title"], "OCR Contract 质检")
             self.assertEqual(payload["acceptance_checklist"]["status"], "blocked")
             blocked_items = [item for item in payload["acceptance_checklist"]["items"] if item["status"] == "blocked"]
             self.assertTrue(any(item["key"] == "ocr_contract" for item in blocked_items))
@@ -3125,7 +4132,10 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             root = Path(temp_dir)
 
             class StubSettings:
+                env = "test"
                 postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+                openai_api_key = "test-key"
+                openai_base_url = "https://api.openai.com/v1"
                 official_data_path = root / "raw"
                 silver_data_path = root / "silver"
                 ocr_runtime_enabled = True
@@ -3149,7 +4159,10 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             root = Path(temp_dir)
 
             class StubSettings:
+                env = "test"
                 postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+                openai_api_key = "test-key"
+                openai_base_url = "https://api.openai.com/v1"
                 official_data_path = root / "raw"
                 silver_data_path = root / "silver"
                 ocr_runtime_enabled = True
@@ -3162,6 +4175,62 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             report = validate_delivery_runtime(StubSettings())
 
             self.assertEqual(report["status"], "ready")
+
+    def test_runtime_check_blocks_when_llm_auth_invalid(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                env = "development"
+                postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+                openai_api_key = "bad-key"
+                openai_base_url = "https://api.openai.com/v1"
+                official_data_path = root / "raw"
+                silver_data_path = root / "silver"
+                ocr_runtime_enabled = True
+                ocr_assets_path = root / "models" / "paddleocr-vl"
+
+            StubSettings.official_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+
+            with patch("opspilot.runtime_checks.httpx.post") as mock_post:
+                mock_post.return_value = type(
+                    "StubResponse",
+                    (),
+                    {
+                        "status_code": 401,
+                        "is_success": False,
+                        "text": "{\"error\":{\"message\":\"invalid token\"}}",
+                    },
+                )()
+                report = build_runtime_report(StubSettings())
+
+            llm_check = next(item for item in report["checks"] if item["key"] == "llm")
+            self.assertEqual(llm_check["status"], "blocked")
+            self.assertIn("401", llm_check["detail"])
+            self.assertIn("OPS_PILOT_OPENAI_API_KEY", llm_check["remediation"])
+
+    def test_runtime_startup_profile_allows_ocr_blockers(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                env = "test"
+                postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+                openai_api_key = "test-key"
+                openai_base_url = "https://api.openai.com/v1"
+                official_data_path = root / "raw"
+                silver_data_path = root / "silver"
+                ocr_runtime_enabled = False
+                ocr_assets_path = root / "models" / "missing-paddleocr-vl"
+
+            StubSettings.official_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
+
+            report = validate_delivery_runtime(StubSettings(), profile="startup")
+
+            self.assertEqual(report["status"], "blocked")
 
     def test_build_label_cards_links_formula_metrics_and_evidence(self) -> None:
         company = {

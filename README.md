@@ -48,20 +48,55 @@ docker compose up --build
 - OCR 标准能力：在 `.env` 中配置 `OPS_PILOT_OCR_ASSETS_PATH` 和 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`
 - API 容器启动前会自动执行 `ops-pilot-runtime-check`，OCR 资产缺失会直接阻断启动
 - 首次准备模型目录可执行 `ops-pilot-init-ocr-assets`
-- 需要导出交付报告时可执行 `ops-pilot-delivery-report --format markdown --output docs/delivery_report.md`
+- 需要导出运行周报时可执行 `ops-pilot-delivery-report --format markdown --output docs/ops_runtime_report.md`
 
-### 交付验收建议
+### Docker 容器分工
 
-启动后按以下顺序验收，且以管理台“交付验收清单”为准：
+本地容器分两组，不是所有容器都要一直开着：
 
-1. 打开 `http://127.0.0.1:8080`，确认登录、工作台、管理台都可访问。
+- 主交付链路：`postgres`、`api`、`ui`
+  用途：登录、协同分析、图谱检索、评分、核验、多模态页面联调。
+- 流式 / 大数据链路：`redpanda`、`redpanda-console`、`flink-jobmanager`、`flink-taskmanager`
+  用途：外部信号事件流、Kafka、Flink、湖仓联调。只有在做实时链路和大数据演示时才需要启动。
+
+如果现在主要在打磨产品和联调主功能，只开主交付链路就够了。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-core.ps1
+```
+
+需要把流式链路一起拉起来时，再额外执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-streaming.ps1
+```
+
+全部停掉：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\stop-local-stack.ps1
+```
+
+### 清理本地缓存
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\clean-workspace.ps1
+```
+
+该脚本会清理本地 `__pycache__`、`.pytest_cache`、`frontend/dist` 和 `tsbuildinfo`，适合交付前或反复联调后快速回到源码态。
+
+### 上线巡检建议
+
+启动后按以下顺序巡检，且以运营保障中心“关键检查清单”为准：
+
+1. 打开 `http://127.0.0.1:8080`，确认登录、工作台、运营保障中心都可访问。
 2. 访问 `http://127.0.0.1:8000/api/v1/healthz`，确认 API 返回 `status=ok`。
-3. 在管理台依次检查“运行时检查”、“交付就绪度”、“OCR Contract 批量验收”、“交付验收清单”。
+3. 在运营保障中心依次检查“运行时检查”、“系统就绪度”、“OCR Contract 质量巡检”、“关键检查清单”。
 4. 确认 `OPS_PILOT_OPENAI_API_KEY`、`OPS_PILOT_POSTGRES_DSN`、数据目录路径都已配置。
-5. 确认 `OPS_PILOT_OCR_ASSETS_PATH` 已落盘且 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`，管理台“OCR 标准引擎”显示 `ready`。
-6. 如 OCR contract 存在 `missing/invalid`，先在管理台筛选并执行“重跑当前筛选”，再看“最近一次执行反馈”和“整改轨迹”。
-7. 执行 `ops-pilot-delivery-report --format markdown --output docs/delivery_report.md`，固化当前交付状态和整改摘要。
-8. 确认主评估周期、silver 指标覆盖、研报覆盖和 OCR contract 验收全部达到演示/交付范围。
+5. 确认 `OPS_PILOT_OCR_ASSETS_PATH` 已落盘且 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`，运营保障中心“OCR 标准引擎”显示 `ready`。
+6. 如 OCR contract 存在 `missing/invalid`，先在运营保障中心筛选并执行“重跑当前筛选”，再看“最近一次执行反馈”和“治理轨迹”。
+7. 执行 `ops-pilot-delivery-report --format markdown --output docs/ops_runtime_report.md`，固化当前运行状态和治理摘要。
+8. 确认主评估周期、silver 指标覆盖、研报覆盖和 OCR contract 质检全部达到上线要求。
 
 ## 配置
 
@@ -72,11 +107,14 @@ docker compose up --build
 | `OPS_PILOT_OPENAI_API_KEY` | OpenAI API Key（必填） | `sk-xxx` |
 | `OPS_PILOT_OPENAI_BASE_URL` | API 端点 | `https://api.openai.com/v1` |
 | `OPS_PILOT_POSTGRES_DSN` | 数据库连接 | `postgresql+psycopg://...` |
+| `OPS_PILOT_ALLOW_SAMPLE_FALLBACK` | 是否允许在正式数据缺失时退回 bootstrap 样本；正式交付建议关闭 | `false` |
 | `OPS_PILOT_OCR_ASSETS_PATH` | 标准 OCR 模型/权重目录（必填） | `models/paddleocr-vl` |
-| `OPS_PILOT_OCR_RUNTIME_ENABLED` | 标准 OCR 运行时开关，交付环境必须为 `true` | `true` |
+| `OPS_PILOT_OCR_RUNTIME_ENABLED` | 标准 OCR 运行时开关，生产环境必须为 `true` | `true` |
 | `OPS_PILOT_DEFAULT_PERIOD` | 默认分析报期 | `2025Q3` |
+| `OPS_PILOT_KAFKA_BOOTSTRAP_SERVERS` | 外部信号 Kafka 地址，可选 | `127.0.0.1:19092` |
+| `OPS_PILOT_KAFKA_SIGNAL_TOPIC` | 外部信号 Topic 名称 | `opspilot.external_signals` |
 
-Colab 验证和 Docker 交付作业书见 [docs/ocr_delivery_runbook.md](/D:/code/ops-pilot/docs/ocr_delivery_runbook.md)。
+Colab 验证和 Docker 部署作业书见 [docs/ocr_delivery_runbook.md](/D:/code/ops-pilot/docs/ocr_delivery_runbook.md)。
 Colab 最小操作说明见 [docs/colab_quickstart.md](/D:/code/ops-pilot/docs/colab_quickstart.md)。
 
 ## 数据流水线
@@ -96,6 +134,9 @@ ops-pilot-build-snapshot-silver --codes 601012,002129,300750
 
 # 构建向量索引
 ops-pilot-build-embeddings
+
+# 构建外部信号事件流
+ops-pilot-build-signal-stream
 ```
 
 数据目录结构：
@@ -108,6 +149,29 @@ data/
 ├── silver/official/    # 结构化财务指标
 └── universe/           # 正式公司池
 ```
+
+## 流式事件总线
+
+项目已补上第一版流式大数据骨架，用于把正式外部信号升级为可消费事件流：
+
+```bash
+# 1. 启动 Redpanda + Flink
+docker compose -f docker-compose.streaming.yml up -d
+
+# 2. 安装流式依赖
+pip install -e .[streaming]
+
+# 3. 生成事件流并发布 Kafka
+ops-pilot-build-signal-stream --publish-kafka
+```
+
+- Kafka / Redpanda：`127.0.0.1:19092`
+- Redpanda Console：`http://127.0.0.1:18080`
+- Flink UI：`http://127.0.0.1:18081`
+- Flink SQL 作业：`streaming/flink/industry_signal_features.sql`
+- 湖仓版 SQL：`streaming/flink/industry_signal_lakehouse.sql`
+- Flink connector 目录：`streaming/flink/usrlib/`
+- 运行手册：`docs/streaming_runbook.md`
 
 ## 系统能力
 
@@ -141,7 +205,9 @@ data/
 
 - **Agent 架构**：半开放式 Orchestrator，确定性前处理 + 受限 LLM 工具选择
 - **检索架构**：BM25 + Dense ANN → RRF 融合 → LLM Reranker
+- **图谱检索**：query-aware graph retrieval + multi-hop path inference + evidence navigation
 - **评分引擎**：同子行业分位映射 + 事件规则触发 + 缺失值权重重分配
+- **流式底座**：Kafka / Redpanda + Flink SQL + Paimon / Iceberg compatible lakehouse
 
 ## 开发验证
 

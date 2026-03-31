@@ -16,8 +16,18 @@ const payload = computed(() => livePayload.value || state.data.value)
 const marketTape = computed(() => payload.value?.market_tape || [])
 const brainCommandSurface = computed(() => payload.value?.brain_command_surface || null)
 const executionFlash = computed(() => payload.value?.execution_flash || [])
+const externalSignalStream = computed(() => payload.value?.external_signal_stream || null)
+const kafkaSignalRuntime = computed(() => payload.value?.kafka_signal_runtime || null)
+const streamingSnapshot = computed(() => payload.value?.streaming_snapshot || null)
+const streamingAnomalies = computed(() => payload.value?.streaming_anomalies || null)
 const liveEvents = computed(() => payload.value?.live_events || [])
+const signalFeed = computed(() => externalSignalStream.value?.signals || liveEvents.value || [])
 const attentionMatrix = computed(() => payload.value?.attention_matrix || [])
+const topSectorTags = computed(() => (payload.value?.sector_tags || []).slice(0, 4))
+const compactSignalFeed = computed(() => signalFeed.value.slice(0, 5))
+const compactExecutionFlash = computed(() => executionFlash.value.slice(0, 4))
+const compactAttentionMatrix = computed(() => attentionMatrix.value.slice(0, 6))
+const compactStreamingAnomalies = computed(() => (streamingAnomalies.value?.items || []).slice(0, 4))
 
 // Derive sentiment score based on command surface intensity
 const sentimentScore = computed(() => {
@@ -67,16 +77,67 @@ function displayExecutionSummary(summary?: string) {
   return map[(summary || '').toLowerCase()] || summary || '系统动作'
 }
 
-function liveEventTone(status?: string) {
+function liveEventTone(status?: string, tone?: string) {
+  if (tone === 'risk') return 'high-risk'
+  if (tone === 'warning') return 'med-risk'
   if (status === '新增预警') return 'high-risk'
-  if (status === '任务处理中') return 'med-risk'
+  if (status === '任务处理中' || status === '交易所公告') return 'med-risk'
   return 'low-risk'
 }
 
-function liveEventIconTone(status?: string) {
+function liveEventIconTone(status?: string, tone?: string) {
+  if (tone === 'risk') return 'text-red-400'
+  if (tone === 'warning') return 'text-amber-400'
   if (status === '新增预警') return 'text-red-400'
-  if (status === '任务处理中') return 'text-amber-400'
+  if (status === '任务处理中' || status === '交易所公告') return 'text-amber-400'
   return 'text-blue-400'
+}
+
+function displaySignalTime(event: any) {
+  if (event?.publish_date && event?.status) return `${event.status} · ${event.publish_date}`
+  return event?.publish_date || event?.status || '持续监测'
+}
+
+function displayHotCompanySummary(matrix: any) {
+  const tags = [matrix?.signal_status || '持续跟踪']
+  if (matrix?.external_heat) tags.push(`窗口热度 ${matrix.external_heat}`)
+  if (matrix?.active_days) tags.push(`${matrix.active_days} 天活跃`)
+  if (matrix?.signal_count) tags.push(`${matrix.signal_count} 条外部信号`)
+  if (matrix?.risk_count) tags.push(`${matrix.risk_count} 个风险标签`)
+  if (matrix?.anomaly_type) tags.push(matrix.anomaly_type)
+  return tags.join(' · ')
+}
+
+function displayStreamingAnomalyLevel(level?: string) {
+  const map: Record<string, string> = {
+    critical: '高危异动',
+    high: '重点异动',
+    medium: '持续异动',
+    low: '轻度异动',
+  }
+  return map[(level || '').toLowerCase()] || '异动跟踪'
+}
+
+function streamingAnomalyTone(level?: string) {
+  const normalized = (level || '').toLowerCase()
+  if (normalized === 'critical' || normalized === 'high') return 'high-risk'
+  if (normalized === 'medium') return 'med-risk'
+  return 'low-risk'
+}
+
+function displayStreamingAnomalyMeta(item: any) {
+  const tags = [
+    item?.anomaly_type || '异动跟踪',
+    item?.signal_status || '正式信号',
+    item?.score ? `评分 ${item.score}` : '',
+  ].filter(Boolean)
+  return tags.join(' · ')
+}
+
+function displayStreamingAnomalyEvidence(item: any) {
+  const triggers = item?.triggers || []
+  if (triggers.length) return triggers.join(' · ')
+  return '等待更多正式信号进入流式窗口'
 }
 
 function connectStream() {
@@ -94,6 +155,7 @@ function connectStream() {
   }
 
   socket.onmessage = (event) => {
+    wsStatus.value = 'connected'
     livePayload.value = JSON.parse(event.data)
   }
 
@@ -153,15 +215,31 @@ onBeforeUnmount(() => {
                 新能源产业大脑
               </h2>
               <div class="ib-meta-row">
-                <p class="ib-meta-desc">宏观与产业联动监测</p>
+                <p class="ib-meta-desc">围绕新能源行业的实时研判与跟踪</p>
                 <div class="ib-ws-badge" :class="wsStatus === 'connected' ? 'connected' : 'disconnected'">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
                   {{ displayWsStatus(wsStatus) }}
                 </div>
+                <div
+                  v-if="externalSignalStream"
+                  class="ib-ws-badge"
+                  :class="externalSignalStream.status === 'stale' || externalSignalStream.status === 'unavailable' ? 'disconnected' : 'connected'"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18"></path><path d="M12 3v18"></path><circle cx="12" cy="12" r="9"></circle></svg>
+                  {{ externalSignalStream.freshness_label || '外部信号未就绪' }}
+                </div>
+                <div
+                  v-if="kafkaSignalRuntime"
+                  class="ib-ws-badge"
+                  :class="kafkaSignalRuntime.status === 'stale' || kafkaSignalRuntime.status === 'unavailable' ? 'disconnected' : 'connected'"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path><path d="M12 5v14"></path><rect x="4" y="4" width="16" height="16" rx="3"></rect></svg>
+                  {{ kafkaSignalRuntime.freshness_label || 'Kafka 主题未就绪' }}
+                </div>
               </div>
             </div>
             <div class="ib-header-right">
-              <div class="ib-badge active" v-for="tag in payload.sector_tags" :key="tag.label">
+              <div class="ib-badge active" v-for="tag in topSectorTags" :key="tag.label">
                 <span>{{ tag.label }}</span>
                 <strong>{{ tag.count }}</strong>
               </div>
@@ -236,29 +314,40 @@ onBeforeUnmount(() => {
                 <h3 class="ib-panel-title flex justify-between">
                   <div class="flex items-center gap-2">
                     <div class="ib-dot bg-amber-500 animate-pulse"></div>
-                    风险事件
+                    外部行业信号
                   </div>
-                  <span class="ib-auto-refresh">自动刷新</span>
+                  <span class="ib-auto-refresh">{{ externalSignalStream?.signal_count || 0 }} 条正式信号</span>
                 </h3>
+                <div
+                  v-if="kafkaSignalRuntime"
+                  class="ib-kafka-runtime"
+                  :class="kafkaSignalRuntime.status === 'stale' || kafkaSignalRuntime.status === 'unavailable' ? 'is-risk' : 'is-ready'"
+                >
+                  <strong>Kafka 主题</strong>
+                  <span>{{ kafkaSignalRuntime.topic }}</span>
+                  <span>{{ kafkaSignalRuntime.partition_count || 0 }} 分区</span>
+                  <span>{{ kafkaSignalRuntime.message_count || 0 }} 条消息</span>
+                  <span>{{ kafkaSignalRuntime.latest_company_name || '等待最新消息' }}</span>
+                </div>
                 <div class="ib-feed-list custom-scrollbar">
-                  <div v-if="liveEvents.length === 0" class="ib-empty-feed">
+                  <div v-if="compactSignalFeed.length === 0" class="ib-empty-feed">
                     <svg class="opacity-20 mb-2" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-                    当前没有新增风险事件
+                    当前没有可展示的正式外部信号
                   </div>
                   <div
-                    v-for="event in liveEvents"
-                    :key="`${event.company_name}-${event.headline}`"
+                    v-for="event in compactSignalFeed"
+                    :key="`${event.kind || 'signal'}-${event.company_name}-${event.headline}`"
                     class="ib-anomaly-item"
-                    :class="liveEventTone(event.status)"
+                    :class="liveEventTone(event.status, event.tone)"
                   >
                     <div class="flex items-start gap-2 relative z-10">
-                      <svg class="ib-alert-icon" :class="liveEventIconTone(event.status)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                      <svg class="ib-alert-icon" :class="liveEventIconTone(event.status, event.tone)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                       <div class="ib-feed-copy">
                         <span class="ib-anomaly-text">{{ event.headline }}</span>
-                        <span class="ib-feed-company">{{ event.company_name }}</span>
+                        <span class="ib-feed-company">{{ event.company_name }}<template v-if="event.source_name"> · {{ event.source_name }}</template></span>
                       </div>
                     </div>
-                    <div class="ib-anomaly-time">{{ event.status || '持续监测' }}</div>
+                    <div class="ib-anomaly-time">{{ displaySignalTime(event) }}</div>
                   </div>
                 </div>
               </div>
@@ -272,10 +361,10 @@ onBeforeUnmount(() => {
                   <span class="ib-auto-refresh">真实运行记录</span>
                 </h3>
                 <div class="ib-feed-list custom-scrollbar">
-                  <div v-if="executionFlash.length === 0" class="ib-empty-feed">
+                  <div v-if="compactExecutionFlash.length === 0" class="ib-empty-feed">
                     当前没有新的系统动作
                   </div>
-                  <div v-for="flash in executionFlash" :key="`${flash.title}-${flash.status}`" class="ib-anomaly-item low-risk">
+                  <div v-for="flash in compactExecutionFlash" :key="`${flash.title}-${flash.status}`" class="ib-anomaly-item low-risk">
                     <div class="flex items-start gap-2 relative z-10">
                       <svg class="ib-alert-icon text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
                       <div class="ib-feed-copy">
@@ -295,11 +384,11 @@ onBeforeUnmount(() => {
             <div class="ib-glass p-5 min-h-[340px] flex flex-col">
               <h3 class="ib-panel-title">
                 <div class="ib-dot bg-blue-500 animate-pulse"></div>
-                核心板块对比与深度下钻
+                子行业热度迁移
               </h3>
               <div class="ib-chart-container" v-if="payload.charts && payload.charts[1]">
                 <ChartPanel
-                  :title="payload.charts[1].title || '核心板块对比与深度下钻'"
+                  :title="payload.charts[1].title || '子行业外部信号热度迁移'"
                   :options="payload.charts[1].options"
                   class="ib-naked-chart"
                 />
@@ -307,20 +396,60 @@ onBeforeUnmount(() => {
             </div>
             
             <div class="ib-glass p-5 min-h-[340px] flex flex-col">
-              <h3 class="ib-panel-title">
-                <div class="ib-dot bg-purple-500 animate-pulse"></div>
-                全球政策与技术雷达
+              <h3 class="ib-panel-title flex justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="ib-dot bg-purple-500 animate-pulse"></div>
+                  流式热点公司
+                </div>
+                <span class="ib-auto-refresh">{{ streamingSnapshot?.freshness_label || '等待流式快照' }}</span>
               </h3>
               <div class="ib-radar-grid">
-                <RouterLink v-for="matrix in attentionMatrix" :key="matrix.company_name" :to="{ path: matrix.route.path, query: matrix.route.query || {} }" class="ib-radar-card group relative">
+                <div v-if="attentionMatrix.length === 0" class="ib-empty-feed">
+                  当前没有可展示的热点公司
+                </div>
+                <RouterLink v-for="matrix in compactAttentionMatrix" :key="matrix.company_name" :to="{ path: matrix.route.path, query: matrix.route.query || {} }" class="ib-radar-card group relative">
                   <div class="ib-radar-bg group-hover:opacity-100"></div>
                   <div class="flex justify-between items-start mb-2 relative z-10">
-                    <span class="ib-radar-date">{{ matrix.company_name }}</span>
-                    <span class="ib-radar-impact border-blue-500">跟踪</span>
+                    <span class="ib-radar-date">{{ matrix.subindustry || matrix.company_name }}</span>
+                    <span class="ib-radar-impact" :class="{ hot: (matrix.external_heat || 0) >= 8 }">热度 {{ matrix.external_heat || matrix.risk_count || 0 }}</span>
                   </div>
                   <h4 class="ib-radar-head relative z-10 group-hover:text-purple-300">{{ matrix.headline }}</h4>
+                  <p class="ib-radar-foot relative z-10">{{ matrix.company_name }} · {{ displayHotCompanySummary(matrix) }}</p>
                 </RouterLink>
               </div>
+            </div>
+          </div>
+
+          <div class="ib-glass p-5 min-h-[280px] flex flex-col">
+            <h3 class="ib-panel-title flex justify-between">
+              <div class="flex items-center gap-2">
+                <div class="ib-dot bg-rose-500 animate-pulse"></div>
+                实时异动判读
+              </div>
+              <span class="ib-auto-refresh">{{ streamingAnomalies?.freshness_label || '等待异动引擎' }}</span>
+            </h3>
+            <div class="ib-anomaly-deck">
+              <div v-if="compactStreamingAnomalies.length === 0" class="ib-empty-feed">
+                当前没有高优先级流式异动
+              </div>
+              <RouterLink
+                v-for="item in compactStreamingAnomalies"
+                :key="`${item.company_name}-${item.anomaly_type}-${item.score}`"
+                :to="{ path: item.route.path, query: item.route.query || {} }"
+                class="ib-decision-card"
+                :class="streamingAnomalyTone(item.severity)"
+              >
+                <div class="ib-decision-top">
+                  <span class="ib-radar-date">{{ item.subindustry || item.company_name }}</span>
+                  <span class="ib-decision-badge" :class="streamingAnomalyTone(item.severity)">
+                    {{ displayStreamingAnomalyLevel(item.severity) }}
+                  </span>
+                </div>
+                <h4 class="ib-decision-head">{{ item.company_name }} · {{ item.anomaly_type }}</h4>
+                <p class="ib-decision-summary">{{ item.summary }}</p>
+                <p class="ib-decision-meta">{{ displayStreamingAnomalyMeta(item) }}</p>
+                <p class="ib-decision-evidence">{{ displayStreamingAnomalyEvidence(item) }}</p>
+              </RouterLink>
             </div>
           </div>
 
@@ -412,6 +541,21 @@ onBeforeUnmount(() => {
 
 /* Anomalies Feed */
 .ib-auto-refresh { font-size: 10px; background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 4px; color: #94a3b8; }
+.ib-kafka-runtime {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -8px 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-family: monospace;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.64);
+}
+.ib-kafka-runtime strong { color: #f8fafc; }
+.ib-kafka-runtime.is-ready { border-color: rgba(16, 185, 129, 0.28); color: #86efac; }
+.ib-kafka-runtime.is-risk { border-color: rgba(244, 63, 94, 0.28); color: #fecaca; }
 .ib-feed-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 8px; margin-top: -8px; }
 .ib-empty-feed { height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #64748b; font-family: monospace; font-size: 12px; }
 .ib-anomaly-item { padding: 12px; border-radius: 8px; border: 1px solid transparent; font-size: 12px; font-family: monospace; position: relative; overflow: hidden; }
@@ -433,7 +577,19 @@ onBeforeUnmount(() => {
 .ib-radar-bg { position: absolute; inset: 0; background: linear-gradient(to right, transparent, rgba(168, 85, 247, 0.1)); opacity: 0; transition: opacity 0.2s; pointer-events: none; }
 .ib-radar-date { font-size: 10px; font-family: monospace; color: #64748b; }
 .ib-radar-impact { font-size: 9px; padding: 2px 6px; border-radius: 4px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid; background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
+.ib-radar-impact.hot { background: rgba(245, 158, 11, 0.1); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
 .ib-radar-head { font-size: 12px; font-weight: 500; color: #cbd5e1; margin: 0; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; transition: color 0.2s; }
+.ib-radar-foot { margin: 8px 0 0; font-size: 10px; color: #94a3b8; line-height: 1.5; }
+.ib-anomaly-deck { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 1024px) { .ib-anomaly-deck { grid-template-columns: repeat(2, 1fr); } }
+.ib-decision-card { display: block; padding: 14px; border-radius: 10px; text-decoration: none; border: 1px solid rgba(255, 255, 255, 0.08); background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.56)); transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; }
+.ib-decision-card:hover { transform: translateY(-2px); box-shadow: 0 16px 32px -18px rgba(15, 23, 42, 0.9); }
+.ib-decision-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ib-decision-badge { padding: 2px 8px; border-radius: 9999px; font-size: 9px; font-family: monospace; border: 1px solid transparent; text-transform: uppercase; letter-spacing: 0.05em; }
+.ib-decision-head { margin: 0; color: #f8fafc; font-size: 14px; line-height: 1.5; }
+.ib-decision-summary { margin: 10px 0 0; color: #cbd5e1; font-size: 12px; line-height: 1.65; }
+.ib-decision-meta { margin: 12px 0 0; color: #94a3b8; font-size: 10px; font-family: monospace; }
+.ib-decision-evidence { margin: 8px 0 0; color: #e2e8f0; font-size: 10px; line-height: 1.6; font-family: monospace; opacity: 0.88; }
 
 /* Tailwind Colors Polyfill */
 .bg-emerald-500 { background-color: #10b981; }

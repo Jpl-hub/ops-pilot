@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Any
 from html import unescape
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 import json
 import re
 import time
+
+try:
+    from kafka import KafkaConsumer, TopicPartition
+except ImportError:  # pragma: no cover
+    KafkaConsumer = None
+    TopicPartition = None
 
 from opspilot.config import Settings
 from opspilot.domain.audit import build_audit
@@ -15,6 +22,7 @@ from opspilot.domain.routing import detect_query_type
 from opspilot.domain.rules import evaluate_opportunity_labels, evaluate_risk_labels
 from opspilot.domain.scoring import score_company
 from opspilot.infra.sample_repository import SampleRepository
+from opspilot.runtime_checks import probe_llm_runtime
 
 # 域服务 — 拆分后的模块化架构
 from opspilot.application.scoring_service import ScoringService
@@ -100,6 +108,20 @@ ROLE_PROFILES = {
     },
 }
 
+EXTERNAL_SIGNAL_PRIORITY = {
+    "periodic_report": 0,
+    "company_research": 1,
+    "industry_research": 2,
+    "company_snapshot": 3,
+}
+
+SUBINDUSTRY_SIGNAL_TOPICS = {
+    "光伏": ("光伏设备",),
+    "储能": ("电池", "能源金属"),
+    "锂电池与电池材料": ("电池", "能源金属"),
+    "风电设备与新能源装备": ("风电设备",),
+}
+
 
 class OpsPilotService:
     def __init__(self, repository: SampleRepository, settings: Settings) -> None:
@@ -148,6 +170,7 @@ class OpsPilotService:
         manifests_root = self.settings.official_data_path / "manifests"
         bronze_manifests_root = self.settings.bronze_data_path / "manifests"
         silver_manifests_root = self.settings.silver_data_path / "manifests"
+        gold_manifests_root = _gold_data_root(self.settings) / "manifests"
         periodic_manifest = _read_manifest(manifests_root / "periodic_reports_manifest.json")
         research_manifest = _read_manifest(manifests_root / "research_reports_manifest.json")
         industry_research_manifest = _read_manifest(
@@ -156,25 +179,43 @@ class OpsPilotService:
         bronze_periodic_manifest = _read_manifest(
             bronze_manifests_root / "parsed_periodic_reports_manifest.json"
         )
+        bronze_signal_manifest = _read_manifest(
+            bronze_manifests_root / "external_signal_stream_manifest.json"
+        )
         silver_metrics_manifest = _read_manifest(
             silver_manifests_root / "financial_metrics_manifest.json"
+        )
+        silver_signal_snapshot_manifest = _read_manifest(
+            silver_manifests_root / "company_signal_snapshot_manifest.json"
+        )
+        gold_company_timeline_manifest = _read_manifest(
+            gold_manifests_root / "company_signal_timeline_manifest.json"
+        )
+        gold_subindustry_heatmap_manifest = _read_manifest(
+            gold_manifests_root / "subindustry_signal_heatmap_manifest.json"
         )
         snapshot_manifest = _read_manifest(manifests_root / "company_snapshots_manifest.json")
         return {
             "official_data_root": str(self.settings.official_data_path),
             "bronze_data_root": str(self.settings.bronze_data_path),
             "silver_data_root": str(self.settings.silver_data_path),
+            "gold_data_root": str(_gold_data_root(self.settings)),
             "periodic_reports": periodic_manifest,
             "research_reports": research_manifest,
             "industry_research_reports": industry_research_manifest,
             "company_snapshots": snapshot_manifest,
             "bronze_periodic_reports": bronze_periodic_manifest,
+            "bronze_signal_events": bronze_signal_manifest,
             "silver_financial_metrics": silver_metrics_manifest,
+            "silver_signal_snapshot": silver_signal_snapshot_manifest,
+            "gold_company_signal_timeline": gold_company_timeline_manifest,
+            "gold_subindustry_signal_heatmap": gold_subindustry_heatmap_manifest,
         }
 
     def admin_overview(self) -> dict[str, Any]:
         health = self.health()
         data_status = self.official_data_status()
+        streaming_runtime = _build_kafka_signal_runtime(self.settings)
         quality_overview = _build_admin_quality_overview(self.settings, health["preferred_period"])
         document_pipeline = _build_document_pipeline_overview(data_status, self.settings)
         delivery_readiness = _build_delivery_readiness(
@@ -191,10 +232,12 @@ class OpsPilotService:
         )
         innovation_radar = self.innovation_radar()
         workspace_runs = self.workspace_runs(limit=8)
+        workspace_runtime_audit = self.workspace_runtime_audit()
         workspace_history = self.workspace_history(user_role="management", report_period=health["preferred_period"], limit=12)
         return {
             "health": health,
             "data_status": data_status,
+            "streaming_runtime": streaming_runtime,
             "quality_overview": quality_overview,
             "document_pipeline": document_pipeline,
             "delivery_readiness": delivery_readiness,
@@ -203,6 +246,7 @@ class OpsPilotService:
             "document_pipeline_jobs": self.document_pipeline_jobs(),
             "innovation_radar": innovation_radar,
             "workspace_runs": workspace_runs,
+            "workspace_runtime_audit": workspace_runtime_audit,
             "workspace_history": workspace_history,
             "job_catalog": _build_admin_job_catalog(),
             "capabilities": [
@@ -222,6 +266,7 @@ class OpsPilotService:
         delivery_readiness = overview["delivery_readiness"]
         acceptance_checklist = overview["acceptance_checklist"]
         quality_overview = overview["quality_overview"]
+        workspace_runtime_audit = overview["workspace_runtime_audit"]
         contract_audit = overview["document_pipeline"]["cell_trace"]["contract_audit"]
         runtime_blockers = [
             {
@@ -262,8 +307,9 @@ class OpsPilotService:
             for item in quality_overview.get("issue_buckets", [])[:5]
         ]
         executive_summary = [
-            f"当前交付阶段为{_delivery_stage_label(delivery_readiness.get('stage'))}，主周期 {health.get('preferred_period') or '-'} 可直接交付 {delivery_readiness.get('ready_company_count', 0)} 家公司。",
-            f"运行时阻断 {runtime_readiness.get('blocked_count', 0)} 项，验收通过 {acceptance_checklist.get('passed', 0)}/{acceptance_checklist.get('total', 0)} 项。",
+            f"当前系统阶段为{_delivery_stage_label(delivery_readiness.get('stage'))}，主周期 {health.get('preferred_period') or '-'} 稳定可用 {delivery_readiness.get('ready_company_count', 0)} 家公司。",
+            f"运行阻断 {runtime_readiness.get('blocked_count', 0)} 项，关键检查通过 {acceptance_checklist.get('passed', 0)}/{acceptance_checklist.get('total', 0)} 项。",
+            f"近 {workspace_runtime_audit.get('window_size', 0)} 条智能体运行里，强支撑占比 {workspace_runtime_audit.get('summary_cards', {}).get('grounded_ratio', 0)}%，完整轨迹占比 {workspace_runtime_audit.get('summary_cards', {}).get('trace_ratio', 0)}%。",
             f"OCR Contract 当前达标 {contract_audit.get('ready', 0)}/{contract_audit.get('total', 0)}，缺失 {contract_audit.get('missing', 0)}，不合格 {contract_audit.get('invalid', 0)}。",
         ]
         return {
@@ -274,9 +320,9 @@ class OpsPilotService:
             "overall_status": "ready"
             if acceptance_checklist.get("status") == "ready" and runtime_readiness.get("status") == "ready"
             else "blocked",
-            "overall_label": "可交付"
+            "overall_label": "稳定可用"
             if acceptance_checklist.get("status") == "ready" and runtime_readiness.get("status") == "ready"
-            else "待整改",
+            else "待治理",
             "executive_summary": executive_summary,
             "summary_cards": {
                 "pool_companies": quality_overview.get("coverage", {}).get("pool_companies", 0),
@@ -311,6 +357,7 @@ class OpsPilotService:
                 "blocked_items": acceptance_blockers,
                 "items": acceptance_checklist.get("items", []),
             },
+            "workspace_runtime_audit": workspace_runtime_audit,
             "ocr_contract": {
                 "status": contract_audit.get("status"),
                 "status_label": _status_label(contract_audit.get("status")),
@@ -408,9 +455,22 @@ class OpsPilotService:
 
         top_risk_companies = risk_payload["risk_board"][:8]
         recent_records = workspace_history["records"][:10]
-        subindustry_counts: dict[str, int] = {}
-        for item in risk_payload["risk_board"]:
-            subindustry_counts[item["subindustry"]] = subindustry_counts.get(item["subindustry"], 0) + 1
+        external_signal_stream = _build_external_signal_stream(
+            self.settings,
+            focus_companies=top_risk_companies,
+        )
+        kafka_signal_runtime = _build_kafka_signal_runtime(self.settings)
+        streaming_snapshot = _load_company_signal_snapshot(self.settings)
+        streaming_timeline = _load_company_signal_timeline(self.settings)
+        streaming_heatmap = _load_subindustry_signal_heatmap(self.settings)
+        streaming_anomalies = _build_streaming_anomaly_board(
+            preferred_period=preferred_period,
+            top_risk_companies=top_risk_companies,
+            signal_snapshot=streaming_snapshot,
+            signal_timeline=streaming_timeline,
+            signal_heatmap=streaming_heatmap,
+            kafka_signal_runtime=kafka_signal_runtime,
+        )
 
         market_tape = [
             {
@@ -438,6 +498,9 @@ class OpsPilotService:
                 "tone": "default",
             },
         ]
+        market_tape.extend(_build_external_signal_market_tape(external_signal_stream))
+        market_tape.extend(_build_kafka_signal_market_tape(kafka_signal_runtime))
+        market_tape.extend(_build_streaming_anomaly_market_tape(streaming_anomalies))
 
         execution_flash = [
             {
@@ -449,16 +512,16 @@ class OpsPilotService:
             for item in recent_records[:6]
         ]
 
-        attention_matrix = [
-            {
-                "company_name": item["company_name"],
-                "subindustry": item["subindustry"],
-                "risk_count": item["risk_count"],
-                "headline": item["risk_labels"][0] if item.get("risk_labels") else "继续跟踪",
-                "route": item.get("route", {"path": "/score", "query": {"company": item["company_name"], "period": preferred_period}}),
-            }
-            for item in top_risk_companies[:4]
-        ]
+        attention_matrix = _build_streaming_attention_matrix(
+            preferred_period=preferred_period,
+            top_risk_companies=top_risk_companies,
+            signal_snapshot=streaming_snapshot,
+            signal_timeline=streaming_timeline,
+        )
+        attention_matrix = _merge_streaming_anomalies_into_attention_matrix(
+            attention_matrix,
+            streaming_anomalies,
+        )
 
         live_events = []
         for item in watchboard["items"][:5]:
@@ -479,6 +542,7 @@ class OpsPilotService:
                     },
                 }
             )
+        signal_feed = external_signal_stream.get("signals") or live_events
 
         payload = {
             "report_period": preferred_period,
@@ -488,8 +552,9 @@ class OpsPilotService:
                 "refreshed_at": _utcnow_iso(),
             },
             "sector_tags": [
-                {"label": name, "count": count}
-                for name, count in sorted(subindustry_counts.items(), key=lambda pair: pair[1], reverse=True)[:4]
+                {"label": item.get("subindustry"), "count": int(item.get("total_heat") or 0)}
+                for item in streaming_heatmap.get("top_subindustries", [])[:4]
+                if item.get("subindustry")
             ],
             "metrics": [
                 {
@@ -522,8 +587,8 @@ class OpsPilotService:
                     "options": _build_industry_live_chart(history_points),
                 },
                 {
-                    "title": "当前高风险公司分布",
-                    "options": _build_industry_risk_chart(top_risk_companies),
+                    "title": "子行业外部信号热度迁移",
+                    "options": _build_streaming_heat_chart(streaming_heatmap),
                 },
             ],
             "radar_events": innovation_radar["items"][:6],
@@ -541,12 +606,18 @@ class OpsPilotService:
             ),
             "brain_signal_tape": _build_brain_signal_tape(
                 market_tape=market_tape,
-                live_events=live_events,
+                live_events=signal_feed,
                 history_points=history_points,
             ),
             "execution_flash": execution_flash,
             "attention_matrix": attention_matrix,
             "live_events": live_events,
+            "external_signal_stream": external_signal_stream,
+            "kafka_signal_runtime": kafka_signal_runtime,
+            "streaming_snapshot": streaming_snapshot,
+            "streaming_timeline": streaming_timeline,
+            "streaming_heatmap": streaming_heatmap,
+            "streaming_anomalies": streaming_anomalies,
             "top_risk_companies": [
                 {
                     "company_name": item["company_name"],
@@ -590,7 +661,7 @@ class OpsPilotService:
         return {
             "preferred_period": preferred_period,
             "role_profile": role_profile,
-            "companies": [item["company_name"] for item in risk_payload["risk_board"]],
+            "companies": self.list_company_names(),
             "watchboard": watchboard,
             "alert_queue": _build_workspace_alert_queue(alert_workflow["alerts"], user_role),
             "alert_workflow_summary": alert_workflow["summary"],
@@ -1045,10 +1116,34 @@ class OpsPilotService:
         *,
         user_role: str = "management",
     ) -> dict[str, Any]:
-        ck = f"workspace:{company_name}:{report_period or ''}:{user_role}"
+        ck = f"workspace:full:{company_name}:{report_period or ''}:{user_role}"
         if cached := self._cache_get(ck):
             return cached
-        result = self._company_workspace_compute(company_name, report_period, user_role=user_role)
+        result = self._company_workspace_compute(
+            company_name,
+            report_period,
+            user_role=user_role,
+            profile="full",
+        )
+        self._cache_set(ck, result)
+        return result
+
+    def _company_graph_workspace(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        ck = f"workspace:graph:{company_name}:{report_period or ''}:{user_role}"
+        if cached := self._cache_get(ck):
+            return cached
+        result = self._company_workspace_compute(
+            company_name,
+            report_period,
+            user_role=user_role,
+            profile="graph",
+        )
         self._cache_set(ck, result)
         return result
 
@@ -1058,18 +1153,29 @@ class OpsPilotService:
         report_period: str | None = None,
         *,
         user_role: str = "management",
+        profile: str = "full",
     ) -> dict[str, Any]:
+        graph_profile = profile == "graph"
         score_payload = self.score_company(company_name, report_period)
         period = score_payload["report_period"]
-        timeline_payload = self.company_timeline(company_name)
-        benchmark_payload = self.benchmark_company(company_name, period)
+        timeline_payload = self.company_timeline(company_name) if not graph_profile else None
+        benchmark_payload = self.benchmark_company(company_name, period) if not graph_profile else None
         alert_workflow = self.alert_workflow(report_period=period)
         task_board = self.task_board(user_role=user_role, report_period=period, limit=20)
-        document_upgrades = self.company_document_upgrades(company_name, period)
-        runtime_capsule = self.company_runtime_capsule(
+        document_upgrades = self.company_document_upgrades(
             company_name,
             period,
-            user_role=user_role,
+            limit=8 if graph_profile else 20,
+            include_preview=not graph_profile,
+        )
+        runtime_capsule = (
+            self.company_runtime_capsule(
+                company_name,
+                period,
+                user_role=user_role,
+            )
+            if not graph_profile
+            else None
         )
 
         alert_items = [
@@ -1100,7 +1206,7 @@ class OpsPilotService:
         except ValueError as exc:
             research_status = {"status": "missing", "detail": str(exc)}
 
-        return {
+        payload = {
             "company_name": company_name,
             "report_period": period,
             "user_role": user_role,
@@ -1113,20 +1219,6 @@ class OpsPilotService:
                 "opportunity_count": len(score_payload["scorecard"]["opportunity_labels"]),
             },
             "top_risks": [item["name"] for item in score_payload["scorecard"]["risk_labels"][:5]],
-            "top_opportunities": [
-                item["name"] for item in score_payload["scorecard"]["opportunity_labels"][:5]
-            ],
-            "action_cards": score_payload["action_cards"][:5],
-            "formula_cards": score_payload["formula_cards"][:4],
-            "timeline": {
-                "latest_period": timeline_payload["latest_period"],
-                "key_numbers": timeline_payload["key_numbers"],
-                "snapshots": timeline_payload["snapshots"],
-            },
-            "benchmark": {
-                "target_company": company_name,
-                "top_companies": benchmark_payload["benchmark"][:5],
-            },
             "alerts": {
                 "summary": {
                     "total": len(alert_items),
@@ -1170,24 +1262,44 @@ class OpsPilotService:
                 "stage_summary": document_upgrades["stage_summary"],
                 "items": document_upgrades["items"],
             },
-            "intelligence_runtime": self.company_intelligence_runtime(
-                company_name,
-                period,
-                user_role=user_role,
-            ),
-            "runtime_capsule": runtime_capsule,
             "execution_stream": self.company_execution_stream(
                 company_name,
                 period,
                 user_role=user_role,
-                limit=30,
+                limit=12 if graph_profile else 30,
             ),
             "recent_runs": _filter_workspace_runs_for_company(
-                self.workspace_runs(limit=50)["runs"],
+                self.workspace_runs(limit=12 if graph_profile else 50)["runs"],
                 company_name,
                 period,
             ),
         }
+        if not graph_profile and timeline_payload is not None and benchmark_payload is not None:
+            payload.update(
+                {
+                    "top_opportunities": [
+                        item["name"] for item in score_payload["scorecard"]["opportunity_labels"][:5]
+                    ],
+                    "action_cards": score_payload["action_cards"][:5],
+                    "formula_cards": score_payload["formula_cards"][:4],
+                    "timeline": {
+                        "latest_period": timeline_payload["latest_period"],
+                        "key_numbers": timeline_payload["key_numbers"],
+                        "snapshots": timeline_payload["snapshots"],
+                    },
+                    "benchmark": {
+                        "target_company": company_name,
+                        "top_companies": benchmark_payload["benchmark"][:5],
+                    },
+                    "intelligence_runtime": self.company_intelligence_runtime(
+                        company_name,
+                        period,
+                        user_role=user_role,
+                    ),
+                    "runtime_capsule": runtime_capsule,
+                }
+            )
+        return payload
 
     def company_runtime_capsule(
         self,
@@ -1665,7 +1777,12 @@ class OpsPilotService:
                     "evidence_navigation": item.get("evidence_navigation"),
                 },
             }
-            for item in self.company_document_upgrades(company_name, period, limit=100)["items"]
+            for item in self.company_document_upgrades(
+                company_name,
+                period,
+                limit=100,
+                include_preview=False,
+            )["items"]
         ]
         stress_items = [
             {
@@ -1775,29 +1892,11 @@ class OpsPilotService:
         report_period: str | None = None,
         *,
         limit: int = 20,
+        include_preview: bool = True,
+        include_evidence_navigation: bool = True,
     ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
-        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
-        upgrade_items = _filter_document_results_for_company(
-            [
-                {
-                    "stage": item["stage"],
-                    "report_id": item["report_id"],
-                    "company_name": item["company_name"],
-                    "security_code": item["security_code"],
-                    "report_period": item.get("report_period"),
-                    "status": item["status"],
-                    "artifact_path": item.get("artifact_path"),
-                    "artifact_summary": item.get("artifact_summary"),
-                    "artifact_source": item.get("artifact_source"),
-                    "contract_status": _resolve_document_contract_status(self.settings, item),
-                    "completed_at": item.get("completed_at"),
-                }
-                for item in jobs_manifest["records"]
-            ],
-            company_name,
-            period,
-        )
+        upgrade_items = _load_company_document_upgrade_items(self.settings, company_name, period)
         enriched_items: list[dict[str, Any]] = []
         stage_summary: dict[str, int] = {}
         for item in upgrade_items[:limit]:
@@ -1806,23 +1905,22 @@ class OpsPilotService:
             artifact_preview = None
             artifact_summary = item.get("artifact_summary")
             artifact_source = item.get("artifact_source")
+            artifact_payload = None
             if item.get("status") == "completed":
-                try:
-                    detail = self.document_pipeline_result_detail(stage, item["report_id"])
-                    artifact_preview = _build_document_artifact_preview(detail["artifact"])
-                    evidence_navigation = detail.get("evidence_navigation")
-                    artifact_summary = (
-                        artifact_summary
-                        or detail["job"].get("artifact_summary")
-                        or detail["artifact"].get("summary")
+                artifact_payload = _load_document_artifact_payload(item)
+                if artifact_payload is not None:
+                    if include_preview:
+                        artifact_preview = _build_document_artifact_preview(artifact_payload)
+                    artifact_summary = artifact_summary or artifact_payload.get("summary")
+                    artifact_source = artifact_source or artifact_payload.get("source")
+                if include_evidence_navigation and artifact_payload is not None:
+                    evidence_navigation = _build_document_evidence_navigation(
+                        repository=self.repository,
+                        company_name=item["company_name"],
+                        report_period=item.get("report_period"),
+                        artifact=artifact_payload,
                     )
-                    artifact_source = (
-                        artifact_source
-                        or detail["job"].get("artifact_source")
-                        or detail["artifact"].get("source")
-                    )
-                except ValueError:
-                    artifact_preview = None
+                else:
                     evidence_navigation = None
             else:
                 evidence_navigation = None
@@ -1857,8 +1955,9 @@ class OpsPilotService:
         report_period: str | None = None,
         *,
         user_role: str = "management",
+        workspace: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        workspace = self.company_workspace(
+        workspace_payload = workspace or self.company_workspace(
             company_name,
             report_period,
             user_role=user_role,
@@ -1873,30 +1972,30 @@ class OpsPilotService:
                 "type": "company",
                 "label": company_name,
                 "meta": {
-                    "report_period": workspace["report_period"],
-                    "score": workspace["score_summary"]["total_score"],
-                    "grade": workspace["score_summary"]["grade"],
+                    "report_period": workspace_payload["report_period"],
+                    "score": workspace_payload["score_summary"]["total_score"],
+                    "grade": workspace_payload["score_summary"]["grade"],
                 },
             }
         )
 
-        period_node = _graph_node_id("period", workspace["report_period"])
+        period_node = _graph_node_id("period", workspace_payload["report_period"])
         nodes.append(
             {
                 "id": period_node,
                 "type": "report_period",
-                "label": workspace["report_period"],
+                "label": workspace_payload["report_period"],
                 "meta": {},
             }
         )
         edges.append({"source": company_node, "target": period_node, "label": "对应报期"})
 
-        for risk_name in workspace["top_risks"]:
+        for risk_name in workspace_payload["top_risks"]:
             risk_node = _graph_node_id("risk", risk_name)
             nodes.append({"id": risk_node, "type": "risk_label", "label": risk_name, "meta": {}})
             edges.append({"source": company_node, "target": risk_node, "label": "风险"})
 
-        for task in workspace["tasks"]["items"][:5]:
+        for task in workspace_payload["tasks"]["items"][:5]:
             task_node = _graph_node_id("task", task["task_id"])
             nodes.append(
                 {
@@ -1911,7 +2010,7 @@ class OpsPilotService:
             )
             edges.append({"source": company_node, "target": task_node, "label": "整改任务"})
 
-        for alert in workspace["alerts"]["items"][:5]:
+        for alert in workspace_payload["alerts"]["items"][:5]:
             alert_node = _graph_node_id("alert", alert["alert_id"])
             nodes.append(
                 {
@@ -1923,7 +2022,7 @@ class OpsPilotService:
             )
             edges.append({"source": period_node, "target": alert_node, "label": "主动预警"})
 
-        for run in workspace["recent_runs"]["items"][:4]:
+        for run in workspace_payload["recent_runs"]["items"][:4]:
             run_node = _graph_node_id("run", run["run_id"])
             nodes.append(
                 {
@@ -1939,8 +2038,8 @@ class OpsPilotService:
             )
             edges.append({"source": company_node, "target": run_node, "label": "分析运行"})
 
-        if workspace["research"]["status"] == "ready":
-            research_label = workspace["research"]["report_title"]
+        if workspace_payload["research"]["status"] == "ready":
+            research_label = workspace_payload["research"]["report_title"]
             research_node = _graph_node_id("research", research_label)
             nodes.append(
                 {
@@ -1948,14 +2047,121 @@ class OpsPilotService:
                     "type": "research_report",
                     "label": research_label,
                     "meta": {
-                        "institution": workspace["research"]["institution"],
-                        "forecast_count": workspace["research"]["forecast_count"],
+                        "institution": workspace_payload["research"]["institution"],
+                        "forecast_count": workspace_payload["research"]["forecast_count"],
                     },
                 }
             )
             edges.append({"source": company_node, "target": research_node, "label": "研报核验"})
 
-        for item in workspace["document_upgrades"]["items"][:6]:
+        signal_context_cache_key = (
+            "graph-signal-context:"
+            f"{company_name}:{workspace_payload['score_summary'].get('subindustry') or ''}"
+        )
+        signal_context = self._cache_get(signal_context_cache_key)
+        if signal_context is None:
+            signal_context = _build_company_signal_graph_context(
+                self.settings,
+                company_name=company_name,
+                subindustry=workspace_payload["score_summary"].get("subindustry"),
+            )
+            self._cache_set(signal_context_cache_key, signal_context)
+
+        if signal_context.get("event_available"):
+            latest_signal_key = (
+                signal_context.get("latest_event_time")
+                or signal_context.get("latest_headline")
+                or signal_context.get("signal_status")
+                or company_name
+            )
+            signal_event_node = _graph_node_id("signal", f"{company_name}::{latest_signal_key}")
+            nodes.append(
+                {
+                    "id": signal_event_node,
+                    "type": "signal_event",
+                    "label": signal_context.get("latest_headline") or "外部信号",
+                    "meta": {
+                        "signal_status": signal_context.get("signal_status"),
+                        "latest_signal_kind": signal_context.get("latest_signal_kind"),
+                        "latest_event_time": signal_context.get("latest_event_time"),
+                        "freshness_status": signal_context.get("freshness_status"),
+                        "freshness_label": signal_context.get("freshness_label"),
+                        "signal_count": signal_context.get("signal_count"),
+                        "source_count": signal_context.get("source_count"),
+                        "summary": signal_context.get("event_summary"),
+                    },
+                }
+            )
+            edges.append({"source": company_node, "target": signal_event_node, "label": "最新信号"})
+            edges.append({"source": period_node, "target": signal_event_node, "label": "报期外部事件"})
+
+        if signal_context.get("timeline_available"):
+            signal_timeline_node = _graph_node_id("signal-window", company_name)
+            nodes.append(
+                {
+                    "id": signal_timeline_node,
+                    "type": "signal_timeline",
+                    "label": f"近 {signal_context.get('window_days') or 7} 日信号窗口",
+                    "meta": {
+                        "latest_event_time": signal_context.get("latest_event_time"),
+                        "freshness_status": signal_context.get("freshness_status"),
+                        "freshness_label": signal_context.get("freshness_label"),
+                        "signal_count": signal_context.get("signal_count"),
+                        "source_count": signal_context.get("source_count"),
+                        "external_heat": signal_context.get("total_heat"),
+                        "latest_heat": signal_context.get("latest_heat"),
+                        "momentum": signal_context.get("momentum"),
+                        "active_days": signal_context.get("active_days"),
+                        "window_days": signal_context.get("window_days"),
+                        "date_axis": signal_context.get("date_axis"),
+                        "summary": signal_context.get("timeline_summary"),
+                    },
+                }
+            )
+            edges.append({"source": company_node, "target": signal_timeline_node, "label": "时序热度"})
+            edges.append({"source": period_node, "target": signal_timeline_node, "label": "窗口信号"})
+            if signal_context.get("event_available"):
+                edges.append(
+                    {
+                        "source": signal_event_node,
+                        "target": signal_timeline_node,
+                        "label": "时序沉淀",
+                    }
+                )
+
+        if signal_context.get("subindustry_available"):
+            subindustry_signal_node = _graph_node_id(
+                "subindustry-signal",
+                str(signal_context.get("subindustry") or company_name),
+            )
+            nodes.append(
+                {
+                    "id": subindustry_signal_node,
+                    "type": "subindustry_signal",
+                    "label": f"{signal_context.get('subindustry') or '所属子行业'} 热度迁移",
+                    "meta": {
+                        "subindustry": signal_context.get("subindustry"),
+                        "signal_count": signal_context.get("subindustry_signal_count"),
+                        "external_heat": signal_context.get("subindustry_total_heat"),
+                        "latest_heat": signal_context.get("subindustry_latest_heat"),
+                        "momentum": signal_context.get("subindustry_momentum"),
+                        "active_days": signal_context.get("subindustry_active_days"),
+                        "window_days": signal_context.get("window_days"),
+                        "summary": signal_context.get("subindustry_summary"),
+                    },
+                }
+            )
+            edges.append({"source": company_node, "target": subindustry_signal_node, "label": "板块共振"})
+            if signal_context.get("timeline_available"):
+                edges.append(
+                    {
+                        "source": subindustry_signal_node,
+                        "target": signal_timeline_node,
+                        "label": "热度传导",
+                    }
+                )
+
+        for item in workspace_payload["document_upgrades"]["items"][:6]:
             artifact_node = _graph_node_id("artifact", f"{item['stage']}::{item['report_id']}")
             nodes.append(
                 {
@@ -1988,7 +2194,7 @@ class OpsPilotService:
                 )
                 edges.append({"source": artifact_node, "target": evidence_node, "label": "证据入口"})
 
-        if workspace["watchboard"]["tracked"]:
+        if workspace_payload["watchboard"]["tracked"]:
             monitor_node = _graph_node_id("watchboard", company_name)
             nodes.append(
                 {
@@ -1996,15 +2202,15 @@ class OpsPilotService:
                     "type": "watchboard",
                     "label": "监测中",
                     "meta": {
-                        "note": workspace["watchboard"]["note"],
-                        "new_alerts": workspace["watchboard"]["new_alerts"],
-                        "task_count": workspace["watchboard"]["task_count"],
+                        "note": workspace_payload["watchboard"]["note"],
+                        "new_alerts": workspace_payload["watchboard"]["new_alerts"],
+                        "task_count": workspace_payload["watchboard"]["task_count"],
                     },
                 }
             )
             edges.append({"source": company_node, "target": monitor_node, "label": "持续监测"})
 
-        for stream in workspace["execution_stream"]["records"][:8]:
+        for stream in workspace_payload["execution_stream"]["records"][:8]:
             stream_node = _graph_node_id("stream", f"{stream['stream_type']}::{stream['id']}")
             nodes.append(
                 {
@@ -2020,19 +2226,23 @@ class OpsPilotService:
             )
             edges.append({"source": company_node, "target": stream_node, "label": "执行流"})
 
+        deduped_nodes = _dedupe_graph_nodes(nodes)
+
         return {
             "company_name": company_name,
-            "report_period": workspace["report_period"],
-            "nodes": _dedupe_graph_nodes(nodes),
+            "report_period": workspace_payload["report_period"],
+            "nodes": deduped_nodes,
             "edges": edges,
             "summary": {
-                "node_count": len(_dedupe_graph_nodes(nodes)),
+                "node_count": len(deduped_nodes),
                 "edge_count": len(edges),
-                "task_count": workspace["tasks"]["summary"]["total"],
-                "alert_count": workspace["alerts"]["summary"]["total"],
-                "document_upgrade_count": workspace["document_upgrades"]["count"],
-                "run_count": workspace["recent_runs"]["count"],
-                "watch_tracked": workspace["watchboard"]["tracked"],
+                "task_count": workspace_payload["tasks"]["summary"]["total"],
+                "alert_count": workspace_payload["alerts"]["summary"]["total"],
+                "document_upgrade_count": workspace_payload["document_upgrades"]["count"],
+                "run_count": workspace_payload["recent_runs"]["count"],
+                "watch_tracked": workspace_payload["watchboard"]["tracked"],
+                "signal_count": int(signal_context.get("signal_count") or 0),
+                "signal_freshness": signal_context.get("freshness_label"),
             },
         }
 
@@ -2044,7 +2254,7 @@ class OpsPilotService:
         *,
         user_role: str = "management",
     ) -> dict[str, Any]:
-        workspace = self.company_workspace(
+        workspace = self._company_graph_workspace(
             company_name,
             report_period,
             user_role=user_role,
@@ -2053,14 +2263,23 @@ class OpsPilotService:
             company_name,
             workspace["report_period"],
             user_role=user_role,
+            workspace=workspace,
         )
-        ranked_nodes = _rank_graph_nodes_for_intent(graph["nodes"], intent)
-        focal_nodes = ranked_nodes[:8]
+        retrieval = _retrieve_graph_paths(
+            graph=graph,
+            company_name=company_name,
+            report_period=workspace["report_period"],
+            intent=intent,
+        )
+        ranked_nodes = retrieval["ranked_nodes"]
+        focal_nodes = retrieval["focal_nodes"]
         inference_path = _build_graph_query_inference_path(
             company_name=company_name,
             report_period=workspace["report_period"],
             intent=intent,
             focal_nodes=focal_nodes,
+            retrieved_paths=retrieval["paths"],
+            retrieval_summary=retrieval["summary"],
             workspace=workspace,
         )
         phase_track = _build_graph_query_phase_track(
@@ -2068,11 +2287,14 @@ class OpsPilotService:
             intent=intent,
             workspace=workspace,
             inference_path=inference_path,
+            retrieval_summary=retrieval["summary"],
         )
         signal_stream = _build_graph_query_signal_stream(
             focal_nodes=focal_nodes,
+            retrieved_paths=retrieval["paths"],
             workspace=workspace,
             graph_node_count=len(graph["nodes"]),
+            retrieval_summary=retrieval["summary"],
         )
         evidence_navigation = _build_graph_query_evidence_navigation(workspace)
         payload = {
@@ -2086,6 +2308,7 @@ class OpsPilotService:
                 "risk_count": workspace["score_summary"]["risk_count"],
                 "execution_records": len(workspace["execution_stream"]["records"]),
             },
+            "graph_retrieval": retrieval["summary"],
             "focal_nodes": focal_nodes,
             "inference_path": inference_path,
             "phase_track": phase_track,
@@ -2097,6 +2320,7 @@ class OpsPilotService:
                 inference_path=inference_path,
                 phase_track=phase_track,
                 signal_stream=signal_stream,
+                retrieval_summary=retrieval["summary"],
                 workspace=workspace,
             ),
             "graph_live_frames": _build_graph_query_live_frames(
@@ -2136,6 +2360,7 @@ class OpsPilotService:
                 "summary": graph["summary"],
                 "node_count": len(graph["nodes"]),
                 "edge_count": len(graph["edges"]),
+                "retrieved_path_count": retrieval["summary"]["path_count"],
                 "nodes": graph["nodes"],
                 "edges": graph["edges"],
             },
@@ -2222,18 +2447,12 @@ class OpsPilotService:
         user_role: str = "management",
     ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
-        upgrades = self.company_document_upgrades(
-            company_name,
-            period,
-            limit=12,
-        )
-        selected_item = next(
-            (
-                item
-                for item in upgrades["items"]
-                if item.get("artifact_summary") or item.get("artifact_preview")
-            ),
-            upgrades["items"][0] if upgrades["items"] else None,
+        ocr_runtime = _settings_ocr_runtime(self.settings)
+        upgrade_items = _load_company_document_upgrade_items(self.settings, company_name, period)
+        selected_item = max(
+            upgrade_items,
+            key=_vision_selected_item_priority,
+            default=None,
         )
         if selected_item is None:
             return {
@@ -2244,6 +2463,11 @@ class OpsPilotService:
                     "company_name": company_name,
                     "headline": "暂无可用解析结果",
                     "status_label": "等待解析",
+                    "quality_summary": _build_vision_quality_summary(
+                        detail=None,
+                        selected_item={},
+                        ocr_runtime=ocr_runtime,
+                    ),
                     "items": [],
                     "sections": [],
                     "evidence_navigation": {"links": []},
@@ -2251,6 +2475,16 @@ class OpsPilotService:
             }
 
         detail = None
+        selected_artifact = _load_document_artifact_payload(selected_item)
+        if selected_artifact is not None:
+            selected_item = {
+                **selected_item,
+                "artifact_summary": selected_item.get("artifact_summary")
+                or selected_artifact.get("summary"),
+                "artifact_source": selected_item.get("artifact_source")
+                or selected_artifact.get("source"),
+                "artifact_preview": _build_document_artifact_preview(selected_artifact),
+            }
         try:
             detail = self.document_pipeline_result_detail(
                 selected_item["stage"],
@@ -2274,10 +2508,11 @@ class OpsPilotService:
         result_items = [
             {
                 "kind": item["stage"],
-                "title": item.get("artifact_summary") or item["stage"],
-                "summary": f"{item.get('report_period') or period} · {item.get('status')}",
+                "stage_label": _document_stage_label(item["stage"]),
+                "title": item.get("artifact_summary") or _document_stage_label(item["stage"]),
+                "summary": f"{item.get('report_period') or period} · {_status_label(item.get('status'))}",
             }
-            for item in upgrades["items"][:8]
+            for item in upgrade_items[:8]
         ]
         phase_track = _build_vision_phase_track(
             company_name=company_name,
@@ -2295,6 +2530,11 @@ class OpsPilotService:
             selected_item=selected_item,
             detail=detail,
         )
+        quality_summary = _build_vision_quality_summary(
+            detail=detail,
+            selected_item=selected_item,
+            ocr_runtime=ocr_runtime,
+        )
         return {
             "company_name": company_name,
             "report_period": period,
@@ -2310,6 +2550,7 @@ class OpsPilotService:
                 or selected_item.get("artifact_preview")
                 else "处理中",
                 "phase_track": phase_track,
+                "quality_summary": quality_summary,
                 "extraction_stream": extraction_stream,
                 "analysis_log": analysis_log,
                 "source_preview": selected_item.get("artifact_preview"),
@@ -2331,7 +2572,7 @@ class OpsPilotService:
         user_role: str = "management",
     ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
-        upgrades = self.company_document_upgrades(company_name, period, limit=20)
+        upgrade_items = _load_company_document_upgrade_items(self.settings, company_name, period)
         jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
         ocr_runtime = _settings_ocr_runtime(self.settings)
         stages: list[dict[str, Any]] = []
@@ -2350,32 +2591,32 @@ class OpsPilotService:
             )
             job = stage_jobs[0] if stage_jobs else None
             if job and job.get("status") == "completed":
-                try:
-                    detail = self.document_pipeline_result_detail(stage, job["report_id"])
+                artifact_payload = _load_document_artifact_payload(job)
+                if artifact_payload is not None:
                     job = {
                         **job,
-                        "artifact_summary": (
-                            job.get("artifact_summary")
-                            or detail["job"].get("artifact_summary")
-                            or detail["artifact"].get("summary")
-                        ),
-                        "artifact_source": (
-                            job.get("artifact_source")
-                            or detail["job"].get("artifact_source")
-                            or detail["artifact"].get("source")
-                        ),
+                        "artifact_summary": job.get("artifact_summary") or artifact_payload.get("summary"),
+                        "artifact_source": job.get("artifact_source") or artifact_payload.get("source"),
                     }
-                except ValueError:
-                    pass
             if job:
                 latest_jobs.append(job)
             status = job.get("status", "missing") if job else "missing"
+            contract_status = (
+                _resolve_document_contract_status(self.settings, job)
+                if job
+                else None
+            )
             stages.append(
                 {
                     "stage": stage,
                     "label": _document_stage_label(stage),
                     "status": status,
+                    "status_label": _status_label(status),
                     "artifact_source": job.get("artifact_source") if job else None,
+                    "artifact_source_label": _artifact_source_label(
+                        job.get("artifact_source") if job else None
+                    ),
+                    "contract_status": contract_status,
                     "summary": (
                         job.get("artifact_summary")
                         or job.get("completed_at")
@@ -2399,7 +2640,16 @@ class OpsPilotService:
         stage_status_counts: dict[str, int] = {}
         for item in stages:
             stage_status_counts[item["status"]] = stage_status_counts.get(item["status"], 0) + 1
-        if stage_status_counts.get("pending"):
+        cell_trace_stage = next((item for item in stages if item["stage"] == "cell_trace"), None)
+        if (
+            cell_trace_stage
+            and cell_trace_stage.get("status") == "completed"
+            and cell_trace_stage.get("contract_status") in {"missing", "invalid"}
+        ):
+            next_action = "补齐标准 OCR 结构契约后重新运行单元格溯源"
+        elif not ocr_runtime["runtime_enabled"]:
+            next_action = "接通标准 OCR 引擎后再执行正式解析"
+        elif stage_status_counts.get("pending"):
             next_action = "继续运行文档升级作业"
         elif stage_status_counts.get("completed"):
             next_action = "进入结果核验与证据回放"
@@ -2417,7 +2667,10 @@ class OpsPilotService:
                 "next_action": next_action,
             },
             "stages": stages,
-            "document_upgrades": upgrades,
+            "document_upgrades": {
+                "count": len(upgrade_items),
+                "stage_summary": dict(Counter(item["stage"] for item in upgrade_items)),
+            },
             "latest_jobs": latest_jobs[:3],
             "vision": vision["result"],
         }
@@ -2841,11 +3094,14 @@ class OpsPilotService:
         return {
             "job": {
                 "stage": job["stage"],
+                "stage_label": _document_stage_label(job["stage"]),
                 "report_id": job["report_id"],
                 "company_name": job["company_name"],
                 "security_code": job["security_code"],
                 "report_period": job.get("report_period"),
                 "status": job["status"],
+                "status_label": _status_label(job["status"]),
+                "contract_status": _resolve_document_contract_status(self.settings, job),
                 "artifact_path": job["artifact_path"],
                 "completed_at": job.get("completed_at"),
                 "artifact_summary": job.get("artifact_summary"),
@@ -2963,7 +3219,7 @@ class OpsPilotService:
         board.sort(key=lambda item: item["risk_count"], reverse=True)
         return {
             "query_type": "risk_scan",
-            "answer_markdown": "已完成样本集行业风险扫描，可直接查看高风险公司与标签分布。",
+            "answer_markdown": "已完成行业风险扫描，可直接查看高风险公司与标签分布。",
             "risk_board": board,
             "alert_board": _build_alert_board(self.repository, companies),
             "industry_research": self.industry_research_brief(),
@@ -3290,6 +3546,14 @@ class OpsPilotService:
 
     def workspace_runs(self, limit: int = 20) -> dict[str, Any]:
         return self._workspace.workspace_runs(limit=limit)
+
+    def workspace_runtime_audit(
+        self,
+        *,
+        limit: int = 10,
+        lookback: int = 60,
+    ) -> dict[str, Any]:
+        return self._workspace.workspace_runtime_audit(limit=limit, lookback=lookback)
 
     def workspace_history(
         self,
@@ -4775,6 +5039,9 @@ def _build_vision_phase_track(
     detail: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     sections = detail.get("consumable_sections", []) if detail else []
+    evidence_links = (detail or {}).get("evidence_navigation", {}).get("links", [])
+    stage_label = _document_stage_label(selected_item.get("stage", "document"))
+    stage_status = selected_item.get("status")
     return [
         {
             "phase": "载入报告",
@@ -4784,23 +5051,32 @@ def _build_vision_phase_track(
         },
         {
             "phase": "解析工序",
-            "status": "done" if selected_item.get("status") == "done" else "active",
-            "headline": selected_item.get("stage", "document"),
-            "metric": selected_item.get("status", "pending"),
+            "status": "done" if stage_status in {"done", "completed"} else "active",
+            "headline": stage_label,
+            "metric": _status_label(stage_status),
         },
         {
             "phase": "结构抽取",
             "status": "done" if sections else "active",
             "headline": "标题/表格/片段",
-            "metric": f"{len(sections)} sections",
+            "metric": f"{len(sections)} 类结构",
         },
         {
             "phase": "证据挂接",
-            "status": "active",
+            "status": "done" if evidence_links else "active",
             "headline": "可回看原证据",
-            "metric": f"{len((detail or {}).get('evidence_navigation', {}).get('links', []))} links",
+            "metric": f"{len(evidence_links)} 个入口",
         },
     ]
+
+
+def _vision_selected_item_priority(item: dict[str, Any]) -> tuple[int, int, int, str]:
+    return (
+        1 if item.get("artifact_summary") or item.get("artifact_preview") else 0,
+        {"cross_page_merge": 1, "title_hierarchy": 2, "cell_trace": 3}.get(item.get("stage"), 0),
+        1 if item.get("status") in {"done", "completed"} else 0,
+        item.get("completed_at") or "",
+    )
 
 
 def _build_vision_extraction_stream(
@@ -4821,8 +5097,8 @@ def _build_vision_extraction_stream(
     if not stream:
         stream.append(
             {
-                "label": selected_item.get("stage", "document"),
-                "value": selected_item.get("status", "pending"),
+                "label": _document_stage_label(selected_item.get("stage", "document")),
+                "value": _status_label(selected_item.get("status")),
                 "tone": "warning",
             }
         )
@@ -4839,7 +5115,11 @@ def _build_vision_analysis_log(
     sections = detail.get("consumable_sections", []) if detail else []
     checkpoints = [
         ("初始化", f"{company_name} / {report_period}"),
-        ("定位报告", selected_item.get("report_id") or selected_item.get("stage", "document")),
+        (
+            "定位报告",
+            selected_item.get("report_id")
+            or _document_stage_label(selected_item.get("stage", "document")),
+        ),
         ("抽取结构", "、".join(section.get("title", "section") for section in sections[:3]) or "等待结构化结果"),
         (
             "生成摘要",
@@ -4860,6 +5140,212 @@ def _build_vision_analysis_log(
         }
         for index, (title, detail_text) in enumerate(checkpoints)
     ]
+
+
+def _build_vision_quality_summary(
+    *,
+    detail: dict[str, Any] | None,
+    selected_item: dict[str, Any],
+    ocr_runtime: dict[str, Any],
+) -> dict[str, Any]:
+    artifact = detail.get("artifact", {}) if detail else {}
+    job = detail.get("job", {}) if detail else {}
+    sections = detail.get("consumable_sections", []) if detail else []
+    evidence_links = (detail or {}).get("evidence_navigation", {}).get("links", [])
+    headings = artifact.get("headings") if isinstance(artifact.get("headings"), list) else []
+    tables = artifact.get("tables") if isinstance(artifact.get("tables"), list) else []
+    cells = artifact.get("cells") if isinstance(artifact.get("cells"), list) else []
+    merges = (
+        artifact.get("merge_candidates")
+        if isinstance(artifact.get("merge_candidates"), list)
+        else artifact.get("merged_sections")
+        if isinstance(artifact.get("merged_sections"), list)
+        else []
+    )
+    artifact_source = (
+        job.get("artifact_source")
+        or selected_item.get("artifact_source")
+        or artifact.get("source")
+    )
+    contract_status = job.get("contract_status") or selected_item.get("contract_status")
+    stage = job.get("stage") or selected_item.get("stage")
+    stage_label = _document_stage_label(stage) if stage else "文档解析"
+    dimensions = [
+        {
+            "key": "artifact_source",
+            "label": "解析来源",
+            "status": "ready" if artifact_source == "standard_ocr" else "warning" if artifact_source else "blocked",
+            "summary": (
+                f"当前采用 {_artifact_source_label(artifact_source)}。"
+                if artifact_source
+                else "尚未生成可核验的解析产物。"
+            ),
+        },
+        {
+            "key": "structure",
+            "label": "结构抽取",
+            "status": "ready" if sections else "blocked",
+            "summary": (
+                f"已形成 {len(sections)} 类结构化结果。"
+                if sections
+                else "当前还没有标题、表格或摘要等结构化结果。"
+            ),
+        },
+        {
+            "key": "table_trace",
+            "label": "表格溯源",
+            "status": "ready" if tables and cells else "warning" if tables or cells else "blocked",
+            "summary": (
+                f"已恢复 {len(tables)} 个表格片段、{len(cells)} 个单元格。"
+                if tables or cells
+                else "当前没有形成可追溯的表格与单元格结果。"
+            ),
+        },
+        {
+            "key": "evidence",
+            "label": "证据回看",
+            "status": "ready" if evidence_links else "warning",
+            "summary": (
+                f"可直接回看 {len(evidence_links)} 个证据入口。"
+                if evidence_links
+                else "当前结果还没有可直接跳转的证据入口。"
+            ),
+        },
+    ]
+    if stage == "cell_trace" or contract_status is not None:
+        dimensions.insert(
+            1,
+            {
+                "key": "ocr_contract",
+                "label": "OCR 结构契约",
+                "status": (
+                    "ready"
+                    if contract_status == "ready"
+                    else "blocked"
+                    if contract_status in {"missing", "invalid"}
+                    else "warning"
+                ),
+                "summary": (
+                    "标准 OCR contract 已通过字段校验。"
+                    if contract_status == "ready"
+                    else "缺少标准 OCR 结构契约，当前无法确认正式单元格产物。"
+                    if contract_status == "missing"
+                    else "标准 OCR 结构契约存在但字段不合法。"
+                    if contract_status == "invalid"
+                    else "当前阶段尚未进入 OCR 结构契约质检。"
+                ),
+            },
+        )
+
+    blockers: list[dict[str, str]] = []
+
+    def add_blocker(title: str, detail_text: str) -> None:
+        if any(item["title"] == title for item in blockers):
+            return
+        blockers.append({"title": title, "detail": detail_text})
+
+    if detail is None:
+        add_blocker("尚无可回看产物", f"{stage_label} 当前只有工序记录，尚未生成可复核的结构化结果。")
+    if not ocr_runtime.get("runtime_enabled"):
+        add_blocker(
+            "标准 OCR 引擎未启用",
+            "当前环境未开启正式 OCR 运行时，只能依赖现有产物或几何恢复链，无法形成稳定交付链。",
+        )
+    if contract_status == "missing":
+        add_blocker(
+            "缺少标准 OCR 结构契约",
+            "单元格溯源尚未拿到合法 tables/cells 产物，需要先补齐标准 OCR 输出。",
+        )
+    elif contract_status == "invalid":
+        add_blocker(
+            "标准 OCR 结构契约不合格",
+            "tables/cells 字段校验未通过，当前产物不能作为正式交付结果。",
+        )
+    if artifact_source == "geometric_fallback":
+        add_blocker(
+            "仍在使用几何恢复链",
+            "当前表格结果来自几何恢复，不是正式 OCR 标准产物，适合排查不适合直接交付。",
+        )
+    if not evidence_links:
+        add_blocker(
+            "证据入口不足",
+            "当前结果还不能一键回看原文证据，复核链条不完整。",
+        )
+    for item in detail.get("remediation", []) if detail else []:
+        title = item.get("title")
+        detail_text = item.get("detail")
+        if title and detail_text:
+            add_blocker(title, detail_text)
+
+    status = "ready"
+    if any(item["status"] == "blocked" for item in dimensions):
+        status = "blocked"
+    elif any(item["status"] == "warning" for item in dimensions):
+        status = "warning"
+
+    if status == "ready":
+        headline = "已达到核验条件"
+        summary = "标准 OCR、结构抽取与证据回看均已接通，可直接进入人工复核。"
+    elif status == "warning":
+        headline = "结果可读但仍需补强"
+        summary = "当前解析结果可以浏览，但仍存在来源或证据链短板，尚不建议作为正式交付版本。"
+    else:
+        headline = "尚未达到交付标准"
+        summary = "当前解析链仍有阻断项，需要先补齐标准 OCR 或结构/证据链路。"
+
+    metrics = [
+        {
+            "label": "解析来源",
+            "value": _artifact_source_label(artifact_source),
+            "tone": "success" if artifact_source == "standard_ocr" else "warning",
+        },
+        {
+            "label": "标题节点",
+            "value": str(len(headings)),
+            "tone": "success" if headings else "warning",
+        },
+        {
+            "label": "表格片段",
+            "value": str(len(tables)),
+            "tone": "success" if tables else "warning",
+        },
+        {
+            "label": "单元格",
+            "value": str(len(cells)),
+            "tone": "success" if cells else "warning",
+        },
+        {
+            "label": "跨页候选",
+            "value": str(len(merges)),
+            "tone": "success" if merges else "accent",
+        },
+        {
+            "label": "证据入口",
+            "value": str(len(evidence_links)),
+            "tone": "success" if evidence_links else "warning",
+        },
+    ]
+    return {
+        "status": status,
+        "label": {"ready": "可进入核验", "warning": "需补强", "blocked": "待补齐"}[status],
+        "headline": headline,
+        "summary": summary,
+        "stage_label": stage_label,
+        "artifact_source": artifact_source,
+        "artifact_source_label": _artifact_source_label(artifact_source),
+        "contract_status": contract_status,
+        "metrics": metrics,
+        "dimensions": dimensions,
+        "blockers": blockers[:5],
+        "artifact_locations": detail.get("artifact_locations", []) if detail else [],
+    }
+
+
+def _artifact_source_label(source: str | None) -> str:
+    return {
+        "standard_ocr": "标准 OCR",
+        "geometric_fallback": "几何恢复链",
+    }.get(source or "", source or "来源未识别")
 
 
 def _build_research_compare_sort_options() -> dict[str, str]:
@@ -5270,7 +5756,7 @@ def _build_answer_sections(payload: dict[str, Any], role_key: str) -> list[dict[
                 "title": "经营结论",
                 "lines": [
                     f"{company_name} 在 {report_period} 的总分为 {scorecard.get('total_score')}，等级 {scorecard.get('grade')}。",
-                    f"当前处于 {payload.get('subindustry', '所属子行业')} 样本的 {scorecard.get('subindustry_percentile')}pct 位置。",
+                    f"当前处于 {payload.get('subindustry', '所属子行业')} 公司池的 {scorecard.get('subindustry_percentile')}pct 位置。",
                 ],
             },
             {
@@ -5435,8 +5921,8 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
         {
             "step": 1,
             "agent_key": "router",
-            "agent_label": "Router",
-            "agent": "Router",
+            "agent_label": "任务识别",
+            "agent": "任务识别",
             "status": "completed",
             "title": "识别任务并锁定公司",
             "summary": f"已将问题归类为 {payload.get('query_type')}，目标问题是：{query}",
@@ -5453,8 +5939,8 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
         {
             "step": 2,
             "agent_key": "data",
-            "agent_label": "Data Agent",
-            "agent": "Data Agent",
+            "agent_label": "数据分析",
+            "agent": "数据分析",
             "status": "completed",
             "title": "抽取经营与风险信号",
             "summary": (
@@ -5472,8 +5958,8 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
         {
             "step": 3,
             "agent_key": "risk",
-            "agent_label": "Risk Agent",
-            "agent": "Risk Agent",
+            "agent_label": "证据校验",
+            "agent": "证据校验",
             "status": "completed",
             "title": "回放来源与可核查证据",
             "summary": f"当前返回 {evidence_count} 条证据引用，优先暴露页码和来源片段。",
@@ -5490,8 +5976,8 @@ def _build_agent_flow(payload: dict[str, Any], query: str, role_key: str) -> lis
         {
             "step": 4,
             "agent_key": "strategy",
-            "agent_label": "Strategy Agent",
-            "agent": "Strategy Agent",
+            "agent_label": "策略生成",
+            "agent": "策略生成",
             "status": "completed",
             "title": "按角色给出下一步",
             "summary": (
@@ -5555,12 +6041,12 @@ def _build_agent_route(agent_name: str, payload: dict[str, Any]) -> dict[str, An
                 "path": f"/evidence/{first_item['chunk_id']}",
                 "query": {
                     "context": first_group.get("title", "证据"),
-                    "terms": ",".join(first_group.get("anchor_terms", [])),
+                    "anchors": "|".join(first_group.get("anchor_terms", [])),
                 },
             }
         return {
-            "label": "查看证据页",
-            "path": "/admin",
+            "label": "返回工作台",
+            "path": "/workspace",
             "query": {},
         }
     if agent_name == "action_planner" and query_type == "claim_verification" and company_name:
@@ -5583,7 +6069,7 @@ def _build_control_plane_sources(payload: dict[str, Any]) -> list[str]:
     if query_type == "claim_verification":
         return ["真实财报指标", "东方财富研报详情页", "观点核验规则"]
     if query_type == "peer_benchmark":
-        return ["真实财报指标", "同子行业样本池", "横向评分结果"]
+        return ["真实财报指标", "同子行业公司池", "横向评分结果"]
     if query_type == "risk_scan":
         return ["全公司评分快照", "主周期预警板", "行业研报观察"]
     return ["真实财报指标", "页级证据", "指标直取"]
@@ -5593,7 +6079,7 @@ def _resolve_agent_signal_source(query_type: str | None) -> str:
     mapping = {
         "company_scoring": "真实财报指标 + 风险规则 + 历史报期对比",
         "claim_verification": "真实财报指标 + 研报观点抽取",
-        "peer_benchmark": "同子行业评分样本 + 分位结果",
+        "peer_benchmark": "同子行业公司池 + 分位结果",
         "risk_scan": "主周期公司池 + 历史报期预警板",
         "metric_query": "指标定义 + 页级证据",
         "brief_generation": "评分结果 + 建议动作模板",
@@ -5634,7 +6120,7 @@ def _build_signal_agent_metrics(
         ]
     if query_type == "peer_benchmark":
         return [
-            {"label": "样本公司", "value": len(payload.get("benchmark", []))},
+            {"label": "对标公司", "value": len(payload.get("benchmark", []))},
             {"label": "图表", "value": len(payload.get("charts", []))},
             {"label": "关键数", "value": len(payload.get("key_numbers", []))},
         ]
@@ -5834,6 +6320,47 @@ def _build_document_artifact_preview(artifact: dict[str, Any]) -> dict[str, Any]
     return preview
 
 
+def _load_document_artifact_payload(record: dict[str, Any]) -> dict[str, Any] | None:
+    artifact_path = record.get("artifact_path")
+    if not artifact_path:
+        return None
+    path = Path(artifact_path)
+    if not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _load_company_document_upgrade_items(
+    settings: Settings, company_name: str, report_period: str
+) -> list[dict[str, Any]]:
+    jobs_manifest = _load_document_pipeline_job_manifest(settings)
+    return _filter_document_results_for_company(
+        [
+            {
+                "stage": item["stage"],
+                "report_id": item["report_id"],
+                "company_name": item["company_name"],
+                "security_code": item["security_code"],
+                "report_period": item.get("report_period"),
+                "status": item["status"],
+                "artifact_path": item.get("artifact_path"),
+                "artifact_summary": item.get("artifact_summary"),
+                "artifact_source": item.get("artifact_source"),
+                "contract_status": _resolve_document_contract_status(settings, item),
+                "completed_at": item.get("completed_at"),
+            }
+            for item in jobs_manifest["records"]
+        ],
+        company_name,
+        report_period,
+    )
+
+
 def _build_document_consumable_sections(artifact: dict[str, Any]) -> list[dict[str, Any]]:
     sections: list[dict[str, Any]] = []
     if source := artifact.get("source"):
@@ -5926,7 +6453,7 @@ def _build_document_artifact_locations(
 ) -> list[dict[str, Any]]:
     locations = [
         {
-            "label": "当前交付产物",
+            "label": "当前解析产物",
             "kind": "artifact",
             "path": job.get("artifact_path"),
         }
@@ -5983,12 +6510,34 @@ def _build_document_evidence_navigation(
 
     candidate_pages = _collect_document_artifact_pages(artifact)
     candidate_chunk_ids = _collect_company_evidence_refs(company)
-    evidence_items = repository.resolve_evidence(candidate_chunk_ids)
-    if candidate_pages:
-        paged_items = [item for item in evidence_items if item.get("page") in candidate_pages]
+    selected_items: list[dict[str, Any]] = []
+    page_set = set(candidate_pages)
+    get_evidence = getattr(repository, "get_evidence", None)
+    if get_evidence is not None:
+        fallback_item = None
+        for chunk_id in candidate_chunk_ids:
+            item = get_evidence(chunk_id)
+            if item is None:
+                continue
+            if fallback_item is None:
+                fallback_item = item
+            if page_set:
+                if item.get("page") in page_set:
+                    selected_items.append(item)
+                    if len(selected_items) >= 5:
+                        break
+            else:
+                selected_items = [item]
+                break
+        if not selected_items and fallback_item is not None:
+            selected_items = [fallback_item]
     else:
-        paged_items = []
-    selected_items = paged_items or evidence_items[:1]
+        evidence_items = repository.resolve_evidence(candidate_chunk_ids)
+        if candidate_pages:
+            paged_items = [item for item in evidence_items if item.get("page") in candidate_pages]
+        else:
+            paged_items = []
+        selected_items = paged_items or evidence_items[:1]
     if not selected_items:
         return _build_document_navigation_fallback(artifact)
 
@@ -6000,7 +6549,7 @@ def _build_document_evidence_navigation(
             "path": f"/evidence/{item['chunk_id']}",
             "query": {
                 "context": "文档升级结果",
-                "terms": ",".join(anchor_terms[:6]),
+                "anchors": "|".join(anchor_terms[:6]),
             },
             "source_title": item.get("source_title"),
             "page": item.get("page"),
@@ -6024,7 +6573,7 @@ def _build_document_navigation_fallback(artifact: dict[str, Any]) -> dict[str, A
         "path": "/admin",
         "query": {
             "context": "文档升级结果",
-            "terms": ",".join(anchor_terms[:6]),
+            "anchors": "|".join(anchor_terms[:6]),
         },
         "page": pages[0] if pages else None,
     }
@@ -6097,36 +6646,576 @@ def _collect_company_evidence_refs(company: dict[str, Any]) -> list[str]:
     return deduped
 
 
-def _rank_graph_nodes_for_intent(nodes: list[dict[str, Any]], intent: str) -> list[dict[str, Any]]:
-    lowered = intent.lower()
-    ranked: list[dict[str, Any]] = []
-    type_priority = {
+_GRAPH_QUERY_TERM_EXPANSIONS = {
+    "应收": ("应收账款", "账期", "回款", "现金流"),
+    "现金": ("现金流", "货币资金", "流动性", "偿债"),
+    "风险": ("风险", "预警", "整改", "暴露"),
+    "传导": ("传导", "路径", "影响链", "执行流"),
+    "供应链": ("供应链", "上游", "下游", "链条"),
+    "研报": ("研报", "观点", "预测", "核验"),
+    "证据": ("证据", "页码", "字段", "导航"),
+    "文档": ("文档", "解析", "标题层级", "单元格溯源"),
+    "存货": ("存货", "周转", "库存", "减值"),
+    "增长": ("营收", "增长", "扩张", "市场份额"),
+    "价格": ("价格", "成本", "毛利率", "碳酸锂"),
+    "偿债": ("偿债", "流动比率", "短期借款", "利息"),
+    "实时": ("实时", "最新", "时序", "外部信号", "动量", "热度"),
+    "最新": ("最新", "最近", "时效", "窗口", "外部事件"),
+    "异动": ("异动", "热度", "信号", "预警", "波动"),
+    "时间": ("时间线", "时序", "最近", "窗口", "日度"),
+}
+
+_GRAPH_INTENT_TYPE_PRIOR = {
+    "price": {
+        "signal_event": 5,
+        "signal_timeline": 5,
+        "subindustry_signal": 6,
         "risk_label": 5,
         "alert": 5,
-        "research_report": 4,
+        "research_report": 5,
         "document_artifact": 4,
         "artifact_evidence": 4,
         "task": 3,
         "execution_stream": 3,
+        "watchboard": 2,
+        "company": 2,
+        "report_period": 1,
+    },
+    "cash": {
+        "signal_event": 5,
+        "signal_timeline": 6,
+        "subindustry_signal": 4,
+        "risk_label": 6,
+        "alert": 5,
+        "task": 5,
+        "document_artifact": 4,
+        "artifact_evidence": 4,
+        "execution_stream": 3,
+        "watchboard": 3,
+        "research_report": 3,
+        "company": 2,
+        "report_period": 1,
+    },
+    "growth": {
+        "signal_event": 4,
+        "signal_timeline": 5,
+        "subindustry_signal": 5,
+        "research_report": 5,
+        "risk_label": 4,
+        "task": 4,
+        "document_artifact": 4,
+        "artifact_evidence": 4,
+        "alert": 3,
+        "execution_stream": 3,
+        "watchboard": 2,
+        "company": 2,
+        "report_period": 1,
+    },
+    "supply": {
+        "signal_event": 5,
+        "signal_timeline": 5,
+        "subindustry_signal": 6,
+        "risk_label": 5,
+        "alert": 5,
+        "task": 4,
+        "research_report": 4,
+        "document_artifact": 4,
+        "artifact_evidence": 4,
+        "execution_stream": 3,
+        "watchboard": 2,
+        "company": 2,
+        "report_period": 1,
+    },
+    "risk": {
+        "signal_event": 6,
+        "signal_timeline": 5,
+        "subindustry_signal": 5,
+        "risk_label": 6,
+        "alert": 6,
+        "task": 5,
+        "document_artifact": 4,
+        "artifact_evidence": 4,
+        "research_report": 4,
+        "execution_stream": 3,
         "watchboard": 3,
         "company": 2,
         "report_period": 1,
-    }
-    tokens = [part for part in re.split(r"[\s,，。；;、\-_/]+", lowered) if len(part) >= 2]
+    },
+}
+
+
+def _dedupe_terms(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    for value in values:
+        normalized = str(value or "").strip().lower()
+        if len(normalized) < 2:
+            continue
+        if normalized not in deduped:
+            deduped.append(normalized)
+    return deduped
+
+
+def _expand_graph_query_terms(intent: str) -> list[str]:
+    lowered = intent.lower()
+    terms: list[str] = []
+    for part in re.split(r"[\s,，。；;、\-_/]+", lowered):
+        part = part.strip()
+        if len(part) >= 2:
+            terms.append(part)
+    chinese_spans = re.findall(r"[\u4e00-\u9fff]{2,}", intent)
+    for span in chinese_spans:
+        if len(span) <= 6:
+            terms.append(span)
+        else:
+            for index in range(0, len(span) - 1):
+                terms.append(span[index : index + 2])
+                if index + 3 <= len(span):
+                    terms.append(span[index : index + 3])
+    for keyword, expansions in _GRAPH_QUERY_TERM_EXPANSIONS.items():
+        if keyword in intent:
+            terms.append(keyword)
+            terms.extend(expansions)
+    dimension = _classify_intent(intent)
+    dimension_title, dimension_detail = _INTENT_DIMENSION_DESC.get(
+        dimension,
+        _INTENT_DIMENSION_DESC["risk"],
+    )
+    terms.append(dimension_title.replace("维度", ""))
+    terms.extend(
+        [part for part in re.findall(r"[\u4e00-\u9fff]{2,}", dimension_detail) if len(part) >= 2]
+    )
+    deduped: list[str] = []
+    for term in terms:
+        normalized = str(term).strip().lower()
+        if len(normalized) < 2:
+            continue
+        if normalized not in deduped:
+            deduped.append(normalized)
+    return deduped[:24]
+
+
+def _build_graph_node_text(node: dict[str, Any]) -> str:
+    meta = node.get("meta") or {}
+    meta_parts: list[str] = []
+    for key, value in meta.items():
+        if isinstance(value, list):
+            meta_parts.extend(str(item) for item in value if item is not None)
+        elif value is not None:
+            meta_parts.append(f"{key} {value}")
+    return " ".join(
+        [
+            str(node.get("label") or ""),
+            str(node.get("type") or ""),
+            *meta_parts,
+        ]
+    ).lower()
+
+
+def _build_graph_edge_maps(
+    edges: list[dict[str, Any]],
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[str]]]:
+    adjacency: dict[str, list[dict[str, Any]]] = {}
+    edge_labels_by_node: dict[str, list[str]] = {}
+    for edge in edges:
+        source = str(edge.get("source") or "")
+        target = str(edge.get("target") or "")
+        label = str(edge.get("label") or "")
+        if not source or not target:
+            continue
+        adjacency.setdefault(source, []).append({"node_id": target, "label": label})
+        adjacency.setdefault(target, []).append({"node_id": source, "label": label})
+        if label:
+            edge_labels_by_node.setdefault(source, []).append(label)
+            edge_labels_by_node.setdefault(target, []).append(label)
+    return adjacency, edge_labels_by_node
+
+
+def _graph_node_temporal_meta(node: dict[str, Any]) -> tuple[date | None, dict[str, Any]]:
+    meta = node.get("meta") or {}
+    latest_value = (
+        meta.get("latest_event_time")
+        or meta.get("latest_event_date")
+        or meta.get("latest_publish_date")
+    )
+    return (_parse_calendar_date(str(latest_value) if latest_value is not None else None), meta)
+
+
+def _score_graph_temporal_signal(
+    node: dict[str, Any],
+    query_terms: list[str],
+) -> tuple[int, list[str]]:
+    node_type = str(node.get("type") or "")
+    if node_type not in _GRAPH_SIGNAL_NODE_TYPES:
+        return 0, []
+    latest_date, meta = _graph_node_temporal_meta(node)
+    score = 0
+    explain: list[str] = []
+    if latest_date is not None:
+        age_days = max(0, (datetime.now(UTC).date() - latest_date).days)
+        if age_days <= 1:
+            score += 10
+            explain.append("近 24 小时更新")
+        elif age_days <= 3:
+            score += 7
+            explain.append(f"{age_days} 天内更新")
+        elif age_days <= 7:
+            score += 4
+            explain.append(f"最近 {age_days} 天更新")
+    momentum = int(meta.get("momentum") or 0)
+    latest_heat = int(meta.get("latest_heat") or 0)
+    external_heat = int(meta.get("external_heat") or 0)
+    signal_count = int(meta.get("signal_count") or 0)
+    active_days = int(meta.get("active_days") or 0)
+    realtime_requested = any(term in intent_term for term in _GRAPH_REALTIME_TERMS for intent_term in query_terms)
+    if momentum > 0:
+        score += min(10, momentum * 2 if realtime_requested else momentum)
+        explain.append(f"动量 {momentum}")
+    if latest_heat > 0:
+        score += min(6, latest_heat if realtime_requested else max(1, latest_heat // 2))
+        explain.append(f"最新热度 {latest_heat}")
+    if external_heat > 0:
+        score += min(6, max(1, external_heat // 2))
+        explain.append(f"累计热度 {external_heat}")
+    if signal_count > 0:
+        score += min(5, signal_count if realtime_requested else max(1, signal_count // 2))
+        explain.append(f"{signal_count} 条正式信号")
+    if active_days > 0:
+        score += min(4, active_days)
+        explain.append(f"活跃 {active_days} 天")
+    if node_type == "subindustry_signal" and any(
+        term in query_term
+        for term in ("行业", "板块", "子行业", "上游", "下游", "供应链")
+        for query_term in query_terms
+    ):
+        score += 6
+        explain.append("板块共振命中")
+    return score, explain[:4]
+
+
+def _score_graph_edge_label(label: str, query_terms: list[str]) -> tuple[int, list[str]]:
+    lowered = str(label or "").lower()
+    hits = [term for term in query_terms if term in lowered]
+    return (len(hits) * 2, hits)
+
+
+def _rank_graph_nodes_for_intent(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    intent: str,
+) -> list[dict[str, Any]]:
+    dimension = _classify_intent(intent)
+    type_priority = _GRAPH_INTENT_TYPE_PRIOR.get(dimension, _GRAPH_INTENT_TYPE_PRIOR["risk"])
+    query_terms = _expand_graph_query_terms(intent)
+    adjacency, edge_labels_by_node = _build_graph_edge_maps(edges)
+    text_by_node = {str(node.get("id")): _build_graph_node_text(node) for node in nodes}
+    base_scores: dict[str, int] = {}
+    lexical_hits_by_node: dict[str, list[str]] = {}
+    neighbor_hits_by_node: dict[str, list[str]] = {}
+    edge_hits_by_node: dict[str, list[str]] = {}
+    temporal_hits_by_node: dict[str, list[str]] = {}
+
     for node in nodes:
-        label = str(node.get("label", ""))
-        meta_values = " ".join(str(value) for value in (node.get("meta") or {}).values())
-        haystack = f"{label} {meta_values}".lower()
-        score = type_priority.get(str(node.get("type")), 0)
-        for token in tokens:
-            if token in haystack:
-                score += 3
-        ranked.append({**node, "intent_score": score})
+        node_id = str(node.get("id") or "")
+        label_text = str(node.get("label") or "").lower()
+        node_text = text_by_node.get(node_id, "")
+        lexical_score = 0
+        lexical_hits: list[str] = []
+        for term in query_terms:
+            if term in label_text:
+                lexical_score += 8
+                lexical_hits.append(term)
+            elif term in node_text:
+                lexical_score += 4
+                lexical_hits.append(term)
+        edge_score = 0
+        edge_hits: list[str] = []
+        for label in edge_labels_by_node.get(node_id, []):
+            matched_score, matched_terms = _score_graph_edge_label(label, query_terms)
+            edge_score += matched_score
+            edge_hits.extend(matched_terms)
+        degree_score = min(3, len(adjacency.get(node_id, [])))
+        temporal_score, temporal_hits = _score_graph_temporal_signal(node, query_terms)
+        base_scores[node_id] = (
+            type_priority.get(str(node.get("type")), 0)
+            + lexical_score
+            + edge_score
+            + degree_score
+            + temporal_score
+        )
+        lexical_hits_by_node[node_id] = _dedupe_terms(lexical_hits)
+        edge_hits_by_node[node_id] = _dedupe_terms(edge_hits)
+        temporal_hits_by_node[node_id] = temporal_hits
+
+    ranked: list[dict[str, Any]] = []
+    for node in nodes:
+        node_id = str(node.get("id") or "")
+        neighbor_terms: list[str] = []
+        neighbor_score = 0
+        for neighbor in adjacency.get(node_id, []):
+            neighbor_id = str(neighbor.get("node_id") or "")
+            neighbor_base = int(base_scores.get(neighbor_id) or 0)
+            if neighbor_base <= 0:
+                continue
+            matched_score, matched_terms = _score_graph_edge_label(str(neighbor.get("label") or ""), query_terms)
+            neighbor_text = text_by_node.get(neighbor_id, "")
+            neighbor_term_hits = [term for term in query_terms if term in neighbor_text]
+            if neighbor_term_hits:
+                neighbor_terms.extend(neighbor_term_hits)
+                neighbor_score += min(8, max(2, neighbor_base // 3))
+            if matched_score:
+                neighbor_terms.extend(matched_terms)
+                neighbor_score += matched_score
+        total_score = int(base_scores.get(node_id) or 0) + min(18, neighbor_score)
+        explain_parts: list[str] = []
+        if lexical_hits_by_node.get(node_id):
+            explain_parts.append(f"命中查询词：{' / '.join(lexical_hits_by_node[node_id][:3])}")
+        if edge_hits_by_node.get(node_id):
+            explain_parts.append(f"边标签命中：{' / '.join(edge_hits_by_node[node_id][:2])}")
+        deduped_neighbor_terms = _dedupe_terms(neighbor_terms)
+        if deduped_neighbor_terms:
+            explain_parts.append(f"邻居传播：{' / '.join(deduped_neighbor_terms[:3])}")
+        if temporal_hits_by_node.get(node_id):
+            explain_parts.append(f"时序加权：{' / '.join(temporal_hits_by_node[node_id][:3])}")
+        explain_parts.append(f"节点类型：{node.get('type')}")
+        ranked.append(
+            {
+                **node,
+                "intent_score": total_score,
+                "hit_terms": lexical_hits_by_node.get(node_id, []),
+                "edge_terms": edge_hits_by_node.get(node_id, []),
+                "neighbor_terms": deduped_neighbor_terms,
+                "rank_explain": "；".join(explain_parts),
+            }
+        )
+
     ranked.sort(
-        key=lambda item: (item["intent_score"], type_priority.get(str(item.get("type")), 0), str(item.get("label", ""))),
+        key=lambda item: (
+            int(item.get("intent_score") or 0),
+            type_priority.get(str(item.get("type")), 0),
+            str(item.get("label", "")),
+        ),
         reverse=True,
     )
     return ranked
+
+
+def _find_graph_path(
+    *,
+    adjacency: dict[str, list[dict[str, Any]]],
+    start_id: str,
+    target_id: str,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    if not start_id or not target_id:
+        return ([], [])
+    if start_id == target_id:
+        return ([start_id], [])
+    queue: list[tuple[str, list[str], list[dict[str, Any]]]] = [(start_id, [start_id], [])]
+    visited = {start_id}
+    while queue:
+        node_id, path_nodes, path_edges = queue.pop(0)
+        for neighbor in adjacency.get(node_id, []):
+            next_id = str(neighbor.get("node_id") or "")
+            if not next_id or next_id in visited:
+                continue
+            next_nodes = [*path_nodes, next_id]
+            next_edges = [*path_edges, {"source": node_id, "target": next_id, "label": neighbor.get("label")}]
+            if next_id == target_id:
+                return (next_nodes, next_edges)
+            visited.add(next_id)
+            queue.append((next_id, next_nodes, next_edges))
+    return ([], [])
+
+
+def _describe_graph_path(
+    *,
+    path_nodes: list[dict[str, Any]],
+    path_edges: list[dict[str, Any]],
+) -> str:
+    if not path_nodes:
+        return "未找到有效路径。"
+    if len(path_nodes) == 1:
+        return f"直接命中节点 {path_nodes[0].get('label') or '未命名节点'}。"
+    parts: list[str] = []
+    for index, node in enumerate(path_nodes[:-1]):
+        edge = path_edges[index] if index < len(path_edges) else {}
+        next_node = path_nodes[index + 1]
+        parts.append(
+            f"{node.get('label') or node.get('id')} --{edge.get('label') or '关联'}--> {next_node.get('label') or next_node.get('id')}"
+        )
+    return "；".join(parts)
+
+
+def _retrieve_graph_paths(
+    *,
+    graph: dict[str, Any],
+    company_name: str,
+    report_period: str,
+    intent: str,
+    limit: int = 6,
+) -> dict[str, Any]:
+    ranked_nodes = _rank_graph_nodes_for_intent(graph.get("nodes", []), graph.get("edges", []), intent)
+    node_by_id = {
+        str(node.get("id")): node
+        for node in ranked_nodes
+        if node.get("id")
+    }
+    adjacency, _ = _build_graph_edge_maps(graph.get("edges", []))
+    company_node_id = _graph_node_id("company", company_name)
+    period_node_id = _graph_node_id("period", report_period)
+    query_terms = _expand_graph_query_terms(intent)
+    focal_nodes = [
+        node
+        for node in ranked_nodes
+        if node.get("type") not in {"company", "report_period"}
+    ][:8]
+    paths: list[dict[str, Any]] = []
+    for node in focal_nodes:
+        node_id = str(node.get("id") or "")
+        candidate_paths: list[tuple[list[str], list[dict[str, Any]]]] = []
+        company_path = _find_graph_path(adjacency=adjacency, start_id=company_node_id, target_id=node_id)
+        if company_path[0]:
+            candidate_paths.append(company_path)
+        period_path = _find_graph_path(adjacency=adjacency, start_id=period_node_id, target_id=node_id)
+        if period_path[0]:
+            candidate_paths.append(period_path)
+        if not candidate_paths:
+            continue
+        best_nodes, best_edges = max(
+            candidate_paths,
+            key=lambda item: (
+                -len(item[0]),
+                sum(int(node_by_id.get(path_node, {}).get("intent_score") or 0) for path_node in item[0]),
+            ),
+        )
+        path_node_items = [node_by_id.get(path_node) for path_node in best_nodes if node_by_id.get(path_node)]
+        if not path_node_items:
+            continue
+        path_score = sum(int(item.get("intent_score") or 0) for item in path_node_items)
+        support_candidates = []
+        predecessor_id = best_nodes[-2] if len(best_nodes) >= 2 else None
+        for neighbor in adjacency.get(node_id, []):
+            support_id = str(neighbor.get("node_id") or "")
+            if not support_id or support_id == predecessor_id:
+                continue
+            support_node = node_by_id.get(support_id)
+            if support_node is None:
+                continue
+            support_candidates.append((int(support_node.get("intent_score") or 0), support_node, neighbor))
+        support_node = None
+        support_edge = None
+        if support_candidates:
+            support_candidates.sort(key=lambda item: item[0], reverse=True)
+            _, support_node, support_edge = support_candidates[0]
+        path_summary = _describe_graph_path(path_nodes=path_node_items, path_edges=best_edges)
+        if support_node is not None and support_edge is not None:
+            path_summary += (
+                f"；继续延展到 {support_node.get('label') or support_node.get('id')}"
+                f"（{support_edge.get('label') or '支撑'}）"
+            )
+            path_score += int(support_node.get("intent_score") or 0)
+        paths.append(
+            {
+                "target_id": node_id,
+                "target_label": node.get("label"),
+                "target_type": node.get("type"),
+                "target_meta": node.get("meta") or {},
+                "target_score": int(node.get("intent_score") or 0),
+                "path_score": path_score,
+                "path_nodes": path_node_items + ([support_node] if support_node is not None else []),
+                "path_edges": best_edges + (
+                    [{"source": node_id, "target": support_node.get("id"), "label": support_edge.get("label")}]
+                    if support_node is not None and support_edge is not None
+                    else []
+                ),
+                "path_summary": path_summary,
+                "why": node.get("rank_explain"),
+                "hit_terms": node.get("hit_terms", []),
+            }
+        )
+    paths.sort(
+        key=lambda item: (
+            int(item.get("path_score") or 0),
+            int(item.get("target_score") or 0),
+            str(item.get("target_label") or ""),
+        ),
+        reverse=True,
+    )
+    top_paths = paths[:limit]
+    evidence_count = sum(
+        1
+        for path in top_paths
+        for node in path.get("path_nodes", [])
+        if str((node or {}).get("type")) in {"document_artifact", "artifact_evidence", "research_report"}
+    )
+    temporal_nodes = [
+        node
+        for path in top_paths
+        for node in path.get("path_nodes", [])
+        if isinstance(node, dict) and str(node.get("type") or "") in _GRAPH_SIGNAL_NODE_TYPES
+    ]
+    latest_signal_date = max(
+        (
+            _graph_node_temporal_meta(node)[0]
+            for node in temporal_nodes
+            if _graph_node_temporal_meta(node)[0] is not None
+        ),
+        default=None,
+    )
+    freshness_status, freshness_label = _describe_external_signal_freshness(
+        latest_signal_date.isoformat() if latest_signal_date is not None else None
+    )
+    signal_event_node = next(
+        (
+            node
+            for node in temporal_nodes
+            if str(node.get("type") or "") == "signal_event"
+        ),
+        None,
+    )
+    signal_timeline_node = next(
+        (
+            node
+            for node in temporal_nodes
+            if str(node.get("type") or "") == "signal_timeline"
+        ),
+        None,
+    )
+    signal_meta = (signal_timeline_node or signal_event_node or {}).get("meta") or {}
+    summary = {
+        "intent_dimension": _classify_intent(intent),
+        "query_terms": query_terms,
+        "query_term_count": len(query_terms),
+        "candidate_count": len(ranked_nodes),
+        "focal_count": len(focal_nodes),
+        "path_count": len(top_paths),
+        "evidence_count": evidence_count,
+        "signal_node_count": len(temporal_nodes),
+        "freshness_status": freshness_status,
+        "freshness_label": (
+            freshness_label if temporal_nodes else "图谱内暂无时序信号"
+        ),
+        "latest_signal_time": signal_meta.get("latest_event_time"),
+        "latest_signal_headline": (
+            signal_event_node.get("label")
+            if isinstance(signal_event_node, dict)
+            else None
+        ),
+        "time_window_days": int(signal_meta.get("window_days") or 0),
+        "signal_count": int(signal_meta.get("signal_count") or 0),
+        "latest_heat": int(signal_meta.get("latest_heat") or 0),
+        "external_heat": int(signal_meta.get("external_heat") or 0),
+        "max_momentum": int(signal_meta.get("momentum") or 0),
+        "active_days": int(signal_meta.get("active_days") or 0),
+        "top_hit_terms": _dedupe_terms(
+            [term for path in top_paths for term in path.get("hit_terms", [])]
+        )[:6],
+    }
+    return {
+        "summary": summary,
+        "ranked_nodes": ranked_nodes,
+        "focal_nodes": focal_nodes,
+        "paths": top_paths,
+    }
 
 
 def _describe_graph_focus_node(node: dict[str, Any], workspace: dict[str, Any]) -> str:
@@ -6146,6 +7235,21 @@ def _describe_graph_focus_node(node: dict[str, Any], workspace: dict[str, Any]) 
         return "可以继续下钻到证据页查看字段和页码。"
     if node_type == "execution_stream":
         return f"执行流状态：{meta.get('status') or 'tracked'}。"
+    if node_type == "signal_event":
+        return (
+            f"最新外部信号：{meta.get('signal_status') or '事件更新'}，"
+            f"{meta.get('freshness_label') or '时效待校准'}。"
+        )
+    if node_type == "signal_timeline":
+        return (
+            f"近 {meta.get('window_days') or 7} 日累计热度 {meta.get('external_heat') or 0}，"
+            f"动量 {meta.get('momentum') or 0}。"
+        )
+    if node_type == "subindustry_signal":
+        return (
+            f"{meta.get('subindustry') or workspace['score_summary']['subindustry']} 板块近窗热度"
+            f" {meta.get('latest_heat') or 0}，动量 {meta.get('momentum') or 0}。"
+        )
     if node_type == "watchboard":
         return f"监测板持续跟踪，新增预警 {meta.get('new_alerts') or 0} 条。"
     if node_type == "company":
@@ -6186,6 +7290,9 @@ _INTENT_DIMENSION_DESC = {
     "risk": ("风险暴露维度", "聚焦已命中的风险标签，建立从识别到行动的闭环。"),
 }
 
+_GRAPH_SIGNAL_NODE_TYPES = {"signal_event", "signal_timeline", "subindustry_signal"}
+_GRAPH_REALTIME_TERMS = ("实时", "最新", "最近", "时效", "异动", "窗口", "时间", "时序", "今日", "本周")
+
 
 def _build_graph_query_inference_path(
     *,
@@ -6193,11 +7300,19 @@ def _build_graph_query_inference_path(
     report_period: str,
     intent: str,
     focal_nodes: list[dict[str, Any]],
+    retrieved_paths: list[dict[str, Any]],
+    retrieval_summary: dict[str, Any],
     workspace: dict[str, Any],
 ) -> list[dict[str, Any]]:
     dim = _classify_intent(intent)
     dim_title, dim_detail = _INTENT_DIMENSION_DESC.get(dim, _INTENT_DIMENSION_DESC["risk"])
     score = workspace.get("score_summary", {})
+    freshness_note = ""
+    if retrieval_summary.get("latest_signal_headline"):
+        freshness_note = (
+            f" 最近信号：{retrieval_summary.get('latest_signal_headline')}，"
+            f"{retrieval_summary.get('freshness_label') or '时效待校准'}。"
+        )
     steps: list[dict[str, Any]] = [
         {
             "step": 1,
@@ -6208,24 +7323,47 @@ def _build_graph_query_inference_path(
         {
             "step": 2,
             "title": dim_title,
-            "detail": dim_detail,
+            "detail": (
+                f"{dim_detail} 检索词 {retrieval_summary.get('query_term_count', 0)} 个，"
+                f"命中路径 {retrieval_summary.get('path_count', 0)} 条。{freshness_note}"
+            ),
             "type": "intent",
         },
     ]
-    for index, node in enumerate(focal_nodes[:3], start=3):
+    graph_paths = retrieved_paths[:3]
+    for index, path in enumerate(graph_paths, start=3):
+        target_label = path.get("target_label") or f"命中节点 {index - 2}"
+        detail = (
+            f"{path.get('path_summary') or '已生成图谱路径'} "
+            f"检索说明：{path.get('why') or '无'}。"
+        )
         steps.append(
             {
                 "step": index,
-                "title": node["label"],
-                "detail": _describe_graph_focus_node(node, workspace),
-                "type": node.get("type"),
+                "title": target_label,
+                "detail": detail,
+                "type": path.get("target_type"),
             }
         )
+    if not graph_paths:
+        for index, node in enumerate(focal_nodes[:3], start=3):
+            steps.append(
+                {
+                    "step": index,
+                    "title": node["label"],
+                    "detail": _describe_graph_focus_node(node, workspace),
+                    "type": node.get("type"),
+                }
+            )
     steps.append(
         {
             "step": len(steps) + 1,
             "title": "动作收口",
-            "detail": f"围绕「{intent}」把风险、任务、证据和执行流压成可操作结论。",
+            "detail": (
+                f"围绕「{intent}」把风险、任务、证据和执行流压成可操作结论。"
+                f" 当前回收到 {retrieval_summary.get('evidence_count', 0)} 个证据型节点，"
+                f"时序信号 {retrieval_summary.get('signal_count', 0)} 条。"
+            ),
             "type": "action",
         }
     )
@@ -6238,6 +7376,7 @@ def _build_graph_query_phase_track(
     intent: str,
     workspace: dict[str, Any],
     inference_path: list[dict[str, Any]],
+    retrieval_summary: dict[str, Any],
 ) -> list[dict[str, Any]]:
     evidence_groups = workspace.get("evidence_groups") or []
     return [
@@ -6245,25 +7384,34 @@ def _build_graph_query_phase_track(
             "phase": "查询压缩",
             "status": "done",
             "headline": intent[:22] + ("..." if len(intent) > 22 else ""),
-            "metric": f"{len(intent)} chars",
+            "metric": f"{retrieval_summary.get('query_term_count', 0)} terms",
         },
         {
-            "phase": "节点聚焦",
+            "phase": "时序校准",
+            "status": "done",
+            "headline": retrieval_summary.get("freshness_label") or "时序信号待补齐",
+            "metric": (
+                retrieval_summary.get("latest_signal_time")
+                or f"{retrieval_summary.get('time_window_days', 0)} day window"
+            ),
+        },
+        {
+            "phase": "图检索命中",
             "status": "done",
             "headline": company_name,
-            "metric": f"{max(len(inference_path) - 2, 1)} nodes",
+            "metric": f"{retrieval_summary.get('focal_count', 0)} nodes",
         },
         {
             "phase": "路径传导",
             "status": "done",
             "headline": "影响链已展开",
-            "metric": f"{len(inference_path)} steps",
+            "metric": f"{retrieval_summary.get('path_count', 0)} paths",
         },
         {
             "phase": "证据挂接",
             "status": "active",
             "headline": "证据与动作入口",
-            "metric": f"{len(evidence_groups)} sources",
+            "metric": f"{max(len(evidence_groups), retrieval_summary.get('evidence_count', 0))} sources",
         },
     ]
 
@@ -6271,21 +7419,79 @@ def _build_graph_query_phase_track(
 def _build_graph_query_signal_stream(
     *,
     focal_nodes: list[dict[str, Any]],
+    retrieved_paths: list[dict[str, Any]],
     workspace: dict[str, Any],
     graph_node_count: int,
+    retrieval_summary: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    items = [
-        {
-            "label": node.get("label", "节点"),
-            "value": node.get("type", "focus"),
-            "tone": "risk"
-            if node.get("type") in {"risk_label", "alert", "task"}
-            else "accent",
-        }
-        for node in focal_nodes[:4]
-    ]
+    items: list[dict[str, Any]] = []
+    for path in retrieved_paths[:4]:
+        target_type = str(path.get("target_type") or "")
+        target_meta = path.get("target_meta") or {}
+        if target_type == "signal_event":
+            items.append(
+                {
+                    "label": "最新事件",
+                    "value": path.get("target_label") or target_meta.get("signal_status") or "外部信号",
+                    "tone": "accent"
+                    if target_meta.get("freshness_status") in {"fresh", "recent", "warm"}
+                    else "warning",
+                }
+            )
+            continue
+        if target_type == "signal_timeline":
+            items.append(
+                {
+                    "label": f"近 {target_meta.get('window_days') or 7} 日热度",
+                    "value": (
+                        f"{target_meta.get('signal_count') or 0} 条 · 动量"
+                        f" {target_meta.get('momentum') or 0}"
+                    ),
+                    "tone": "accent",
+                }
+            )
+            continue
+        if target_type == "subindustry_signal":
+            items.append(
+                {
+                    "label": "板块共振",
+                    "value": (
+                        f"{target_meta.get('subindustry') or path.get('target_label')} · 动量"
+                        f" {target_meta.get('momentum') or 0}"
+                    ),
+                    "tone": "success",
+                }
+            )
+            continue
+        items.append(
+            {
+                "label": path.get("target_label", "路径"),
+                "value": f"score {path.get('path_score', 0)}",
+                "tone": "risk"
+                if path.get("target_type") in {"risk_label", "alert", "task"}
+                else "accent",
+            }
+        )
+    if not items:
+        items = [
+            {
+                "label": node.get("label", "节点"),
+                "value": node.get("type", "focus"),
+                "tone": "risk"
+                if node.get("type") in {"risk_label", "alert", "task"}
+                else "accent",
+            }
+            for node in focal_nodes[:4]
+        ]
     items.extend(
         [
+            {
+                "label": "信号时效",
+                "value": retrieval_summary.get("freshness_label") or "待校准",
+                "tone": "success"
+                if retrieval_summary.get("freshness_status") in {"fresh", "recent", "warm"}
+                else "warning",
+            },
             {
                 "label": "图谱节点",
                 "value": str(graph_node_count),
@@ -6385,6 +7591,7 @@ def _build_graph_command_surface(
     inference_path: list[dict[str, Any]],
     phase_track: list[dict[str, Any]],
     signal_stream: list[dict[str, Any]],
+    retrieval_summary: dict[str, Any],
     workspace: dict[str, Any],
 ) -> dict[str, Any]:
     focus = focal_nodes[0] if focal_nodes else {}
@@ -6401,16 +7608,20 @@ def _build_graph_command_surface(
         "route_count": len(inference_path),
         "watch_items": [
             {
+                "label": "信号时效",
+                "value": retrieval_summary.get("freshness_label") or "待校准",
+            },
+            {
+                "label": "7日信号",
+                "value": str(retrieval_summary.get("signal_count") or 0),
+            },
+            {
+                "label": "热度动量",
+                "value": str(retrieval_summary.get("max_momentum") or 0),
+            },
+            {
                 "label": "风险标签",
                 "value": str(workspace["score_summary"]["risk_count"]),
-            },
-            {
-                "label": "执行记录",
-                "value": str(len(workspace["execution_stream"]["records"])),
-            },
-            {
-                "label": "证据入口",
-                "value": str(len(workspace["document_upgrades"]["items"])),
             },
         ],
         "dominant_signal": {
@@ -6598,13 +7809,21 @@ def _build_brain_signal_tape(
             }
         )
     if live_events:
+        lead_event = live_events[0]
+        lead_tone = lead_event.get("tone") or ""
         tape.append(
             {
                 "step": len(tape) + 1,
-                "label": live_events[0]["company_name"],
-                "value": live_events[0]["headline"],
-                "tone": "warning" if live_events[0]["status"] == "新增预警" else "success",
-                "intensity": 72 if live_events[0]["status"] == "新增预警" else 48,
+                "label": lead_event["company_name"],
+                "value": lead_event["headline"],
+                "tone": (
+                    lead_tone
+                    if lead_tone in {"risk", "warning", "accent", "success"}
+                    else "warning"
+                    if lead_event["status"] == "新增预警"
+                    else "success"
+                ),
+                "intensity": 72 if lead_event["status"] == "新增预警" else 56 if lead_tone == "warning" else 48,
             }
         )
     if history_points:
@@ -7047,6 +8266,1143 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     }
 
 
+def _gold_data_root(settings: Settings) -> Path:
+    configured = getattr(settings, "gold_data_path", None)
+    if isinstance(configured, Path):
+        return configured
+    silver_root = settings.silver_data_path
+    return silver_root.parent.parent / "gold" / silver_root.name
+
+
+def _load_manifest_generated_at(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    with path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    generated_at = payload.get("generated_at")
+    return generated_at if isinstance(generated_at, str) else None
+
+
+def _parse_calendar_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    candidate = str(value).strip()
+    if not candidate:
+        return None
+    normalized = candidate.split("T", 1)[0].split(" ", 1)[0]
+    try:
+        return date.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _parse_iso_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    candidate = str(value).strip()
+    if not candidate:
+        return None
+    normalized = candidate.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _map_subindustry_topics(subindustry: str | None) -> tuple[str, ...]:
+    if not subindustry:
+        return ()
+    normalized = str(subindustry).strip()
+    topics: list[str] = []
+    for key, names in SUBINDUSTRY_SIGNAL_TOPICS.items():
+        if key in normalized:
+            topics.extend(names)
+    if not topics and "电池" in normalized:
+        topics.append("电池")
+    if not topics and "金属" in normalized:
+        topics.append("能源金属")
+    return tuple(dict.fromkeys(topics))
+
+
+def _describe_external_signal_freshness(latest_publish_date: str | None) -> tuple[str, str]:
+    latest_date = _parse_calendar_date(latest_publish_date)
+    if latest_date is None:
+        return "unavailable", "未检测到正式外部信号"
+    age_days = max(0, (datetime.now(UTC).date() - latest_date).days)
+    if age_days <= 1:
+        return "fresh", "近 24 小时有更新"
+    if age_days <= 3:
+        return "recent", f"{age_days} 天内有更新"
+    if age_days <= 7:
+        return "warm", f"最近 {age_days} 天有更新"
+    return "stale", f"最近更新距今 {age_days} 天"
+
+
+def _normalize_external_signal(
+    record: dict[str, Any],
+    *,
+    kind: str,
+    status: str,
+    source_name: str,
+    tone: str,
+) -> dict[str, Any]:
+    company_name = record.get("company_name") or record.get("industry_name") or "行业信号"
+    headline = record.get("title")
+    if not headline and kind == "company_snapshot":
+        headline = f"{company_name} 公司快照已更新"
+    return {
+        "kind": kind,
+        "company_name": company_name,
+        "headline": headline or "外部信号已更新",
+        "status": status,
+        "tone": tone,
+        "source_name": source_name,
+        "publish_date": record.get("publish_date"),
+        "source_url": record.get("source_url"),
+        "security_code": record.get("security_code"),
+        "subindustry": record.get("subindustry"),
+    }
+
+
+def _build_external_signal_stream(
+    settings: Settings,
+    *,
+    focus_companies: list[dict[str, Any]],
+    limit: int = 8,
+) -> dict[str, Any]:
+    manifests_root = settings.official_data_path / "manifests"
+    company_names = {
+        str(item.get("company_name")).strip()
+        for item in focus_companies
+        if item.get("company_name")
+    }
+    focus_topics: set[str] = set()
+    for item in focus_companies:
+        focus_topics.update(_map_subindustry_topics(item.get("subindustry")))
+
+    periodic_path = manifests_root / "periodic_reports_manifest.json"
+    research_path = manifests_root / "research_reports_manifest.json"
+    industry_path = manifests_root / "industry_research_reports_manifest.json"
+    snapshot_path = manifests_root / "company_snapshots_manifest.json"
+
+    filtered_periodic = [
+        _normalize_external_signal(
+            record,
+            kind="periodic_report",
+            status="交易所公告",
+            source_name="上交所公告" if record.get("source") == "SSE" else "深交所公告",
+            tone="warning",
+        )
+        for record in _load_manifest_records(periodic_path)
+        if not company_names or record.get("company_name") in company_names
+    ]
+    filtered_research = [
+        _normalize_external_signal(
+            record,
+            kind="company_research",
+            status="券商研报",
+            source_name="东方财富研报",
+            tone="accent",
+        )
+        for record in _load_manifest_records(research_path)
+        if not company_names or record.get("company_name") in company_names
+    ]
+    filtered_industry = [
+        _normalize_external_signal(
+            record,
+            kind="industry_research",
+            status="行业研报",
+            source_name="东方财富行业研报",
+            tone="success",
+        )
+        for record in _load_manifest_records(industry_path)
+        if not focus_topics
+        or (record.get("industry_name") or record.get("company_name")) in focus_topics
+    ]
+    filtered_snapshots = [
+        _normalize_external_signal(
+            record,
+            kind="company_snapshot",
+            status="公司快照",
+            source_name="巨潮资讯",
+            tone="default",
+        )
+        for record in _load_manifest_records(snapshot_path)
+        if not company_names or record.get("company_name") in company_names
+    ]
+
+    latest_by_entity: dict[tuple[str, str], dict[str, Any]] = {}
+    for signal in filtered_periodic + filtered_research + filtered_snapshots:
+        key = (signal["kind"], signal["company_name"])
+        current = latest_by_entity.get(key)
+        current_date = _parse_calendar_date(current.get("publish_date")) if current else None
+        candidate_date = _parse_calendar_date(signal.get("publish_date"))
+        if current is None or (candidate_date and (current_date is None or candidate_date > current_date)):
+            latest_by_entity[key] = signal
+
+    latest_industry: dict[str, dict[str, Any]] = {}
+    for signal in filtered_industry:
+        key = signal["company_name"]
+        current = latest_industry.get(key)
+        current_date = _parse_calendar_date(current.get("publish_date")) if current else None
+        candidate_date = _parse_calendar_date(signal.get("publish_date"))
+        if current is None or (candidate_date and (current_date is None or candidate_date > current_date)):
+            latest_industry[key] = signal
+
+    signals = list(latest_by_entity.values()) + list(latest_industry.values())
+    signals.sort(
+        key=lambda item: (
+            _parse_calendar_date(item.get("publish_date")) or date.min,
+            -EXTERNAL_SIGNAL_PRIORITY.get(item.get("kind") or "", 99),
+            item.get("company_name") or "",
+        ),
+        reverse=True,
+    )
+
+    deduped_signals: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+    for item in signals:
+        signal_key = (
+            item.get("kind") or "",
+            item.get("company_name") or "",
+            item.get("headline") or "",
+        )
+        if signal_key in seen_keys:
+            continue
+        seen_keys.add(signal_key)
+        deduped_signals.append(item)
+        if len(deduped_signals) >= limit:
+            break
+
+    latest_publish_date = max(
+        (
+            item.get("publish_date")
+            for item in deduped_signals
+            if _parse_calendar_date(item.get("publish_date")) is not None
+        ),
+        default=None,
+    )
+    freshness_status, freshness_label = _describe_external_signal_freshness(latest_publish_date)
+    manifest_generated_at = max(
+        (
+            timestamp
+            for timestamp in (
+                _load_manifest_generated_at(periodic_path),
+                _load_manifest_generated_at(research_path),
+                _load_manifest_generated_at(industry_path),
+                _load_manifest_generated_at(snapshot_path),
+            )
+            if _parse_iso_timestamp(timestamp) is not None
+        ),
+        default=None,
+        key=lambda item: _parse_iso_timestamp(item) or datetime.min.replace(tzinfo=UTC),
+    )
+    source_counter = {
+        "交易所公告": sum(1 for item in deduped_signals if item["kind"] == "periodic_report"),
+        "券商研报": sum(1 for item in deduped_signals if item["kind"] == "company_research"),
+        "行业研报": sum(1 for item in deduped_signals if item["kind"] == "industry_research"),
+        "公司快照": sum(1 for item in deduped_signals if item["kind"] == "company_snapshot"),
+    }
+    return {
+        "status": freshness_status,
+        "freshness_label": freshness_label,
+        "generated_at": manifest_generated_at,
+        "latest_publish_date": latest_publish_date,
+        "signal_count": len(deduped_signals),
+        "focus_companies": sorted(company_names),
+        "sources": [
+            {"label": label, "count": count}
+            for label, count in source_counter.items()
+            if count
+        ],
+        "signals": deduped_signals,
+    }
+
+
+def _build_external_signal_market_tape(
+    external_signal_stream: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not external_signal_stream.get("signal_count"):
+        return [
+            {
+                "label": "外部信号",
+                "value": "0",
+                "delta": "未检测到正式外部信号",
+                "tone": "risk",
+            }
+        ]
+    sources = external_signal_stream.get("sources", [])
+    tone = "risk" if external_signal_stream.get("status") == "stale" else "success"
+    latest_publish_date = external_signal_stream.get("latest_publish_date") or "未知"
+    return [
+        {
+            "label": "外部信号",
+            "value": str(external_signal_stream["signal_count"]),
+            "delta": f"最新发布日期 {latest_publish_date}",
+            "tone": tone,
+        },
+        {
+            "label": "官方源刷新",
+            "value": external_signal_stream.get("freshness_label") or "未知",
+            "delta": f"{len(sources)} 类正式来源",
+            "tone": tone,
+        },
+    ]
+
+
+def _build_kafka_signal_runtime(settings: Settings) -> dict[str, Any]:
+    bootstrap_servers = str(getattr(settings, "kafka_bootstrap_servers", "") or "").strip()
+    topic = str(getattr(settings, "kafka_signal_topic", "opspilot.external_signals") or "opspilot.external_signals").strip()
+    base_payload = {
+        "bootstrap_servers": bootstrap_servers,
+        "topic": topic,
+        "partition_count": 0,
+        "message_count": 0,
+        "latest_publish_date": None,
+        "latest_event_time": None,
+        "latest_company_name": None,
+        "latest_headline": None,
+        "latest_signal_status": None,
+    }
+    if not bootstrap_servers:
+        return {
+            **base_payload,
+            "status": "unavailable",
+            "freshness_label": "Kafka 未配置",
+        }
+    if KafkaConsumer is None or TopicPartition is None:
+        return {
+            **base_payload,
+            "status": "unavailable",
+            "freshness_label": "Kafka 依赖未安装",
+        }
+
+    consumer = KafkaConsumer(
+        bootstrap_servers=[item.strip() for item in bootstrap_servers.split(",") if item.strip()],
+        enable_auto_commit=False,
+        auto_offset_reset="latest",
+        consumer_timeout_ms=1200,
+        request_timeout_ms=5000,
+        api_version_auto_timeout_ms=5000,
+        metadata_max_age_ms=5000,
+    )
+    try:
+        partitions = consumer.partitions_for_topic(topic)
+        if not partitions:
+            return {
+                **base_payload,
+                "status": "unavailable",
+                "freshness_label": "Kafka Topic 未发现",
+            }
+
+        topic_partitions = [TopicPartition(topic, partition) for partition in sorted(partitions)]
+        end_offsets = consumer.end_offsets(topic_partitions)
+        latest_candidates: list[dict[str, Any]] = []
+        for topic_partition in topic_partitions:
+            end_offset = int(end_offsets.get(topic_partition, 0) or 0)
+            if end_offset <= 0:
+                continue
+            consumer.assign([topic_partition])
+            consumer.seek(topic_partition, max(0, end_offset - 3))
+            polled = consumer.poll(timeout_ms=600, max_records=3)
+            for records in polled.values():
+                for record in records:
+                    decoded = _decode_kafka_signal_record(record.value)
+                    if decoded is None:
+                        continue
+                    decoded["partition"] = getattr(record, "partition", topic_partition.partition)
+                    decoded["offset"] = getattr(record, "offset", None)
+                    latest_candidates.append(decoded)
+
+        latest_candidates.sort(
+            key=lambda item: (
+                _parse_iso_timestamp(item.get("event_time")) or datetime.min.replace(tzinfo=UTC),
+                _parse_calendar_date(item.get("publish_date")) or date.min,
+                item.get("company_name") or "",
+            ),
+            reverse=True,
+        )
+        latest_signal = latest_candidates[0] if latest_candidates else {}
+        latest_publish_date = latest_signal.get("publish_date")
+        freshness_status, freshness_label = (
+            _describe_external_signal_freshness(latest_publish_date)
+            if latest_publish_date
+            else ("stale", "Kafka 消息暂无日期")
+        )
+        return {
+            **base_payload,
+            "status": freshness_status,
+            "freshness_label": freshness_label,
+            "partition_count": len(topic_partitions),
+            "message_count": sum(int(offset or 0) for offset in end_offsets.values()),
+            "latest_publish_date": latest_publish_date,
+            "latest_event_time": latest_signal.get("event_time"),
+            "latest_company_name": latest_signal.get("company_name"),
+            "latest_headline": latest_signal.get("headline"),
+            "latest_signal_status": latest_signal.get("signal_status"),
+            "latest_partition": latest_signal.get("partition"),
+            "latest_offset": latest_signal.get("offset"),
+        }
+    except Exception as exc:
+        return {
+            **base_payload,
+            "status": "unavailable",
+            "freshness_label": "Kafka 主题不可读",
+            "error": str(exc),
+        }
+    finally:
+        consumer.close()
+
+
+def _decode_kafka_signal_record(value: Any) -> dict[str, Any] | None:
+    raw_text = value.decode("utf-8", errors="ignore") if isinstance(value, bytes) else str(value)
+    try:
+        payload = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _build_kafka_signal_market_tape(kafka_signal_runtime: dict[str, Any]) -> list[dict[str, Any]]:
+    if kafka_signal_runtime.get("status") == "unavailable":
+        return [
+            {
+                "label": "Kafka 主题",
+                "value": "未接通",
+                "delta": kafka_signal_runtime.get("freshness_label") or "Kafka 未就绪",
+                "tone": "risk",
+            }
+        ]
+    latest_anchor = (
+        kafka_signal_runtime.get("latest_publish_date")
+        or kafka_signal_runtime.get("latest_event_time")
+        or "等待新消息"
+    )
+    tone = "risk" if kafka_signal_runtime.get("status") == "stale" else "success"
+    return [
+        {
+            "label": "Kafka 主题",
+            "value": str(kafka_signal_runtime.get("message_count") or 0),
+            "delta": f"{kafka_signal_runtime.get('partition_count') or 0} 分区 · {latest_anchor}",
+            "tone": tone,
+        },
+        {
+            "label": "实时流状态",
+            "value": kafka_signal_runtime.get("freshness_label") or "未知",
+            "delta": kafka_signal_runtime.get("latest_company_name") or kafka_signal_runtime.get("topic") or "等待消息",
+            "tone": tone,
+        },
+    ]
+
+
+def _load_company_signal_snapshot(
+    settings: Settings,
+    *,
+    limit: int = 6,
+) -> dict[str, Any]:
+    snapshot_path = settings.silver_data_path / "stream" / "company_signal_snapshot.json"
+    if not snapshot_path.exists():
+        return {
+            "status": "unavailable",
+            "freshness_label": "流式热点快照未就绪",
+            "generated_at": None,
+            "latest_event_date": None,
+            "ingest_batch_id": None,
+            "record_count": 0,
+            "top_companies": [],
+        }
+    with snapshot_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    raw_records = payload.get("records", [])
+    records = [item for item in raw_records if isinstance(item, dict)]
+    company_records = [
+        item
+        for item in records
+        if item.get("company_name") and str(item.get("security_code") or "").upper() != "INDUSTRY"
+    ]
+    company_records.sort(
+        key=lambda item: (
+            int(item.get("external_heat") or 0),
+            int(item.get("signal_count") or 0),
+            _parse_iso_timestamp(item.get("latest_event_time")) or datetime.min.replace(tzinfo=UTC),
+            item.get("company_name") or "",
+        ),
+        reverse=True,
+    )
+    latest_event_date = max(
+        (
+            _parse_calendar_date(item.get("latest_event_time"))
+            for item in company_records
+            if _parse_calendar_date(item.get("latest_event_time")) is not None
+        ),
+        default=None,
+    )
+    latest_event_text = latest_event_date.isoformat() if latest_event_date else None
+    freshness_status, freshness_label = _describe_external_signal_freshness(latest_event_text)
+    return {
+        "status": freshness_status,
+        "freshness_label": freshness_label,
+        "generated_at": payload.get("generated_at"),
+        "latest_event_date": latest_event_text,
+        "ingest_batch_id": payload.get("ingest_batch_id"),
+        "record_count": payload.get("record_count", len(records)),
+        "top_companies": company_records[:limit],
+    }
+
+
+def _load_company_signal_timeline(
+    settings: Settings,
+    *,
+    limit: int = 6,
+) -> dict[str, Any]:
+    timeline_path = _gold_data_root(settings) / "stream" / "company_signal_timeline.json"
+    if not timeline_path.exists():
+        return {
+            "status": "unavailable",
+            "freshness_label": "公司时序热度未就绪",
+            "generated_at": None,
+            "latest_event_date": None,
+            "ingest_batch_id": None,
+            "record_count": 0,
+            "date_axis": [],
+            "top_companies": [],
+        }
+    with timeline_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    raw_records = payload.get("records", [])
+    records = [item for item in raw_records if isinstance(item, dict)]
+    latest_event_date = payload.get("date_axis", [])[-1] if payload.get("date_axis") else None
+    freshness_status, freshness_label = _describe_external_signal_freshness(latest_event_date)
+    return {
+        "status": freshness_status,
+        "freshness_label": freshness_label,
+        "generated_at": payload.get("generated_at"),
+        "latest_event_date": latest_event_date,
+        "ingest_batch_id": payload.get("ingest_batch_id"),
+        "record_count": payload.get("record_count", len(records)),
+        "date_axis": payload.get("date_axis", []),
+        "top_companies": [item for item in payload.get("top_companies", records[:limit]) if isinstance(item, dict)][:limit],
+    }
+
+
+def _load_subindustry_signal_heatmap(settings: Settings) -> dict[str, Any]:
+    heatmap_path = _gold_data_root(settings) / "stream" / "subindustry_signal_heatmap.json"
+    if not heatmap_path.exists():
+        return {
+            "status": "unavailable",
+            "freshness_label": "子行业热度迁移未就绪",
+            "generated_at": None,
+            "latest_event_date": None,
+            "ingest_batch_id": None,
+            "record_count": 0,
+            "date_axis": [],
+            "top_subindustries": [],
+        }
+    with heatmap_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+    raw_records = payload.get("records", [])
+    records = [item for item in raw_records if isinstance(item, dict)]
+    latest_event_date = payload.get("date_axis", [])[-1] if payload.get("date_axis") else None
+    freshness_status, freshness_label = _describe_external_signal_freshness(latest_event_date)
+    return {
+        "status": freshness_status,
+        "freshness_label": freshness_label,
+        "generated_at": payload.get("generated_at"),
+        "latest_event_date": latest_event_date,
+        "ingest_batch_id": payload.get("ingest_batch_id"),
+        "record_count": payload.get("record_count", len(records)),
+        "date_axis": payload.get("date_axis", []),
+        "top_subindustries": [item for item in payload.get("top_subindustries", records[:6]) if isinstance(item, dict)],
+    }
+
+
+def _build_company_signal_graph_context(
+    settings: Settings,
+    *,
+    company_name: str,
+    subindustry: str | None = None,
+) -> dict[str, Any]:
+    snapshot = _load_company_signal_snapshot(settings, limit=256)
+    timeline = _load_company_signal_timeline(settings, limit=256)
+    heatmap = _load_subindustry_signal_heatmap(settings)
+    snapshot_item = next(
+        (
+            item
+            for item in snapshot.get("top_companies", [])
+            if str(item.get("company_name") or "").strip() == company_name
+        ),
+        {},
+    )
+    timeline_item = next(
+        (
+            item
+            for item in timeline.get("top_companies", [])
+            if str(item.get("company_name") or "").strip() == company_name
+        ),
+        {},
+    )
+    resolved_subindustry = (
+        str(timeline_item.get("subindustry") or snapshot_item.get("subindustry") or subindustry or "").strip()
+    )
+    subindustry_item = next(
+        (
+            item
+            for item in heatmap.get("top_subindustries", [])
+            if str(item.get("subindustry") or "").strip() == resolved_subindustry
+        ),
+        {},
+    )
+    latest_event_time = timeline_item.get("latest_event_time") or snapshot_item.get("latest_event_time")
+    latest_event_date = _parse_calendar_date(str(latest_event_time) if latest_event_time is not None else None)
+    freshness_status, freshness_label = _describe_external_signal_freshness(
+        latest_event_date.isoformat() if latest_event_date is not None else None
+    )
+    window_days = max(
+        len(timeline.get("date_axis", [])),
+        len(timeline_item.get("timeline", [])) if isinstance(timeline_item.get("timeline"), list) else 0,
+        len(subindustry_item.get("timeline", [])) if isinstance(subindustry_item.get("timeline"), list) else 0,
+    )
+    signal_count = int(timeline_item.get("signal_count") or snapshot_item.get("signal_count") or 0)
+    source_count = int(snapshot_item.get("source_count") or 0)
+    total_heat = int(timeline_item.get("total_heat") or snapshot_item.get("external_heat") or 0)
+    latest_heat = int(
+        timeline_item.get("latest_heat")
+        or (
+            timeline_item.get("timeline", [])[-1].get("external_heat", 0)
+            if timeline_item.get("timeline")
+            else 0
+        )
+        or 0
+    )
+    momentum = int(timeline_item.get("momentum") or 0)
+    active_days = int(timeline_item.get("active_days") or 0)
+    latest_headline = (
+        timeline_item.get("latest_headline")
+        or snapshot_item.get("latest_headline")
+        or None
+    )
+    signal_status = (
+        timeline_item.get("latest_signal_status")
+        or snapshot_item.get("latest_signal_status")
+        or None
+    )
+    latest_signal_kind = (
+        timeline_item.get("latest_signal_kind")
+        or snapshot_item.get("latest_signal_kind")
+        or None
+    )
+    subindustry_signal_count = int(subindustry_item.get("signal_count") or 0)
+    subindustry_total_heat = int(subindustry_item.get("total_heat") or 0)
+    subindustry_latest_heat = int(subindustry_item.get("latest_heat") or 0)
+    subindustry_momentum = int(subindustry_item.get("momentum") or 0)
+    subindustry_active_days = int(subindustry_item.get("active_days") or 0)
+    return {
+        "available": bool(snapshot_item or timeline_item or subindustry_item),
+        "event_available": bool(snapshot_item or timeline_item),
+        "timeline_available": bool(timeline_item),
+        "subindustry_available": bool(subindustry_item),
+        "subindustry": resolved_subindustry or None,
+        "freshness_status": freshness_status,
+        "freshness_label": freshness_label,
+        "latest_event_time": latest_event_time,
+        "latest_headline": latest_headline,
+        "signal_status": signal_status,
+        "latest_signal_kind": latest_signal_kind,
+        "signal_count": signal_count,
+        "source_count": source_count,
+        "total_heat": total_heat,
+        "latest_heat": latest_heat,
+        "momentum": momentum,
+        "active_days": active_days,
+        "window_days": window_days,
+        "date_axis": timeline.get("date_axis", []),
+        "event_summary": (
+            f"{signal_status or '外部信号'}：{latest_headline or '最近事件已更新'}；"
+            f"{freshness_label}，累计 {signal_count} 条正式信号。"
+        ),
+        "timeline_summary": (
+            f"近 {window_days or 7} 日信号 {signal_count} 条，累计热度 {total_heat}，"
+            f"动量 {momentum}，活跃 {active_days} 天。"
+        ),
+        "subindustry_signal_count": subindustry_signal_count,
+        "subindustry_total_heat": subindustry_total_heat,
+        "subindustry_latest_heat": subindustry_latest_heat,
+        "subindustry_momentum": subindustry_momentum,
+        "subindustry_active_days": subindustry_active_days,
+        "subindustry_summary": (
+            f"{resolved_subindustry or '所属子行业'} 近 {window_days or 7} 日总热度 {subindustry_total_heat}，"
+            f"最新窗口热度 {subindustry_latest_heat}，动量 {subindustry_momentum}。"
+        ),
+    }
+
+
+def _build_streaming_heat_chart(heatmap: dict[str, Any]) -> dict[str, Any]:
+    date_axis = heatmap.get("date_axis", [])
+    rows = heatmap.get("top_subindustries", [])[:4]
+    return {
+        "tooltip": {"trigger": "axis"},
+        "legend": {
+            "textStyle": {"color": "#94a3b8"},
+            "data": [item.get("subindustry", "未分类") for item in rows],
+        },
+        "grid": {"left": 48, "right": 24, "top": 48, "bottom": 36},
+        "xAxis": {
+            "type": "category",
+            "data": date_axis,
+            "axisLine": {"lineStyle": {"color": "#334155"}},
+            "axisLabel": {"color": "#94a3b8"},
+        },
+        "yAxis": {
+            "type": "value",
+            "axisLine": {"lineStyle": {"color": "#334155"}},
+            "splitLine": {"lineStyle": {"color": "rgba(148,163,184,0.16)"}},
+            "axisLabel": {"color": "#94a3b8"},
+        },
+        "series": [
+            {
+                "name": item.get("subindustry", "未分类"),
+                "type": "line",
+                "smooth": True,
+                "showSymbol": False,
+                "areaStyle": {"opacity": 0.12},
+                "data": [point.get("external_heat", 0) for point in item.get("timeline", [])],
+            }
+            for item in rows
+        ],
+    }
+
+
+def _build_streaming_anomaly_board(
+    *,
+    preferred_period: str,
+    top_risk_companies: list[dict[str, Any]],
+    signal_snapshot: dict[str, Any],
+    signal_timeline: dict[str, Any],
+    signal_heatmap: dict[str, Any],
+    kafka_signal_runtime: dict[str, Any],
+    limit: int = 6,
+) -> dict[str, Any]:
+    risk_by_company = {
+        str(item.get("company_name")): item
+        for item in top_risk_companies
+        if item.get("company_name")
+    }
+    snapshot_by_company = {
+        str(item.get("company_name")): item
+        for item in signal_snapshot.get("top_companies", [])
+        if item.get("company_name")
+    }
+    timeline_by_company = {
+        str(item.get("company_name")): item
+        for item in signal_timeline.get("top_companies", [])
+        if item.get("company_name")
+    }
+    heat_by_subindustry = {
+        str(item.get("subindustry")): item
+        for item in signal_heatmap.get("top_subindustries", [])
+        if item.get("subindustry")
+    }
+    ordered_names: list[str] = []
+    for bucket in (
+        signal_timeline.get("top_companies", []),
+        signal_snapshot.get("top_companies", []),
+        top_risk_companies,
+    ):
+        for item in bucket:
+            company_name = str(item.get("company_name") or "").strip()
+            if company_name and company_name not in ordered_names:
+                ordered_names.append(company_name)
+
+    status, freshness_label = _summarize_streaming_anomaly_status(
+        signal_snapshot=signal_snapshot,
+        signal_timeline=signal_timeline,
+        signal_heatmap=signal_heatmap,
+        kafka_signal_runtime=kafka_signal_runtime,
+    )
+    items: list[dict[str, Any]] = []
+    live_company = (
+        str(kafka_signal_runtime.get("latest_company_name") or "").strip()
+        if kafka_signal_runtime.get("status") == "fresh"
+        else ""
+    )
+    for company_name in ordered_names:
+        snapshot_item = snapshot_by_company.get(company_name, {})
+        timeline_item = timeline_by_company.get(company_name, {})
+        risk_item = risk_by_company.get(company_name, {})
+        subindustry = (
+            timeline_item.get("subindustry")
+            or snapshot_item.get("subindustry")
+            or risk_item.get("subindustry")
+        )
+        sector_item = heat_by_subindustry.get(str(subindustry), {})
+        timeline_points = [
+            int(point.get("external_heat") or 0)
+            for point in timeline_item.get("timeline", [])
+            if isinstance(point, dict)
+        ]
+        previous_points = timeline_points[:-1]
+        latest_window_heat = int(
+            timeline_item.get("latest_heat")
+            or (timeline_points[-1] if timeline_points else 0)
+        )
+        baseline_heat = _safe_average(previous_points)
+        burst_ratio = round(latest_window_heat / max(1.0, baseline_heat), 2) if latest_window_heat else 0.0
+        signal_count = int(timeline_item.get("signal_count") or snapshot_item.get("signal_count") or 0)
+        source_count = int(snapshot_item.get("source_count") or 0)
+        external_heat = int(timeline_item.get("total_heat") or snapshot_item.get("external_heat") or 0)
+        momentum = int(timeline_item.get("momentum") or 0)
+        active_days = int(timeline_item.get("active_days") or 0)
+        risk_count = int(risk_item.get("risk_count") or 0)
+        risk_labels = list(risk_item.get("risk_labels") or [])
+        sector_latest_heat = int(sector_item.get("latest_heat") or 0)
+        sector_momentum = int(sector_item.get("momentum") or 0)
+        is_live_company = bool(live_company and live_company == company_name)
+
+        score = 0
+        triggers: list[str] = []
+        if latest_window_heat >= 3:
+            score += 18
+            triggers.append("最新窗口热度抬升")
+        if external_heat >= 4:
+            score += 14
+            triggers.append("总热度进入高位")
+        if momentum >= 4:
+            score += min(18, momentum * 4)
+            triggers.append("热度动量持续为正")
+        if active_days and active_days <= 2 and signal_count >= 2:
+            score += 14
+            triggers.append(f"{active_days} 天内形成密集信号")
+        if source_count >= 2:
+            score += 12
+            triggers.append(f"{source_count} 类正式来源共振")
+        if burst_ratio >= 2 and latest_window_heat >= 2:
+            score += 10
+            triggers.append(f"窗口热度较基线放大 {burst_ratio} 倍")
+        if risk_count >= 3:
+            score += 14
+            triggers.append(f"{risk_count} 个经营风险标签共振")
+        elif risk_count > 0:
+            score += 6
+            triggers.append(f"叠加 {risk_count} 个经营风险标签")
+        if sector_latest_heat >= 3 or sector_momentum >= 4:
+            score += 8
+            triggers.append(f"{subindustry or '所属板块'} 同步升温")
+        if is_live_company:
+            score += 8
+            triggers.append("Kafka 实时流刚命中该公司")
+
+        if score < 24:
+            continue
+
+        severity = _classify_streaming_anomaly_severity(score)
+        anomaly_type = _classify_streaming_anomaly_type(
+            burst_ratio=burst_ratio,
+            risk_count=risk_count,
+            source_count=source_count,
+            sector_latest_heat=sector_latest_heat,
+            latest_window_heat=latest_window_heat,
+        )
+        status_label = {
+            "critical": "高危异动",
+            "high": "重点异动",
+            "medium": "持续异动",
+            "low": "轻度异动",
+        }.get(severity, "异动跟踪")
+        items.append(
+            {
+                "company_name": company_name,
+                "subindustry": subindustry,
+                "headline": (
+                    timeline_item.get("latest_headline")
+                    or snapshot_item.get("latest_headline")
+                    or (risk_labels[0] if risk_labels else "继续跟踪")
+                ),
+                "signal_status": (
+                    timeline_item.get("latest_signal_status")
+                    or snapshot_item.get("latest_signal_status")
+                    or "风险跟踪"
+                ),
+                "severity": severity,
+                "status_label": status_label,
+                "tone": "risk" if severity in {"critical", "high"} else "warning",
+                "score": score,
+                "anomaly_type": anomaly_type,
+                "summary": _summarize_streaming_anomaly(
+                    company_name=company_name,
+                    signal_status=timeline_item.get("latest_signal_status")
+                    or snapshot_item.get("latest_signal_status"),
+                    signal_count=signal_count,
+                    source_count=source_count,
+                    external_heat=external_heat,
+                    latest_window_heat=latest_window_heat,
+                    burst_ratio=burst_ratio,
+                    risk_count=risk_count,
+                    subindustry=subindustry,
+                ),
+                "triggers": triggers[:4],
+                "evidence": [
+                    f"热度 {latest_window_heat}/{external_heat}（窗口/累计）",
+                    f"信号 {signal_count} 条 · 来源 {source_count} 类 · 活跃 {active_days} 天",
+                    f"风险标签 {risk_count} 个",
+                ],
+                "risk_count": risk_count,
+                "risk_labels": risk_labels[:3],
+                "signal_count": signal_count,
+                "source_count": source_count,
+                "external_heat": external_heat,
+                "latest_heat": latest_window_heat,
+                "momentum": momentum,
+                "active_days": active_days,
+                "burst_ratio": burst_ratio,
+                "latest_event_time": timeline_item.get("latest_event_time")
+                or snapshot_item.get("latest_event_time"),
+                "route": {
+                    "path": "/score",
+                    "query": {"company": company_name, "period": preferred_period},
+                },
+            }
+        )
+    items.sort(
+        key=lambda item: (
+            _streaming_anomaly_severity_rank(item.get("severity")),
+            int(item.get("score") or 0),
+            int(item.get("external_heat") or 0),
+            item.get("company_name") or "",
+        ),
+        reverse=True,
+    )
+    summary = {
+        "detected_count": len(items),
+        "critical_count": sum(1 for item in items if item.get("severity") == "critical"),
+        "high_count": sum(1 for item in items if item.get("severity") == "high"),
+        "medium_count": sum(1 for item in items if item.get("severity") == "medium"),
+        "risk_resonance_count": sum(
+            1 for item in items if "风险" in str(item.get("anomaly_type") or "")
+        ),
+        "cross_source_count": sum(1 for item in items if int(item.get("source_count") or 0) >= 2),
+    }
+    summary["focus_line"] = (
+        f"检测到 {summary['detected_count']} 家流式异动公司，"
+        f"其中 {summary['critical_count'] + summary['high_count']} 家需优先处置。"
+        if summary["detected_count"]
+        else "当前流式快照未发现高优先级异动公司。"
+    )
+    return {
+        "status": status,
+        "freshness_label": freshness_label,
+        "summary": summary,
+        "items": items[:limit],
+    }
+
+
+def _safe_average(values: list[int]) -> float:
+    if not values:
+        return 0.0
+    return round(sum(values) / len(values), 2)
+
+
+def _summarize_streaming_anomaly_status(
+    *,
+    signal_snapshot: dict[str, Any],
+    signal_timeline: dict[str, Any],
+    signal_heatmap: dict[str, Any],
+    kafka_signal_runtime: dict[str, Any],
+) -> tuple[str, str]:
+    statuses = [
+        str(signal_snapshot.get("status") or ""),
+        str(signal_timeline.get("status") or ""),
+        str(signal_heatmap.get("status") or ""),
+    ]
+    if not any(status in {"fresh", "stale"} for status in statuses):
+        return ("unavailable", "流式异动引擎未就绪")
+    if any(status == "stale" for status in statuses):
+        return ("stale", "流式异动基线已过期")
+    if kafka_signal_runtime.get("status") == "fresh":
+        return ("fresh", "流式异动实时订阅中")
+    return ("fresh", "流式异动快照已更新")
+
+
+def _classify_streaming_anomaly_type(
+    *,
+    burst_ratio: float,
+    risk_count: int,
+    source_count: int,
+    sector_latest_heat: int,
+    latest_window_heat: int,
+) -> str:
+    if risk_count >= 3 and source_count >= 2:
+        return "风险共振"
+    if burst_ratio >= 2 and latest_window_heat >= 2:
+        return "新发脉冲"
+    if sector_latest_heat >= 3:
+        return "板块传导"
+    if source_count >= 2:
+        return "跨源汇聚"
+    return "持续抬升"
+
+
+def _classify_streaming_anomaly_severity(score: int) -> str:
+    if score >= 64:
+        return "critical"
+    if score >= 46:
+        return "high"
+    if score >= 30:
+        return "medium"
+    return "low"
+
+
+def _streaming_anomaly_severity_rank(level: Any) -> int:
+    return {
+        "critical": 4,
+        "high": 3,
+        "medium": 2,
+        "low": 1,
+    }.get(str(level or ""), 0)
+
+
+def _summarize_streaming_anomaly(
+    *,
+    company_name: str,
+    signal_status: str | None,
+    signal_count: int,
+    source_count: int,
+    external_heat: int,
+    latest_window_heat: int,
+    burst_ratio: float,
+    risk_count: int,
+    subindustry: str | None,
+) -> str:
+    summary = (
+        f"{company_name} 在 {subindustry or '当前板块'} 出现 {signal_status or '正式信号'} 异动，"
+        f"窗口热度 {latest_window_heat}、累计热度 {external_heat}。"
+    )
+    if burst_ratio >= 2:
+        summary += f" 当前窗口相对历史基线放大 {burst_ratio} 倍。"
+    if signal_count or source_count:
+        summary += f" 近窗共捕获 {signal_count} 条信号、{source_count} 类来源。"
+    if risk_count:
+        summary += f" 同时叠加 {risk_count} 个经营风险标签。"
+    return summary
+
+
+def _build_streaming_anomaly_market_tape(
+    streaming_anomalies: dict[str, Any],
+) -> list[dict[str, Any]]:
+    summary = streaming_anomalies.get("summary", {})
+    detected_count = int(summary.get("detected_count") or 0)
+    if detected_count <= 0:
+        return []
+    high_priority = int(summary.get("critical_count") or 0) + int(summary.get("high_count") or 0)
+    tone = "risk" if high_priority else "accent"
+    return [
+        {
+            "label": "流式异动",
+            "value": str(detected_count),
+            "delta": streaming_anomalies.get("freshness_label") or "异动快照已更新",
+            "tone": tone,
+        },
+        {
+            "label": "高优先级共振",
+            "value": str(high_priority),
+            "delta": f"{summary.get('cross_source_count', 0)} 家跨源共振",
+            "tone": "risk" if high_priority else tone,
+        },
+    ]
+
+
+def _merge_streaming_anomalies_into_attention_matrix(
+    attention_matrix: list[dict[str, Any]],
+    streaming_anomalies: dict[str, Any],
+) -> list[dict[str, Any]]:
+    anomaly_by_company = {
+        str(item.get("company_name")): item
+        for item in streaming_anomalies.get("items", [])
+        if item.get("company_name")
+    }
+    merged: list[dict[str, Any]] = []
+    for item in attention_matrix:
+        company_name = str(item.get("company_name") or "")
+        anomaly = anomaly_by_company.get(company_name)
+        if anomaly is None:
+            merged.append(item)
+            continue
+        merged.append(
+            {
+                **item,
+                "anomaly_score": anomaly.get("score"),
+                "anomaly_type": anomaly.get("anomaly_type"),
+                "anomaly_severity": anomaly.get("severity"),
+                "anomaly_summary": anomaly.get("summary"),
+            }
+        )
+    return merged
+
+
+def _build_streaming_attention_matrix(
+    *,
+    preferred_period: str,
+    top_risk_companies: list[dict[str, Any]],
+    signal_snapshot: dict[str, Any],
+    signal_timeline: dict[str, Any],
+    limit: int = 4,
+) -> list[dict[str, Any]]:
+    risk_by_company = {
+        str(item.get("company_name")): item
+        for item in top_risk_companies
+        if item.get("company_name")
+    }
+    snapshot_by_company = {
+        str(item.get("company_name")): item
+        for item in signal_snapshot.get("top_companies", [])
+        if item.get("company_name")
+    }
+    timeline_by_company = {
+        str(item.get("company_name")): item
+        for item in signal_timeline.get("top_companies", [])
+        if item.get("company_name")
+    }
+    ordered_names: list[str] = []
+    for item in signal_timeline.get("top_companies", []):
+        company_name = str(item.get("company_name") or "").strip()
+        if company_name and company_name not in ordered_names:
+            ordered_names.append(company_name)
+    for item in signal_snapshot.get("top_companies", []):
+        company_name = str(item.get("company_name") or "").strip()
+        if company_name and company_name not in ordered_names:
+            ordered_names.append(company_name)
+    for item in top_risk_companies:
+        company_name = str(item.get("company_name") or "").strip()
+        if company_name and company_name not in ordered_names:
+            ordered_names.append(company_name)
+    matrix: list[dict[str, Any]] = []
+    for company_name in ordered_names[:limit]:
+        risk_item = risk_by_company.get(company_name, {})
+        signal_item = snapshot_by_company.get(company_name, {})
+        timeline_item = timeline_by_company.get(company_name, {})
+        risk_labels = list(risk_item.get("risk_labels") or [])
+        matrix.append(
+            {
+                "company_name": company_name,
+                "subindustry": timeline_item.get("subindustry") or signal_item.get("subindustry") or risk_item.get("subindustry"),
+                "risk_count": int(risk_item.get("risk_count") or 0),
+                "headline": timeline_item.get("latest_headline") or signal_item.get("latest_headline") or (risk_labels[0] if risk_labels else "继续跟踪"),
+                "signal_status": timeline_item.get("latest_signal_status") or signal_item.get("latest_signal_status") or "风险跟踪",
+                "signal_count": int(timeline_item.get("signal_count") or signal_item.get("signal_count") or 0),
+                "external_heat": int(timeline_item.get("total_heat") or signal_item.get("external_heat") or 0),
+                "latest_heat": int(timeline_item.get("latest_heat") or 0),
+                "momentum": int(timeline_item.get("momentum") or 0),
+                "active_days": int(timeline_item.get("active_days") or 0),
+                "latest_event_time": timeline_item.get("latest_event_time") or signal_item.get("latest_event_time"),
+                "route": risk_item.get(
+                    "route",
+                    {"path": "/score", "query": {"company": company_name, "period": preferred_period}},
+                ),
+            }
+        )
+    return matrix
+
+
 def _build_admin_quality_overview(settings: Settings, preferred_period: str | None) -> dict[str, Any]:
     company_pool = _load_json_records(settings.sample_data_path.parent / "universe" / "formal_company_pool.json")
     raw_reports = _load_manifest_records(settings.official_data_path / "manifests" / "periodic_reports_manifest.json")
@@ -7191,7 +9547,7 @@ def _build_delivery_readiness(
         priority_actions.insert(
             0,
             {
-                "title": "OCR Contract 验收",
+                "title": "OCR Contract 质检",
                 "summary": f"{contract_ready}/{contract_total or 0} 份 contract 达标，{contract_missing} 份缺失，{contract_invalid} 份不合格。",
                 "companies": [item.get("company_name") for item in contract_audit.get("samples", []) if item.get("status") != "ready"][:5],
             },
@@ -7220,23 +9576,13 @@ def _build_delivery_readiness(
 
 
 def _build_runtime_readiness(settings: Settings) -> dict[str, Any]:
-    openai_api_key = getattr(settings, "openai_api_key", "")
-    openai_base_url = getattr(settings, "openai_base_url", "missing")
     postgres_dsn = getattr(settings, "postgres_dsn", "")
     cors_allowed_origins = tuple(getattr(settings, "cors_allowed_origins", ()) or ())
     ocr_runtime = _settings_ocr_runtime(settings)
     ocr_assets_path = Path(ocr_runtime["assets_path"])
     ocr_ready = bool(ocr_runtime["runtime_enabled"]) and ocr_assets_path.exists()
     checks = [
-        {
-            "key": "llm",
-            "label": "LLM 运行时",
-            "status": "ready" if bool(openai_api_key) else "blocked",
-            "summary": "已配置 API Key，可启用智能问答与编排。"
-            if openai_api_key
-            else "未配置 API Key，问答与多智能体编排不可用。",
-            "detail": openai_base_url,
-        },
+        probe_llm_runtime(settings),
         {
             "key": "ocr",
             "label": "OCR 标准引擎",
@@ -7304,7 +9650,7 @@ def _build_acceptance_checklist(
             "key": "frontend",
             "label": "前端入口可访问",
             "status": "pass",
-            "detail": "打开 http://127.0.0.1:8080 并完成登录、工作台、管理台可见性检查。",
+            "detail": "打开 http://127.0.0.1:8080 并完成登录、工作台、运营保障中心可见性检查。",
         },
         {
             "key": "api",
@@ -7320,13 +9666,13 @@ def _build_acceptance_checklist(
         },
         {
             "key": "delivery",
-            "label": "交付就绪度达标",
+            "label": "系统就绪度达标",
             "status": "pass" if delivery_readiness.get("stage") == "ready" else "blocked",
-            "detail": f"当前阶段 {delivery_readiness.get('stage')}，可直接交付公司数 {delivery_readiness.get('ready_company_count', 0)}。",
+            "detail": f"当前阶段 {delivery_readiness.get('stage')}，稳定可用公司数 {delivery_readiness.get('ready_company_count', 0)}。",
         },
         {
             "key": "ocr_contract",
-            "label": "OCR Contract 验收通过",
+            "label": "OCR Contract 质检通过",
             "status": "pass" if contract_audit.get("status") == "ready" else "blocked",
             "detail": f"当前达标 {contract_audit.get('ready', 0)}/{contract_audit.get('total', 0)}，缺失 {contract_audit.get('missing', 0)}，不合格 {contract_audit.get('invalid', 0)}。",
         },
@@ -7622,7 +9968,7 @@ def _build_document_pipeline_execution_feedback(
     if stage == "cell_trace" and contract_status in {"missing", "invalid"}:
         fixed_count = max(before_summary.get(contract_status, 0) - after_summary.get(contract_status, 0), 0)
         remaining_count = after_summary.get(contract_status, 0)
-        headline = f"本次重跑处理 {processed} 份样本，修复 {fixed_count} 份，剩余 {remaining_count} 份 {contract_status}。"
+        headline = f"本次重跑处理 {processed} 份文档，修复 {fixed_count} 份，剩余 {remaining_count} 份 {contract_status}。"
     else:
         headline = f"本次执行完成 {processed} 个 {stage} 作业。"
     return {
@@ -7753,6 +10099,9 @@ def _append_industry_brain_snapshot(settings: Settings, payload: dict[str, Any])
             "sequence": payload.get("stream", {}).get("sequence"),
             "market_tape": payload.get("market_tape", []),
             "live_events": payload.get("live_events", []),
+            "external_signal_stream": payload.get("external_signal_stream", {}),
+            "streaming_snapshot": payload.get("streaming_snapshot", {}),
+            "streaming_anomalies": payload.get("streaming_anomalies", {}),
             "attention_matrix": payload.get("attention_matrix", []),
             "execution_flash": payload.get("execution_flash", []),
         }

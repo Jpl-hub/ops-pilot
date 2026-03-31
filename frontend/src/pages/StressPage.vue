@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
@@ -35,9 +35,17 @@ const propagationSteps = computed(() => stressState.data.value?.propagation_step
 const transmissionMatrix = computed(() => stressState.data.value?.transmission_matrix || [])
 const simulationLog = computed(() => stressState.data.value?.simulation_log || [])
 const stressWavefront = computed(() => stressState.data.value?.stress_wavefront || [])
+const stressCommandSurface = computed(() => stressState.data.value?.stress_command_surface || null)
+const affectedDimensions = computed(() => stressState.data.value?.affected_dimensions || [])
+const recoverySequence = computed(() => stressState.data.value?.stress_recovery_sequence || [])
+const relatedRoutes = computed(() => stressState.data.value?.related_routes || [])
+const evidenceLinks = computed(() => stressState.data.value?.evidence_navigation?.links || [])
+const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 3))
+const compactSimulationLog = computed(() => simulationLog.value.slice(0, 4))
 const activeWavefront = computed(() => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null)
 const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.value] || null)
 const canRunStress = computed(() => !!selectedCompany.value && !!scenarioDraft.value.trim())
+const stressLinks = computed(() => [...relatedRoutes.value, ...evidenceLinks.value].slice(0, 4))
 
 async function runStress() {
   if (!selectedCompany.value || !scenarioDraft.value.trim()) return
@@ -97,7 +105,7 @@ function selectPreset(item: string) {
           <label class="inline-field">
             <span class="subtle-label">公司</span>
             <select v-model="selectedCompany" class="glass-select">
-              <option v-if="!companies.length" value="">暂无公司</option>
+              <option v-if="!companies.length" value="">{{ overviewState.loading.value ? '正在载入公司池' : '当前无公司' }}</option>
               <option v-for="c in companies" :key="c" :value="c">{{ c }}</option>
             </select>
           </label>
@@ -153,9 +161,65 @@ function selectPreset(item: string) {
         <!-- Left: Transmission Matrix + Propagation Chain -->
         <div class="left-col">
 
+          <article class="glass-panel overview-panel" v-if="stressCommandSurface">
+            <div class="overview-head">
+              <div>
+                <span class="overview-eyebrow">本轮冲击结论</span>
+                <h3 class="overview-title">{{ stressCommandSurface.headline }}</h3>
+                <p class="overview-desc muted">{{ scenario }}</p>
+              </div>
+              <div class="severity-badge" :class="`tone-${stressState.data.value?.severity?.color || 'warning'}`">
+                {{ stressState.data.value?.severity?.level || 'UNKNOWN' }} {{ stressState.data.value?.severity?.label || '待确认' }}
+              </div>
+            </div>
+            <div class="overview-grid">
+              <div
+                v-for="item in affectedDimensions"
+                :key="item.label"
+                class="overview-stat"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+                <small>{{ item.hint }}</small>
+              </div>
+            </div>
+            <p class="overview-note">{{ stressCommandSurface.log_headline }}</p>
+          </article>
+
+          <article class="glass-panel recovery-panel" v-if="recoverySequence.length || stressLinks.length">
+            <div class="section-head">
+              <h3 class="panel-title">恢复动作</h3>
+              <span class="section-note">{{ recoverySequence.length }} 项优先动作</span>
+            </div>
+            <div class="recovery-list">
+              <article
+                v-for="item in recoverySequence.slice(0, 3)"
+                :key="item.step"
+                class="recovery-card"
+                :class="`tone-${item.tone || 'accent'}`"
+              >
+                <div class="recovery-step">0{{ item.step }}</div>
+                <div class="recovery-body">
+                  <strong>{{ item.title }}</strong>
+                  <p class="muted">{{ item.detail }}</p>
+                </div>
+              </article>
+            </div>
+            <div v-if="stressLinks.length" class="link-row">
+              <RouterLink
+                v-for="link in stressLinks"
+                :key="`${link.path}-${link.label}`"
+                class="stress-link"
+                :to="{ path: link.path, query: link.query || {} }"
+              >
+                {{ link.label }}
+              </RouterLink>
+            </div>
+          </article>
+
           <!-- Transmission Matrix -->
           <article class="glass-panel matrix-panel" v-if="transmissionMatrix.length">
-            <h3 class="panel-title">冲击传导网络</h3>
+            <h3 class="panel-title">重点传导环节</h3>
             <div class="matrix-grid">
               <div
                 v-for="(item, index) in transmissionMatrix"
@@ -189,7 +253,7 @@ function selectPreset(item: string) {
 
           <!-- Propagation Chain -->
           <article class="glass-panel chain-panel" v-if="propagationSteps.length">
-            <h3 class="panel-title">传播推演链路</h3>
+            <h3 class="panel-title">传导主链</h3>
             <div class="chain-list">
               <template v-for="(item, idx) in propagationSteps" :key="item.step">
                 <div class="chain-item" :class="{ 'is-active': idx <= activeStressStep }">
@@ -213,16 +277,16 @@ function selectPreset(item: string) {
         <!-- Right: Simulation Stream -->
         <div class="right-col">
           <article class="glass-panel stream-panel">
-            <h3 class="panel-title">仿真日志</h3>
+            <h3 class="panel-title">推演依据</h3>
 
             <!-- Active Wavefront -->
             <div class="wavefront-card">
               <div class="wavefront-head">
-                <span class="wavefront-lbl">当前冲击波前</span>
+                <span class="wavefront-lbl">当前重点</span>
                 <span class="wavefront-badge">{{ activeWavefront ? '推演中' : '就绪' }}</span>
               </div>
-              <h4 class="wavefront-title">{{ activeWavefront?.headline || activeSimulationLog?.title || '等待推演' }}</h4>
-              <p class="wavefront-desc muted">{{ activeWavefront?.log || activeSimulationLog?.detail || '系统准备冲击波前计算…' }}</p>
+              <h4 class="wavefront-title">{{ activeWavefront?.headline || stressCommandSurface?.headline || activeSimulationLog?.title || '等待推演' }}</h4>
+              <p class="wavefront-desc muted">{{ activeWavefront?.log || stressCommandSurface?.impact_label || activeSimulationLog?.detail || '系统准备冲击波前计算…' }}</p>
               <div class="meter-box">
                 <div class="meter-row">
                   <span class="muted">冲击能量</span>
@@ -237,7 +301,7 @@ function selectPreset(item: string) {
             <!-- Log List -->
             <div class="log-list">
               <div
-                v-for="item in simulationLog"
+                v-for="item in compactSimulationLog"
                 :key="`log-${item.step}`"
                 class="log-item glass-panel-hover"
                 :class="{ 'is-active': item.step - 1 === activeStressStep }"
@@ -253,6 +317,26 @@ function selectPreset(item: string) {
             <!-- Empty Right -->
             <div v-if="!simulationLog.length" class="empty-stream muted">
               推演完成后将显示仿真日志
+            </div>
+          </article>
+
+          <article class="glass-panel recent-panel" v-if="recentRuns.length">
+            <h3 class="panel-title">最近推演</h3>
+            <div class="recent-run-list">
+              <div
+                v-for="item in recentRuns"
+                :key="item.run_id"
+                class="recent-run-card"
+              >
+                <div class="recent-run-head">
+                  <strong>{{ item.company_name }}</strong>
+                  <span class="recent-run-badge" :class="`tone-${item.severity?.color || 'warning'}`">
+                    {{ item.severity?.label || item.severity?.level || '已记录' }}
+                  </span>
+                </div>
+                <p class="recent-run-scenario muted">{{ item.scenario }}</p>
+                <span class="recent-run-time">{{ item.created_at || '-' }}</span>
+              </div>
             </div>
           </article>
         </div>
@@ -305,6 +389,137 @@ function selectPreset(item: string) {
 .panel-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
 .muted { color: var(--muted); }
 
+/* Overview */
+.overview-panel,
+.recovery-panel { padding: 20px; border-radius: 16px; flex-shrink: 0; }
+.overview-head,
+.section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.overview-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(244,63,94,0.12);
+  color: #fda4af;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+.overview-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.35;
+  color: #fff;
+}
+.overview-desc {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+.overview-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+}
+.overview-stat span,
+.overview-stat small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.overview-stat strong {
+  font-size: 20px;
+  color: #fff;
+}
+.overview-note {
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.section-note {
+  font-size: 11px;
+  color: var(--muted);
+}
+.recovery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.recovery-card {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+}
+.recovery-card.tone-risk {
+  border-color: rgba(244,63,94,0.26);
+  background: rgba(127,29,29,0.16);
+}
+.recovery-step {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fb7185;
+  background: rgba(244,63,94,0.1);
+  border: 1px solid rgba(244,63,94,0.2);
+  flex-shrink: 0;
+}
+.recovery-body strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #fff;
+  font-size: 14px;
+}
+.recovery-body p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.stress-link {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+.stress-link:hover {
+  border-color: rgba(244,63,94,0.28);
+  background: rgba(244,63,94,0.08);
+  color: #fff;
+}
+
 /* Matrix */
 .matrix-panel { padding: 20px; border-radius: 16px; flex-shrink: 0; }
 .matrix-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
@@ -341,6 +556,7 @@ function selectPreset(item: string) {
 
 /* Simulation Stream */
 .stream-panel { flex: 1; padding: 20px; border-radius: 16px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+.recent-panel { margin-top: 14px; padding: 20px; border-radius: 16px; flex-shrink: 0; }
 
 .wavefront-card { background: linear-gradient(135deg, rgba(244,63,94,0.08), rgba(0,0,0,0.3)); border: 1px solid rgba(244,63,94,0.2); border-radius: 12px; padding: 14px; flex-shrink: 0; }
 .wavefront-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -365,4 +581,52 @@ function selectPreset(item: string) {
 .log-desc { font-size: 12px; margin: 0; line-height: 1.5; }
 
 .empty-stream { text-align: center; padding: 32px; font-size: 13px; }
+.recent-run-list { display: flex; flex-direction: column; gap: 10px; }
+.recent-run-card {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+}
+.recent-run-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.recent-run-head strong {
+  color: #fff;
+  font-size: 14px;
+}
+.recent-run-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.recent-run-badge.tone-risk { color: #fb7185; border-color: rgba(244,63,94,0.28); background: rgba(244,63,94,0.08); }
+.recent-run-badge.tone-warning { color: #fbbf24; border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.08); }
+.recent-run-badge.tone-safe { color: #34d399; border-color: rgba(16,185,129,0.28); background: rgba(16,185,129,0.08); }
+.recent-run-scenario {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.recent-run-time {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+@media (max-width: 1180px) {
+  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .overview-head,
+  .section-head { flex-direction: column; }
+}
 </style>

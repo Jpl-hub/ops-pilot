@@ -33,9 +33,7 @@ from opspilot.application.services import OpsPilotService
 from opspilot.delivery_report import build_delivery_report_markdown
 from opspilot.config import get_settings
 from opspilot.infra.auth_store import AuthStore
-from opspilot.infra.hybrid_repository import HybridRepository
-from opspilot.infra.official_repository import OfficialMetricsRepository
-from opspilot.infra.sample_repository import SampleRepository
+from opspilot.infra.repository_factory import build_repository
 
 
 router = APIRouter(prefix="/api/v1")
@@ -55,15 +53,7 @@ def _period_order_key(period: str | None) -> tuple[int, int]:
 @lru_cache(maxsize=1)
 def get_service() -> OpsPilotService:
     settings = get_settings()
-    repository = HybridRepository(
-        official_repository=OfficialMetricsRepository(
-            settings.silver_data_path,
-            settings.sample_data_path.parent / "universe" / "formal_company_pool.json",
-            bronze_chunks_dir=settings.bronze_data_path / "chunks",
-        ),
-        sample_repository=SampleRepository(settings.sample_data_path),
-    )
-    return OpsPilotService(repository, settings)
+    return OpsPilotService(build_repository(settings), settings)
 
 
 @lru_cache(maxsize=1)
@@ -186,7 +176,8 @@ async def industry_brain_stream(websocket: WebSocket) -> None:
     await websocket.accept()
     try:
         while True:
-            await websocket.send_json(get_service().industry_brain_tick())
+            payload = await asyncio.to_thread(get_service().industry_brain_tick)
+            await websocket.send_json(payload)
             await asyncio.sleep(1.5)
     except WebSocketDisconnect:
         return

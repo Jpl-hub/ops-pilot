@@ -14,6 +14,8 @@ const visionState = useAsyncState<any>()
 const runtimeState = useAsyncState<any>()
 const runsState = useAsyncState<any>()
 const pipelineRunning = ref(false)
+const actionError = ref('')
+const bootstrapping = ref(false)
 const selectedJobKey = ref('')
 
 const companies = computed(() => overviewState.data.value?.companies || [])
@@ -24,15 +26,41 @@ const availablePeriods = computed(() => overviewState.data.value?.available_peri
 
 const resultItems = computed(() => visionState.data.value?.result?.items || runtimeState.data.value?.vision?.items || [])
 const selectedResult = computed(() => visionState.data.value?.result || runtimeState.data.value?.vision || null)
-const phaseTrack = computed(() => runtimeState.data.value?.stages || selectedResult.value?.phase_track || [])
+const phaseTrack = computed(() => selectedResult.value?.phase_track || runtimeState.data.value?.stages || [])
 const extractionStream = computed(() => selectedResult.value?.extraction_stream || [])
 const analysisLog = computed(() => selectedResult.value?.analysis_log || [])
+const qualitySummary = computed(() => selectedResult.value?.quality_summary || null)
+const qualityMetrics = computed(() => qualitySummary.value?.metrics?.slice(0, 4) || [])
+const qualityDimensions = computed(() => qualitySummary.value?.dimensions?.slice(0, 3) || [])
+const qualityBlockers = computed(() => qualitySummary.value?.blockers?.slice(0, 2) || [])
+const compactExtractionStream = computed(() => extractionStream.value.slice(0, 4))
+const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 3))
+const visibleAnalysisLog = computed(() => analysisLog.value.slice(0, 4))
+const visibleSections = computed(() => selectedResult.value?.sections?.slice(0, 4) || [])
+const visibleResultItems = computed(() => resultItems.value.slice(0, 6))
+const sourcePreviewText = computed(() => {
+  const preview = selectedResult.value?.source_preview
+  if (!preview) return ''
+  if (typeof preview === 'string') return preview
+  const parts: string[] = []
+  if (preview.summary) parts.push(preview.summary)
+  if (Array.isArray(preview.tables) && preview.tables.length) parts.push(`预览表格 ${preview.tables.length} 个`)
+  if (Array.isArray(preview.cells) && preview.cells.length) parts.push(`预览单元格 ${preview.cells.length} 条`)
+  if (Array.isArray(preview.headings) && preview.headings.length) parts.push(`预览标题 ${preview.headings.length} 个`)
+  return parts.join(' · ')
+})
 const runtimeSummary = computed(() => runtimeState.data.value?.runtime || null)
 const pipelineJobs = computed(() => runtimeState.data.value?.latest_jobs || [])
 const canRunPipeline = computed(() => !!selectedCompany.value)
+const preferredJob = computed(() =>
+  [...pipelineJobs.value].sort((left: any, right: any) => {
+    const rank = (stage?: string) => ({ cross_page_merge: 1, title_hierarchy: 2, cell_trace: 3 }[stage || ''] || 0)
+    return rank(right.stage) - rank(left.stage)
+  })[0] || null,
+)
 const activeJob = computed(() =>
   pipelineJobs.value.find((item: any) => `${item.stage}-${item.report_id}` === selectedJobKey.value)
-  || pipelineJobs.value[0]
+  || preferredJob.value
   || null,
 )
 
@@ -51,13 +79,38 @@ function displayJobStatus(status?: string) {
 function displayArtifactSource(source?: string) {
   const map: Record<string, string> = {
     standard_ocr: '标准 OCR',
-    geometric_fallback: '几何恢复',
+    geometric_fallback: '几何恢复链',
   }
-  return map[source || ''] || source || '来源未识别'
+  return map[source || ''] || source || '当前阶段产物'
+}
+
+function displayPipelineStage(stage?: string) {
+  const map: Record<string, string> = {
+    cross_page_merge: '跨页拼接',
+    title_hierarchy: '标题层级',
+    cell_trace: '单元格溯源',
+  }
+  return map[stage || ''] || stage || '-'
+}
+
+function qualityTone(status?: string): 'default' | 'risk' | 'success' {
+  if (status === 'ready') return 'success'
+  if (status === 'blocked') return 'risk'
+  return 'default'
+}
+
+function displayQualityStatus(status?: string) {
+  const map: Record<string, string> = {
+    ready: '已达标',
+    warning: '需补强',
+    blocked: '待补齐',
+  }
+  return map[status || ''] || status || '-'
 }
 
 async function loadVision() {
   if (!selectedCompany.value) return
+  actionError.value = ''
   visionState.data.value = null
   const params = new URLSearchParams({ company_name: selectedCompany.value, user_role: 'management' })
   if (selectedPeriod.value) params.set('report_period', selectedPeriod.value)
@@ -77,6 +130,8 @@ async function runPipeline() {
       user_role: 'management',
     })
     await loadVision()
+  } catch (error) {
+    actionError.value = error instanceof Error ? error.message : '刷新解析链失败'
   } finally {
     pipelineRunning.value = false
   }
@@ -91,14 +146,29 @@ function selectJob(job: any) {
 }
 
 onMounted(async () => {
-  await overviewState.execute(() => get('/workspace/companies'))
-  selectedCompany.value = companies.value[0] || ''
-  selectedPeriod.value = overviewState.data.value?.preferred_period || ''
-  await loadVision()
+  bootstrapping.value = true
+  try {
+    await overviewState.execute(() => get('/workspace/companies'))
+    selectedCompany.value = companies.value[0] || ''
+    selectedPeriod.value = overviewState.data.value?.preferred_period || ''
+    try {
+      await loadVision()
+    } catch {
+      // 请求错误已由状态容器接管
+    }
+  } finally {
+    bootstrapping.value = false
+  }
 })
 
-watch(selectedCompany, async () => { await loadVision() })
-watch(selectedPeriod, async () => { await loadVision() })
+watch([selectedCompany, selectedPeriod], async () => {
+  if (bootstrapping.value) return
+  try {
+    await loadVision()
+  } catch {
+    // 请求错误已由状态容器接管
+  }
+})
 watch(
   pipelineJobs,
   (jobs) => {
@@ -107,8 +177,8 @@ watch(
       return
     }
     const exists = jobs.some((item: any) => `${item.stage}-${item.report_id}` === selectedJobKey.value)
-    if (!exists) {
-      selectedJobKey.value = `${jobs[0].stage}-${jobs[0].report_id}`
+    if (!exists && preferredJob.value) {
+      selectedJobKey.value = `${preferredJob.value.stage}-${preferredJob.value.report_id}`
     }
   },
   { immediate: true },
@@ -116,13 +186,13 @@ watch(
 </script>
 
 <template>
-  <AppShell title="多模态解析">
+  <AppShell title="文档智能解析">
     <div class="dashboard-wrapper">
 
       <!-- Control Bar -->
       <section class="glass-panel control-bar">
         <div class="control-left">
-          <div class="glow-icon">视</div>
+          <div class="glow-icon">文</div>
           <div>
             <h3 class="company-name text-gradient">{{ selectedCompany || '选择公司' }}</h3>
           </div>
@@ -153,8 +223,8 @@ watch(
 
       <LoadingState v-if="overviewState.loading.value || runtimeState.loading.value" class="state-container" />
       <ErrorState
-        v-else-if="overviewState.error.value || visionState.error.value"
-        :message="String(overviewState.error.value || visionState.error.value)"
+        v-else-if="overviewState.error.value || runtimeState.error.value || runsState.error.value || visionState.error.value || actionError"
+        :message="String(overviewState.error.value || runtimeState.error.value || runsState.error.value || visionState.error.value || actionError)"
         class="state-container"
       />
 
@@ -172,13 +242,11 @@ watch(
             <div v-if="selectedResult" class="status-badge-row">
               <TagPill :label="selectedResult.status_label || '就绪'" tone="success" />
               <TagPill v-if="selectedResult.company_name" :label="selectedResult.company_name" />
-              <TagPill
-                v-if="runtimeState.data.value?.latest_jobs?.[0]?.artifact_source"
-                :label="displayArtifactSource(runtimeState.data.value.latest_jobs[0].artifact_source)"
-              />
+              <TagPill v-if="qualitySummary" :label="qualitySummary.label" :tone="qualityTone(qualitySummary.status)" />
+              <TagPill v-if="qualitySummary?.artifact_source" :label="qualitySummary.artifact_source_label" />
             </div>
-            <p v-if="selectedResult?.source_preview" class="hero-preview muted">
-              {{ selectedResult.source_preview }}
+            <p v-if="sourcePreviewText" class="hero-preview muted">
+              {{ sourcePreviewText }}
             </p>
 
             <!-- Phase Track -->
@@ -192,9 +260,55 @@ watch(
                 <div class="phase-dot"></div>
                 <div class="phase-body">
                   <span class="phase-label">{{ phase.phase || phase.stage || phase.label }}</span>
-                  <strong class="phase-headline">{{ phase.headline || phase.summary || '等待运行' }}</strong>
+                  <strong class="phase-headline">{{ phase.headline || displayPipelineStage(phase.stage) || phase.summary || '等待运行' }}</strong>
                   <small class="muted">{{ phase.metric || displayJobStatus(phase.status) }}</small>
                 </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="glass-panel quality-panel" v-if="qualitySummary">
+            <div class="panel-head-compact">
+              <h3 class="panel-sm-title">解析质量总览</h3>
+              <TagPill :label="displayQualityStatus(qualitySummary.status)" :tone="qualityTone(qualitySummary.status)" />
+            </div>
+            <div class="quality-summary-copy">
+              <strong>{{ qualitySummary.headline }}</strong>
+              <p class="muted">{{ qualitySummary.summary }}</p>
+            </div>
+            <div class="stream-chips">
+              <div
+                v-for="item in qualityMetrics"
+                :key="`${item.label}-${item.value}`"
+                class="stream-chip"
+                :class="`tone-${item.tone || 'accent'}`"
+              >
+                <span class="chip-label">{{ item.label }}</span>
+                <strong class="chip-val">{{ item.value }}</strong>
+              </div>
+            </div>
+            <div class="quality-dimension-list">
+              <div
+                v-for="item in qualityDimensions"
+                :key="item.key"
+                class="quality-dimension-card"
+                :class="`is-${item.status}`"
+              >
+                <div class="quality-dimension-head">
+                  <strong>{{ item.label }}</strong>
+                  <span class="quality-status-text">{{ displayQualityStatus(item.status) }}</span>
+                </div>
+                <p class="muted">{{ item.summary }}</p>
+              </div>
+            </div>
+            <div v-if="qualityBlockers.length" class="quality-blocker-list">
+              <div
+                v-for="item in qualityBlockers"
+                :key="item.title"
+                class="quality-blocker-card"
+              >
+                <strong>{{ item.title }}</strong>
+                <p class="muted">{{ item.detail }}</p>
               </div>
             </div>
           </article>
@@ -204,7 +318,7 @@ watch(
             <h3 class="panel-sm-title">结构抽取信号</h3>
             <div class="stream-chips">
               <div
-                v-for="item in extractionStream"
+                v-for="item in compactExtractionStream"
                 :key="item.label + item.value"
                 class="stream-chip"
                 :class="`tone-${item.tone || 'accent'}`"
@@ -216,11 +330,11 @@ watch(
           </article>
 
           <!-- History Runs -->
-          <article class="glass-panel runs-panel scroll-area" v-if="(runsState.data.value?.runs || []).length">
+          <article class="glass-panel runs-panel" v-if="recentRuns.length">
             <h3 class="panel-sm-title">历史解析记录</h3>
             <div class="runs-list">
               <div
-                v-for="item in runsState.data.value?.runs || []"
+                v-for="item in recentRuns"
                 :key="item.run_id"
                 class="run-item glass-panel-hover"
                 @click="openVisionRun(item.run_id)"
@@ -240,7 +354,7 @@ watch(
 
           <!-- Pipeline Jobs -->
           <article class="glass-panel jobs-panel" v-if="pipelineJobs.length">
-            <h3 class="panel-sm-title">解析工序流水</h3>
+            <h3 class="panel-sm-title">当前工序</h3>
             <div class="jobs-grid">
               <div
                 v-for="job in pipelineJobs"
@@ -250,12 +364,15 @@ watch(
                 @click="selectJob(job)"
               >
                 <div class="job-head">
-                  <span class="job-stage">{{ job.stage }}</span>
+                  <span class="job-stage">{{ displayPipelineStage(job.stage) }}</span>
                   <span class="job-status" :class="job.status === 'done' || job.status === 'completed' ? 'text-accent' : 'muted'">{{ displayJobStatus(job.status) }}</span>
                 </div>
                 <strong class="job-company">{{ job.company_name }}</strong>
                 <p class="job-summary muted">{{ job.artifact_summary || '等待摘要' }}</p>
-                <p class="job-summary muted">{{ displayArtifactSource(job.artifact_source) }}</p>
+                <p class="job-summary muted">
+                  {{ displayArtifactSource(job.artifact_source) }}
+                  <template v-if="job.contract_status"> · 质检 {{ displayJobStatus(job.contract_status) }}</template>
+                </p>
               </div>
             </div>
           </article>
@@ -265,7 +382,7 @@ watch(
             <div class="artifact-grid">
               <div class="artifact-kv">
                 <span class="muted">工序</span>
-                <strong>{{ activeJob.stage }}</strong>
+                <strong>{{ displayPipelineStage(activeJob.stage) }}</strong>
               </div>
               <div class="artifact-kv">
                 <span class="muted">报文</span>
@@ -279,16 +396,20 @@ watch(
                 <span class="muted">状态</span>
                 <strong>{{ displayJobStatus(activeJob.status) }}</strong>
               </div>
+              <div v-if="activeJob.contract_status" class="artifact-kv">
+                <span class="muted">质检</span>
+                <strong>{{ displayJobStatus(activeJob.contract_status) }}</strong>
+              </div>
             </div>
             <p class="job-summary muted">{{ activeJob.artifact_summary || '当前产物尚无结构摘要。' }}</p>
           </article>
 
           <!-- Analysis Log -->
           <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">解析过程追踪</h3>
+            <h3 class="panel-sm-title">当前进展</h3>
             <div class="log-list">
               <div
-                v-for="item in analysisLog"
+                v-for="item in visibleAnalysisLog"
                 :key="`log-${item.step}`"
                 class="log-item"
               >
@@ -302,11 +423,11 @@ watch(
           </article>
 
           <!-- Sections from Result -->
-          <article class="glass-panel sections-panel scroll-area flex-1" v-else-if="selectedResult?.sections?.length">
+          <article class="glass-panel sections-panel scroll-area flex-1" v-else-if="visibleSections.length">
             <h3 class="panel-sm-title">结构化抽取结果</h3>
             <div class="sections-grid">
               <div
-                v-for="section in selectedResult.sections"
+                v-for="section in visibleSections"
                 :key="section.section_type"
                 class="section-card glass-panel-hover"
               >
@@ -325,10 +446,10 @@ watch(
           </article>
 
           <!-- Result Items -->
-          <article class="glass-panel items-panel scroll-area flex-1" v-else-if="resultItems.length">
+          <article class="glass-panel items-panel scroll-area flex-1" v-else-if="visibleResultItems.length">
             <h3 class="panel-sm-title">解析条目清单</h3>
             <div class="items-list">
-              <div v-for="item in resultItems" :key="`${item.kind}-${item.title}`" class="item-row glass-panel-hover">
+              <div v-for="item in visibleResultItems" :key="`${item.kind}-${item.title}`" class="item-row glass-panel-hover">
                 <strong>{{ item.title }}</strong>
                 <span class="muted">{{ item.summary }}</span>
               </div>
@@ -417,6 +538,10 @@ watch(
 
 /* Stream */
 .stream-panel { padding: 20px; border-radius: 20px; flex-shrink: 0; }
+.quality-panel { padding: 20px; border-radius: 20px; display: flex; flex-direction: column; gap: 14px; }
+.quality-summary-copy { display: flex; flex-direction: column; gap: 4px; }
+.quality-summary-copy strong { font-size: 15px; color: #fff; }
+.quality-summary-copy p { margin: 0; font-size: 12px; line-height: 1.6; }
 .stream-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .stream-chip { display: flex; flex-direction: column; align-items: center; padding: 10px 14px; border-radius: 10px; min-width: 80px; }
 .stream-chip.tone-accent { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); }
@@ -424,6 +549,19 @@ watch(
 .stream-chip.tone-warning { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); }
 .chip-label { font-size: 11px; color: var(--muted); }
 .chip-val { font-size: 14px; font-weight: 600; color: #fff; }
+.quality-dimension-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.quality-dimension-card { padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); }
+.quality-dimension-card.is-ready { border-color: rgba(59,130,246,0.25); background: rgba(59,130,246,0.08); }
+.quality-dimension-card.is-warning { border-color: rgba(245,158,11,0.25); background: rgba(245,158,11,0.08); }
+.quality-dimension-card.is-blocked { border-color: rgba(239,68,68,0.25); background: rgba(239,68,68,0.08); }
+.quality-dimension-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 6px; }
+.quality-dimension-head strong { font-size: 13px; color: #fff; }
+.quality-status-text { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.quality-dimension-card p { margin: 0; font-size: 12px; line-height: 1.6; }
+.quality-blocker-list { display: flex; flex-direction: column; gap: 8px; }
+.quality-blocker-card { padding: 12px; border-radius: 12px; border: 1px solid rgba(239,68,68,0.18); background: rgba(239,68,68,0.08); }
+.quality-blocker-card strong { display: block; margin-bottom: 4px; color: #fff; font-size: 13px; }
+.quality-blocker-card p { margin: 0; font-size: 12px; line-height: 1.6; }
 
 /* Runs */
 .runs-panel { padding: 20px; border-radius: 20px; }
@@ -448,6 +586,9 @@ watch(
 .artifact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
 .artifact-kv { display: flex; flex-direction: column; gap: 4px; }
 .artifact-kv strong { font-size: 13px; color: #fff; word-break: break-word; }
+.artifact-location-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.artifact-location-card { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); display: flex; flex-direction: column; gap: 6px; }
+.artifact-location-card code { font-size: 11px; white-space: pre-wrap; word-break: break-all; color: #cbd5e1; }
 
 /* Log */
 .log-panel { padding: 20px; border-radius: 20px; }
@@ -487,4 +628,21 @@ watch(
 
 /* Common */
 .panel-sm-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+
+@media (max-width: 1180px) {
+  .dashboard-wrapper { overflow: auto; }
+  .dashboard-grid { grid-template-columns: 1fr; }
+  .left-col, .right-col { overflow: visible; }
+  .flex-1 { min-height: 280px; }
+}
+
+@media (max-width: 768px) {
+  .control-bar { flex-direction: column; align-items: stretch; gap: 14px; padding: 16px; }
+  .inline-context { flex-wrap: wrap; gap: 12px; }
+  .inline-field { flex: 1 1 180px; }
+  .glass-select { width: 100%; }
+  .dashboard-grid { gap: 12px; }
+  .artifact-grid { grid-template-columns: 1fr; }
+  .jobs-grid, .sections-grid, .quality-dimension-list { grid-template-columns: 1fr; }
+}
 </style>

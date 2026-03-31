@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { post, type UserRole } from '@/lib/api'
@@ -15,30 +15,29 @@ defineProps<{
 const router = useRouter()
 const route = useRoute()
 const session = useSession()
-const toolsExpanded = ref(true)
 const roleOptions: Array<{ value: UserRole; label: string }> = [
-  { value: 'investor', label: '投资视角' },
-  { value: 'management', label: '经营视角' },
-  { value: 'regulator', label: '风控视角' },
+  { value: 'investor', label: '投资者' },
+  { value: 'management', label: '管理层' },
+  { value: 'regulator', label: '监管风控' },
 ]
 
-const primaryNavItems = [
-  { to: '/', label: '首页' },
-  { to: '/brain', label: '产业大脑', auth: true },
-  { to: '/workspace', label: '协同分析', auth: true },
-  { to: '/score', label: '企业体检', auth: true },
-  { to: '/admin', label: '管理台', auth: true },
+const sidebarItems = [
+  { to: '/brain', label: '新能源产业大脑', detail: '实时行业监测', auth: true },
+  { to: '/workspace', label: '多智能体协同', detail: '协同分析台', auth: true },
+  { to: '/graph', label: '图谱增强检索', detail: '证据路径追踪', auth: true },
+  { to: '/stress', label: '产业链压力测试', detail: '冲击传导推演', auth: true },
+  { to: '/score', label: '企业运营体检', detail: '经营健康诊断', auth: true },
+  { to: '/verify', label: '研报观点核验', detail: '观点事实核卡', auth: true },
+  { to: '/vision', label: '多模态图表解析', detail: '图表与文档识别', auth: true },
 ]
-const toolNavItems = [
-  { to: '/graph', label: '图谱检索', auth: true },
-  { to: '/stress', label: '压力测试', auth: true },
-  { to: '/verify', label: '研报核验', auth: true },
-  { to: '/vision', label: '多模态解析', auth: true },
-]
-const isToolRoute = computed(() => toolNavItems.some((item) => item.to === route.path))
-if (isToolRoute.value) {
-  toolsExpanded.value = true
-}
+
+const visibleSidebarItems = computed(() =>
+  sidebarItems.filter((item) => !item.auth || session.isAuthenticated.value),
+)
+
+const activeNavLabel = computed(
+  () => sidebarItems.find((item) => item.to === route.path)?.label || '协同分析',
+)
 
 async function logout() {
   try {
@@ -52,96 +51,306 @@ async function logout() {
 </script>
 
 <template>
-  <div class="shell shell-layout">
-    <div class="absolute-bg shell-bg-pattern" style="position: absolute; inset: 0; pointer-events: none; z-index: 0;"></div>
-    <div class="absolute-bg shell-bg-glow" style="position: absolute; inset: 0; pointer-events: none; z-index: 0;"></div>
-
-    <aside class="shell-sidebar glass-panel">
-      <RouterLink class="brand-lockup" to="/">
-        <div class="brand-icon">◎</div>
-        <div class="brand-copy">
-          <span class="brand-kicker">{{ kicker || 'OpsPilot-X' }}</span>
+  <div class="shell shell-layout app-shell">
+    <aside class="shell-sidebar app-sidebar">
+      <RouterLink class="brand-lockup app-brand" to="/">
+        <div class="brand-icon app-brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M8 7v10" />
+            <path d="M16 7v10" />
+            <path d="M7 8h10" />
+            <path d="M7 16h10" />
+            <path d="M10 12h4" />
+          </svg>
+        </div>
+        <div class="brand-copy app-brand-copy">
           <strong class="brand-name">N.E.W.S. Agent</strong>
+          <span class="brand-kicker">{{ kicker || 'NEW ENERGY WISDOM SYSTEM' }}</span>
         </div>
       </RouterLink>
 
-      <div class="sidebar-group">
-        <nav class="top-nav top-nav-main top-nav-vertical">
-          <RouterLink
-            v-for="item in primaryNavItems"
-            v-show="!item.auth || session.isAuthenticated.value"
-            :key="item.to"
-            :to="item.to"
-            class="sidebar-nav-item"
-          >
-            <strong>{{ item.label }}</strong>
-          </RouterLink>
-        </nav>
-      </div>
+      <nav class="app-nav">
+        <RouterLink
+          v-for="item in visibleSidebarItems"
+          :key="item.to"
+          :to="item.to"
+          class="app-nav-item"
+        >
+          <strong>{{ item.label }}</strong>
+          <span>{{ item.detail }}</span>
+        </RouterLink>
+      </nav>
 
-      <div v-if="session.isAuthenticated.value" class="sidebar-group">
-        <button class="sidebar-collapse" type="button" @click="toolsExpanded = !toolsExpanded">
-          <span>分析工具</span>
-          <strong>{{ toolsExpanded ? '−' : '+' }}</strong>
-        </button>
-        <nav v-if="toolsExpanded" class="top-nav top-nav-main top-nav-vertical">
-          <RouterLink
-            v-for="item in toolNavItems"
-            :key="item.to"
-            :to="item.to"
-            class="sidebar-nav-item sidebar-nav-item-subtle"
-          >
-            <strong>{{ item.label }}</strong>
-          </RouterLink>
-        </nav>
-      </div>
-
-      <div class="sidebar-footer">
-        <div v-if="session.isAuthenticated.value" class="sidebar-group">
-          <div class="sidebar-control">
-            <label class="role-switch role-switch-card">
-              <select
-                :value="session.activeRole.value"
-                @change="session.setActiveRole(($event.target as HTMLSelectElement).value as UserRole)"
-              >
-                <option v-for="item in roleOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-              </select>
-            </label>
-          </div>
+      <div class="app-sidebar-footer">
+        <div v-if="session.isAuthenticated.value" class="app-role-box">
+          <span class="app-muted-label">当前视角</span>
+          <label class="app-role-select">
+            <select
+              :value="session.activeRole.value"
+              @change="session.setActiveRole(($event.target as HTMLSelectElement).value as UserRole)"
+            >
+              <option v-for="item in roleOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+          </label>
         </div>
 
-        <div class="sidebar-group">
-          <div v-if="session.isAuthenticated.value" class="sidebar-utility-stack">
-            <RouterLink to="/profile" class="sidebar-utility-card sidebar-utility-card-action sidebar-utility-card-compact">
-              <strong>{{ session.currentUser.value?.display_name }}</strong>
+        <div class="app-user-box">
+          <template v-if="session.isAuthenticated.value">
+            <RouterLink to="/profile" class="app-footer-link">
+              {{ session.currentUser.value?.display_name || '个人档案' }}
             </RouterLink>
-            <button class="button-secondary sidebar-utility-card sidebar-utility-card-compact sidebar-utility-card-action" @click="logout">
-              <strong>退出登录</strong>
-            </button>
-          </div>
-          <div v-else class="sidebar-utility-stack">
-            <RouterLink to="/login" class="sidebar-utility-card sidebar-utility-card-action sidebar-utility-card-compact">
-              <strong>登录</strong>
-            </RouterLink>
-            <RouterLink to="/register" class="sidebar-utility-card sidebar-utility-card-action sidebar-utility-card-compact">
-              <strong>注册</strong>
-            </RouterLink>
-          </div>
+            <RouterLink to="/admin" class="app-footer-link">运行保障</RouterLink>
+            <button type="button" class="app-footer-link is-button" @click="logout">退出</button>
+          </template>
+          <template v-else>
+            <RouterLink to="/login" class="app-footer-link">登录</RouterLink>
+            <RouterLink to="/register" class="app-footer-link">注册</RouterLink>
+          </template>
+        </div>
+
+        <div class="app-status-line">
+          <i></i>
+          <span>System Online · {{ activeNavLabel }}</span>
         </div>
       </div>
     </aside>
-    <main class="shell-main">
-      <header class="page-header" style="padding: 24px 24px 0; flex-shrink: 0;">
-        <div v-if="title || subtitle" class="page-copy" :class="{ compact }">
-          <div class="page-context">
-            <div v-if="title && subtitle" class="eyebrow">{{ title }}</div>
-            <h1 class="page-title">{{ subtitle || title }}</h1>
-          </div>
+
+    <main class="shell-main app-main">
+      <header v-if="title || subtitle" class="app-topbar">
+        <div class="app-topbar-title">
+          <span v-if="title && subtitle">{{ title }}</span>
+          <strong>{{ subtitle || title }}</strong>
         </div>
       </header>
-      <div class="page-content" style="flex: 1; display: flex; flex-direction: column; padding: 16px 24px 24px; overflow-y: auto; min-height: 0;">
+      <div class="page-content app-content">
         <slot />
       </div>
     </main>
   </div>
 </template>
+
+<style scoped>
+.app-shell {
+  background:
+    linear-gradient(180deg, rgba(6, 8, 13, 0.98), rgba(8, 10, 16, 0.96)),
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.08), transparent 24%);
+}
+
+.app-sidebar {
+  width: 304px;
+  padding: 22px 16px 18px;
+  gap: 18px;
+  background:
+    linear-gradient(180deg, rgba(7, 8, 12, 0.98), rgba(6, 8, 13, 0.95));
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+
+.app-brand {
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.app-brand-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: #58f0c0;
+  border-color: rgba(88, 240, 192, 0.3);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.app-brand-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.app-brand-copy {
+  gap: 6px;
+}
+
+.app-brand-copy .brand-name {
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+.app-brand-copy .brand-kicker {
+  color: rgba(88, 240, 192, 0.78);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+}
+
+.app-nav {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.app-nav-item {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.app-nav-item strong {
+  font-size: 14px;
+  line-height: 1.25;
+  color: #eef2f7;
+}
+
+.app-nav-item span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: rgba(110, 137, 170, 0.9);
+}
+
+.app-nav-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.06);
+  transform: translateY(-1px);
+}
+
+.app-nav-item.router-link-active {
+  background: rgba(18, 62, 45, 0.88);
+  border-color: rgba(52, 211, 153, 0.22);
+}
+
+.app-nav-item.router-link-active span {
+  color: rgba(110, 242, 194, 0.82);
+}
+
+.app-sidebar-footer {
+  margin-top: auto;
+  display: grid;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.app-muted-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(120, 143, 172, 0.78);
+}
+
+.app-role-box,
+.app-user-box {
+  display: grid;
+  gap: 8px;
+}
+
+.app-role-select select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #eef2f7;
+}
+
+.app-user-box {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.app-footer-link {
+  min-height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  color: #d7dee8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.app-footer-link.is-button {
+  cursor: pointer;
+}
+
+.app-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(120, 143, 172, 0.88);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.app-status-line i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #2ee6a6;
+  box-shadow: 0 0 14px rgba(46, 230, 166, 0.38);
+}
+
+.app-main {
+  background:
+    linear-gradient(180deg, rgba(14, 15, 18, 0.98), rgba(10, 11, 15, 0.98));
+}
+
+.app-topbar {
+  min-height: 42px;
+  padding: 12px 22px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.app-topbar-title {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.app-topbar-title span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(120, 143, 172, 0.72);
+}
+
+.app-topbar-title strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(232, 238, 245, 0.92);
+}
+
+.app-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 18px 22px 22px;
+  overflow-y: auto;
+}
+
+@media (max-width: 960px) {
+  .app-sidebar {
+    width: 100%;
+    height: auto;
+    max-height: none;
+  }
+
+  .app-user-box {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

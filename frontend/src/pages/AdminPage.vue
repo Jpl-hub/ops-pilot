@@ -58,8 +58,8 @@ const selectedCompanyIssueGuide = computed(() => {
   }
   const guideMap: Record<string, { owner: string; action: string }> = {
     '缺定期报告': { owner: '数据接入', action: '优先补原始定期报告清单和归档文件。' },
-    '缺页级解析': { owner: '文档解析', action: '检查 bronze 页级 JSON 是否生成并回填 manifest。' },
-    '缺结构化指标': { owner: '指标抽取', action: '回看 silver 抽取结果与异常拦截规则。' },
+    '缺页级解析': { owner: '文档解析', action: '检查原始层页级结果是否生成并成功回填清单。' },
+    '缺结构化指标': { owner: '指标抽取', action: '回看指标层抽取结果与异常拦截规则。' },
     '缺研报': { owner: '研究接入', action: '补齐公司研报源，避免核验与横评能力失效。' },
     '缺主周期': { owner: '主周期治理', action: '补齐主报期数据，避免当前周期无法评估。' },
   }
@@ -71,6 +71,73 @@ const selectedCompanyIssueGuide = computed(() => {
 })
 
 const deliveryReport = computed(() => deliveryReportState.data.value)
+const workspaceRuntimeAudit = computed(() => state.data.value?.workspace_runtime_audit || null)
+const topSummaryCards = computed(() => {
+  const data = state.data.value
+  if (!data) return []
+  const health = data.health || {}
+  const report = deliveryReport.value
+  const streamingRuntime = data.streaming_runtime || {}
+  const contractAudit = data.document_pipeline?.cell_trace?.contract_audit || {}
+  return [
+    {
+      label: '系统状态',
+      value: health.status || '-',
+      hint: health.env || '未识别环境',
+      tone: health.status === 'ok' ? 'success' : 'risk',
+    },
+    {
+      label: '主评估周期',
+      value: health.preferred_period || '-',
+      hint: `公司池 ${health.companies || 0} 家`,
+      tone: 'default',
+    },
+    {
+      label: '稳定可用企业',
+      value: String(report?.summary_cards?.ready_company_count ?? data.delivery_readiness?.ready_company_count ?? 0),
+      hint: `待治理 ${report?.summary_cards?.blocked_company_count ?? data.delivery_readiness?.blocked_company_count ?? 0} 家`,
+      tone: 'success',
+    },
+    {
+      label: '实时外部信号',
+      value: String(streamingRuntime.message_count ?? data.data_status?.bronze_signal_events?.record_count ?? 0),
+      hint: streamingRuntime.freshness_label || '等待最新消息',
+      tone: streamingRuntime.status === 'stale' || streamingRuntime.status === 'unavailable' ? 'risk' : 'default',
+    },
+    {
+      label: 'OCR 结构契约',
+      value: `${contractAudit.ready || 0}/${contractAudit.total || 0}`,
+      hint: `缺失 ${contractAudit.missing || 0} · 不合格 ${contractAudit.invalid || 0}`,
+      tone: (contractAudit.missing || 0) + (contractAudit.invalid || 0) > 0 ? 'risk' : 'success',
+    },
+    {
+      label: '运行阻断',
+      value: String(report?.summary_cards?.runtime_blocked_count ?? data.runtime_readiness?.blocked_count ?? 0),
+      hint: `关键检查 ${report?.summary_cards?.acceptance_passed ?? data.acceptance_checklist?.passed ?? 0}/${report?.summary_cards?.acceptance_total ?? data.acceptance_checklist?.total ?? 0}`,
+      tone: (report?.summary_cards?.runtime_blocked_count ?? data.runtime_readiness?.blocked_count ?? 0) > 0 ? 'risk' : 'default',
+    },
+  ]
+})
+const priorityActions = computed(() => state.data.value?.delivery_readiness?.priority_actions?.slice(0, 3) || [])
+const focusedRuntimeChecks = computed(() => {
+  const checks = state.data.value?.runtime_readiness?.checks || []
+  return [...checks]
+    .sort((left: any, right: any) => Number(right.status === 'blocked') - Number(left.status === 'blocked'))
+    .slice(0, 4)
+})
+const focusedAcceptanceItems = computed(() => {
+  const items = state.data.value?.acceptance_checklist?.items || []
+  return [...items]
+    .sort((left: any, right: any) => Number(right.status !== 'pass') - Number(left.status !== 'pass'))
+    .slice(0, 5)
+})
+const focusedIssueBuckets = computed(() => deliveryReport.value?.issue_buckets?.slice(0, 4) || [])
+const focusedRemediationRuns = computed(() => deliveryReport.value?.recent_remediation_runs?.slice(0, 3) || [])
+const focusedContractSamples = computed(() => state.data.value?.document_pipeline?.cell_trace?.contract_audit?.samples?.slice(0, 3) || [])
+const focusedResults = computed(() => (resultsState.data.value?.results || []).slice(0, 8))
+const focusedWorkspaceHistory = computed(() => (state.data.value?.workspace_history?.records || []).slice(0, 4))
+const focusedAuditCompanies = computed(() => workspaceRuntimeAudit.value?.company_heat?.slice(0, 3) || [])
+const focusedAuditRuns = computed(() => workspaceRuntimeAudit.value?.recent_runs?.slice(0, 4) || [])
 
 onMounted(() => {
   void refreshAdminState()
@@ -155,10 +222,10 @@ const canRerunFilteredCellTrace = computed(() => {
 
 function displayReadinessStage(stage?: string) {
   const map: Record<string, string> = {
-    bootstrapping: '启动期',
-    hardening: '加固期',
-    blocked: '阻断',
-    ready: '就绪',
+    bootstrapping: '建设期',
+    hardening: '优化期',
+    blocked: '待处理',
+    ready: '稳定',
     pass: '通过',
   }
   return map[stage || ''] || stage || '-'
@@ -196,11 +263,22 @@ function displayArtifactSource(source?: string) {
 
 function displayHistoryType(historyType?: string) {
   const map: Record<string, string> = {
-    document_pipeline_run: '整改运行',
+    document_pipeline_run: '治理运行',
     artifact: '产物记录',
     query: '查询记录',
   }
   return map[historyType || ''] || historyType || '-'
+}
+
+function formatMilliseconds(value?: number | null) {
+  if (value === undefined || value === null) return '-'
+  if (value < 1000) return `${Math.round(value)} ms`
+  return `${(value / 1000).toFixed(2)} s`
+}
+
+function formatDecimal(value?: number | null) {
+  if (value === undefined || value === null) return '-'
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
 async function exportDeliveryReport(format: 'markdown' | 'json') {
@@ -214,7 +292,7 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = format === 'markdown' ? 'delivery_report.md' : 'delivery_report.json'
+    anchor.download = format === 'markdown' ? 'ops_runtime_report.md' : 'ops_runtime_report.json'
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
@@ -226,7 +304,7 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 </script>
 
 <template>
-  <AppShell title="系统管理台" subtitle="全域数据覆盖与文档解析追踪" compact>
+  <AppShell title="运营保障中心" subtitle="数据覆盖、解析质量与运行稳定性" compact>
     <div class="dashboard-wrapper">
       <LoadingState v-if="state.loading.value" class="state-container" />
       <ErrorState v-else-if="state.error.value" :message="state.error.value" class="state-container" />
@@ -235,25 +313,15 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
         
         <!-- Top Health Strip -->
         <section class="glass-panel metrics-strip">
-          <div class="metric-block">
-            <span class="mb-label">系统状态</span>
-            <div class="mb-val-wrap"><span class="status-dot"></span><strong class="mb-value text-accent">{{ state.data.value.health.status }}</strong></div>
-            <span class="muted text-xs">{{ state.data.value.health.env }}</span>
-          </div>
-          <div class="metric-block">
-            <span class="mb-label">主评估周期</span>
-            <strong class="mb-value">{{ state.data.value.health.preferred_period }}</strong>
-            <span class="muted text-xs">公司池 {{ state.data.value.health.companies }} 家</span>
-          </div>
-          <div class="metric-block">
-            <span class="mb-label">原始定期报告</span>
-            <strong class="mb-value">{{ state.data.value.data_status.periodic_reports.record_count }}</strong>
-            <span class="muted text-xs">实供公司 {{ state.data.value.data_status.periodic_reports.company_count }} 家</span>
-          </div>
-          <div class="metric-block border-none">
-            <span class="mb-label">结构化指标池</span>
-            <strong class="mb-value text-gradient">{{ state.data.value.data_status.silver_financial_metrics.record_count }}</strong>
-            <span class="muted text-xs">覆盖 {{ state.data.value.data_status.silver_financial_metrics.company_count }} 家</span>
+          <div
+            v-for="card in topSummaryCards"
+            :key="card.label"
+            class="metric-block"
+            :class="`is-${card.tone}`"
+          >
+            <span class="mb-label">{{ card.label }}</span>
+            <strong class="mb-value">{{ card.value }}</strong>
+            <span class="muted text-xs">{{ card.hint }}</span>
           </div>
         </section>
 
@@ -302,7 +370,7 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 
             <article class="glass-panel p-panel mt-6">
               <div class="panel-head-compact">
-                <h3 class="panel-sm-title mb-4">交付报告</h3>
+                <h3 class="panel-sm-title mb-4">交付摘要</h3>
                 <div class="flex gap-2">
                   <button
                     class="inline-glass-link py-1 px-3"
@@ -333,11 +401,11 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                     <strong>{{ deliveryReport.summary_cards.pool_companies }}</strong>
                   </div>
                   <div class="readiness-stat">
-                    <span>可直接交付</span>
+                    <span>稳定可用</span>
                     <strong>{{ deliveryReport.summary_cards.ready_company_count }}</strong>
                   </div>
                   <div class="readiness-stat">
-                    <span>待整改公司</span>
+                    <span>待治理公司</span>
                     <strong>{{ deliveryReport.summary_cards.blocked_company_count }}</strong>
                   </div>
                   <div class="readiness-stat">
@@ -348,35 +416,35 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                 <div class="report-grid">
                   <div class="runtime-check-card" :class="deliveryReport.runtime_readiness.blocked_checks.length ? 'is-blocked' : 'is-ready'">
                     <div class="runtime-check-head">
-                      <strong>运行时阻断项</strong>
+                      <strong>运行阻断项</strong>
                       <span class="tag" :class="deliveryReport.runtime_readiness.blocked_checks.length ? 'risk-tag' : 'success-tag'">
                         {{ deliveryReport.runtime_readiness.blocked_checks.length || 0 }}
                       </span>
                     </div>
                     <div v-if="deliveryReport.runtime_readiness.blocked_checks.length" class="runtime-check-list compact-stack">
-                      <div v-for="item in deliveryReport.runtime_readiness.blocked_checks" :key="item.label" class="report-list-card">
+                      <div v-for="item in deliveryReport.runtime_readiness.blocked_checks.slice(0, 3)" :key="item.label" class="report-list-card">
                         <strong>{{ item.label }}</strong>
                         <p>{{ item.summary }}</p>
                         <code>{{ item.detail }}</code>
                         <p v-if="item.remediation" class="runtime-remediation">{{ item.remediation }}</p>
                       </div>
                     </div>
-                    <p v-else>当前运行时检查已经清零，没有交付级阻断项。</p>
+                    <p v-else>当前运行时检查已经清零，没有影响业务使用的阻断项。</p>
                   </div>
                   <div class="runtime-check-card" :class="deliveryReport.acceptance_checklist.blocked_items.length ? 'is-blocked' : 'is-ready'">
                     <div class="runtime-check-head">
-                      <strong>验收未通过项</strong>
+                      <strong>当前待处理项</strong>
                       <span class="tag" :class="deliveryReport.acceptance_checklist.blocked_items.length ? 'risk-tag' : 'success-tag'">
                         {{ deliveryReport.acceptance_checklist.blocked_items.length || 0 }}
                       </span>
                     </div>
                     <div v-if="deliveryReport.acceptance_checklist.blocked_items.length" class="runtime-check-list compact-stack">
-                      <div v-for="item in deliveryReport.acceptance_checklist.blocked_items" :key="item.label" class="report-list-card">
+                      <div v-for="item in deliveryReport.acceptance_checklist.blocked_items.slice(0, 3)" :key="item.label" class="report-list-card">
                         <strong>{{ item.label }}</strong>
                         <p>{{ item.detail }}</p>
                       </div>
                     </div>
-                    <p v-else>当前验收项已全部通过，可以进入正式交付演示。</p>
+                    <p v-else>当前关键检查项已全部通过，系统处于稳定可用状态。</p>
                   </div>
                 </div>
                 <div class="report-grid">
@@ -385,9 +453,9 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                       <strong>当前问题簇</strong>
                       <span class="tag subtle-tag">{{ deliveryReport.issue_buckets.length }} 类</span>
                     </div>
-                    <div v-if="deliveryReport.issue_buckets.length" class="tag-row compact-tags">
+                    <div v-if="focusedIssueBuckets.length" class="tag-row compact-tags">
                       <span
-                        v-for="bucket in deliveryReport.issue_buckets"
+                        v-for="bucket in focusedIssueBuckets"
                         :key="bucket.label"
                         class="tag risk-tag text-xs"
                       >{{ bucket.label }} {{ bucket.count }}</span>
@@ -396,21 +464,21 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                   </div>
                   <div class="runtime-check-card">
                     <div class="runtime-check-head">
-                      <strong>最近整改轨迹</strong>
+                      <strong>最近治理轨迹</strong>
                       <span class="tag subtle-tag">{{ deliveryReport.recent_remediation_runs.length }} 条</span>
                     </div>
-                    <div v-if="deliveryReport.recent_remediation_runs.length" class="runtime-check-list compact-stack">
+                    <div v-if="focusedRemediationRuns.length" class="runtime-check-list compact-stack">
                       <div
-                        v-for="item in deliveryReport.recent_remediation_runs"
+                        v-for="item in focusedRemediationRuns"
                         :key="`${item.title}-${item.created_at}`"
                         class="report-list-card"
                       >
                         <strong>{{ item.title }}</strong>
-                        <p>{{ item.headline || '已完成一次整改执行。' }}</p>
+                        <p>{{ item.headline || '已完成一次治理执行。' }}</p>
                         <code>{{ item.created_at || '-' }} · 修复 {{ item.fixed_count || 0 }} · 剩余 {{ item.remaining_count || 0 }}</code>
                       </div>
                     </div>
-                    <p v-else>当前还没有形成正式整改轨迹。</p>
+                    <p v-else>当前还没有形成正式治理轨迹。</p>
                   </div>
                 </div>
               </div>
@@ -418,7 +486,7 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 
             <article class="glass-panel p-panel mt-6">
               <div class="panel-head-compact">
-                <h3 class="panel-sm-title mb-4">交付就绪度</h3>
+                <h3 class="panel-sm-title mb-4">系统就绪度</h3>
                 <span class="readiness-badge" :class="`is-${state.data.value.delivery_readiness.stage}`">
                   {{ displayReadinessStage(state.data.value.delivery_readiness.stage) }}
                 </span>
@@ -437,23 +505,23 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                   <strong>{{ state.data.value.delivery_readiness.research_ratio }}%</strong>
                 </div>
                 <div class="readiness-stat">
-                  <span>OCR Contract</span>
+                  <span>OCR 结构契约</span>
                   <strong>{{ state.data.value.delivery_readiness.contract_ratio }}%</strong>
                 </div>
                 <div class="readiness-stat">
-                  <span>可直接交付</span>
+                  <span>稳定可用</span>
                   <strong>{{ state.data.value.delivery_readiness.ready_company_count }}</strong>
                 </div>
               </div>
               <div class="readiness-actions">
                 <div
-                  v-for="item in state.data.value.delivery_readiness.priority_actions"
+                  v-for="item in priorityActions"
                   :key="item.title"
                   class="readiness-action-card"
                 >
                   <div class="readiness-action-head">
                     <strong>{{ item.title }}</strong>
-                    <span class="muted text-xs">{{ item.companies.length ? `${item.companies.length} 家样本` : '系统级' }}</span>
+                    <span class="muted text-xs">{{ item.companies.length ? `${item.companies.length} 家公司` : '系统级' }}</span>
                   </div>
                   <p>{{ item.summary }}</p>
                   <div v-if="item.companies.length" class="tag-row compact-tags">
@@ -465,14 +533,14 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 
             <article class="glass-panel p-panel mt-6">
               <div class="panel-head-compact">
-                <h3 class="panel-sm-title mb-4">运行时检查</h3>
+                <h3 class="panel-sm-title mb-4">当前阻断</h3>
                 <span class="readiness-badge" :class="`is-${state.data.value.runtime_readiness.status}`">
                   {{ displayReadinessStage(state.data.value.runtime_readiness.status) }}
                 </span>
               </div>
               <div class="runtime-check-list">
                 <div
-                  v-for="item in state.data.value.runtime_readiness.checks"
+                  v-for="item in focusedRuntimeChecks"
                   :key="item.key"
                   class="runtime-check-card"
                   :class="`is-${item.status}`"
@@ -490,14 +558,14 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 
             <article class="glass-panel p-panel mt-6">
               <div class="panel-head-compact">
-                <h3 class="panel-sm-title mb-4">交付验收清单</h3>
+                <h3 class="panel-sm-title mb-4">关键检查清单</h3>
                 <span class="readiness-badge" :class="`is-${state.data.value.acceptance_checklist.status}`">
                   {{ state.data.value.acceptance_checklist.passed }}/{{ state.data.value.acceptance_checklist.total }}
                 </span>
               </div>
               <div class="runtime-check-list">
                 <div
-                  v-for="item in state.data.value.acceptance_checklist.items"
+                  v-for="item in focusedAcceptanceItems"
                   :key="item.key"
                   class="runtime-check-card"
                   :class="item.status === 'pass' ? 'is-ready' : 'is-blocked'"
@@ -548,7 +616,7 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                   <strong class="eg-val">{{ displayJobStatus(state.data.value.document_pipeline.title_hierarchy.status) }}</strong>
                 </div>
                 <div class="engine-row">
-                  <span class="muted">OCR Contract</span>
+                  <span class="muted">OCR 结构契约</span>
                   <strong class="eg-val">{{ displayJobStatus(state.data.value.document_pipeline.cell_trace.contract_audit.status) }}</strong>
                   <span class="tag subtle-tag ml-auto">
                     {{ state.data.value.document_pipeline.cell_trace.contract_audit.ready }}/{{ state.data.value.document_pipeline.cell_trace.contract_audit.total || 0 }}
@@ -565,7 +633,7 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 
             <article class="glass-panel p-panel mt-6" v-if="state.data.value.document_pipeline.cell_trace.contract_audit.total">
               <div class="panel-head-compact">
-                <h3 class="panel-sm-title mb-4">OCR Contract 批量验收</h3>
+                <h3 class="panel-sm-title mb-4">OCR 结构契约巡检</h3>
                 <div class="flex gap-2">
                   <button
                     v-if="canRerunFilteredCellTrace"
@@ -596,7 +664,7 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
               </div>
               <div class="runtime-check-list mt-4">
                 <div
-                  v-for="item in state.data.value.document_pipeline.cell_trace.contract_audit.samples"
+                  v-for="item in focusedContractSamples"
                   :key="`${item.report_id}-${item.path}`"
                   class="runtime-check-card"
                   :class="`is-${item.status === 'ready' ? 'ready' : 'blocked'}`"
@@ -606,7 +674,6 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                       <span class="tag" :class="item.status === 'ready' ? 'success-tag' : 'risk-tag'">{{ displayJobStatus(item.status) }}</span>
                     </div>
                     <p>{{ item.detail }}</p>
-                    <code>{{ item.path }}</code>
                     <div class="mt-3">
                       <button class="inline-glass-link py-1 px-3" type="button" @click="applyContractFilter(item.status, item.status === 'ready' ? 'standard_ocr' : '')">筛到结果日志</button>
                     </div>
@@ -623,10 +690,7 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                     <span class="tag success-tag">{{ pipelineRunState.data.value.execution_feedback.processed }}</span>
                   </div>
                   <p>{{ pipelineRunState.data.value.execution_feedback.headline }}</p>
-                  <code>
-                    before: {{ JSON.stringify(pipelineRunState.data.value.execution_feedback.before) }}
-                    | after: {{ JSON.stringify(pipelineRunState.data.value.execution_feedback.after) }}
-                  </code>
+                  <code>修复 {{ pipelineRunState.data.value.execution_feedback.fixed_count || 0 }} · 剩余 {{ pipelineRunState.data.value.execution_feedback.remaining_count || 0 }}</code>
                 </div>
               </div>
               <div class="job-list">
@@ -658,24 +722,6 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
               </div>
             </article>
             
-            <!-- 技术雷达 -->
-             <article class="glass-panel p-panel mt-6">
-               <h3 class="panel-sm-title mb-4">技术雷达 2026</h3>
-               <div class="radar-list">
-                 <div v-for="item in state.data.value.innovation_radar.items" :key="item.id" class="radar-card glass-panel-hover">
-                   <div class="rd-head">
-                     <span class="rd-domain">{{ item.domain }}</span>
-                     <span class="rd-year">{{ item.year }} · {{ item.source }}</span>
-                   </div>
-                   <h4 class="rd-title">{{ item.title }}</h4>
-                   <div class="tag-row compact-tags mb-3">
-                     <TagPill v-for="point in item.core_points" :key="point" :label="point" />
-                   </div>
-                   <a class="inline-glass-link text-center w-full block" :href="item.url" target="_blank" rel="noreferrer">论文 / 项目链接</a>
-                 </div>
-               </div>
-             </article>
-
           </div>
 
           <!-- RIGHT COLUMN -->
@@ -693,20 +739,6 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                   <div class="ih-row"><span class="muted w-16">报期</span><strong>{{ detailState.data.value.job.report_period || '-' }}</strong></div>
                   <div class="ih-row"><span class="muted w-16">状态</span><span class="tag" :class="detailState.data.value.job.status === 'completed' ? 'success-tag' : detailState.data.value.job.status === 'blocked' ? 'risk-tag' : 'subtle-tag'">{{ displayJobStatus(detailState.data.value.job.status) }}</span></div>
                   <div class="ih-row"><span class="muted w-16">来源</span><span class="tag subtle-tag">{{ displayArtifactSource(detailState.data.value.job.artifact_source || detailState.data.value.artifact?.source) }}</span></div>
-                </div>
-
-                <div class="runtime-check-list mb-4" v-if="detailState.data.value.artifact_locations?.length">
-                  <div
-                    v-for="location in detailState.data.value.artifact_locations"
-                    :key="`${location.kind}-${location.path}`"
-                    class="runtime-check-card is-ready"
-                  >
-                    <div class="runtime-check-head">
-                      <strong>{{ location.label }}</strong>
-                      <span class="tag subtle-tag">{{ location.kind }}</span>
-                    </div>
-                    <code>{{ location.path }}</code>
-                  </div>
                 </div>
 
                 <div class="runtime-check-list mb-4" v-if="detailState.data.value.remediation?.length">
@@ -746,14 +778,14 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
              <!-- Latest Results -->
              <article class="glass-panel p-panel mb-6">
                <div class="panel-head-compact">
-                 <h3 class="panel-sm-title mb-4">升级结果日志</h3>
+                 <h3 class="panel-sm-title mb-4">近期升级结果</h3>
                  <span class="muted text-xs">
-                   {{ selectedContractStatus ? `Contract=${displayJobStatus(selectedContractStatus)}` : '全部 Contract' }}
+                   {{ selectedContractStatus ? `结构契约=${displayJobStatus(selectedContractStatus)}` : '全部结构契约状态' }}
                    {{ selectedArtifactSource ? ` · 来源=${displayArtifactSource(selectedArtifactSource)}` : '' }}
                  </span>
                </div>
                <div class="logs-grid">
-                  <div v-for="job in (resultsState.data.value?.results || []).slice(0, 16)" :key="`${job.report_id}-${job.stage}`" class="log-card glass-panel-hover">
+                  <div v-for="job in focusedResults" :key="`${job.report_id}-${job.stage}`" class="log-card glass-panel-hover">
                      <div class="lc-head">
                        <span class="lc-stage">{{ displayPipelineStage(job.stage) }}</span>
                        <span class="status-dot" :class="`is-${job.status}`"></span>
@@ -769,10 +801,10 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
              </article>
 
              <article class="glass-panel p-panel mb-6">
-               <h3 class="panel-sm-title mb-4">整改轨迹</h3>
+               <h3 class="panel-sm-title mb-4">近期治理轨迹</h3>
                <div class="runtime-check-list">
                  <div
-                   v-for="item in (state.data.value.workspace_history?.records || []).slice(0, 8)"
+                   v-for="item in focusedWorkspaceHistory"
                    :key="`${item.history_type}-${item.id}`"
                    class="runtime-check-card"
                    :class="item.history_type === 'document_pipeline_run' ? 'is-ready' : ''"
@@ -787,6 +819,92 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                </div>
              </article>
 
+             <article v-if="workspaceRuntimeAudit" class="glass-panel p-panel mb-6">
+               <div class="panel-head-compact">
+                 <h3 class="panel-sm-title mb-4">智能分析审计</h3>
+                 <span class="readiness-badge" :class="`is-${workspaceRuntimeAudit.status}`">
+                   {{ workspaceRuntimeAudit.label }}
+                 </span>
+               </div>
+               <div class="readiness-grid">
+                 <div class="readiness-stat">
+                   <span>审计运行</span>
+                   <strong>{{ workspaceRuntimeAudit.audited_runs }}/{{ workspaceRuntimeAudit.window_size }}</strong>
+                 </div>
+                 <div class="readiness-stat">
+                   <span>强支撑占比</span>
+                   <strong>{{ workspaceRuntimeAudit.summary_cards.grounded_ratio }}%</strong>
+                 </div>
+                 <div class="readiness-stat">
+                   <span>完整轨迹占比</span>
+                   <strong>{{ workspaceRuntimeAudit.summary_cards.trace_ratio }}%</strong>
+                 </div>
+                 <div class="readiness-stat">
+                   <span>平均执行耗时</span>
+                   <strong>{{ formatMilliseconds(workspaceRuntimeAudit.summary_cards.avg_execution_ms) }}</strong>
+                 </div>
+                 <div class="readiness-stat">
+                   <span>平均工具调用</span>
+                   <strong>{{ formatDecimal(workspaceRuntimeAudit.summary_cards.avg_tool_call_count) }}</strong>
+                 </div>
+                 <div class="readiness-stat">
+                   <span>平均证据条数</span>
+                   <strong>{{ formatDecimal(workspaceRuntimeAudit.summary_cards.avg_evidence_count) }}</strong>
+                 </div>
+               </div>
+               <div class="report-grid">
+                 <div class="report-list-card">
+                   <strong>高频公司</strong>
+                   <div v-if="focusedAuditCompanies.length" class="runtime-check-list compact-stack mt-2">
+                     <div v-for="item in focusedAuditCompanies" :key="item.company_name" class="audit-company-row">
+                       <div>
+                         <strong>{{ item.company_name }}</strong>
+                         <p>{{ item.run_count }} 次运行 · 强支撑 {{ item.grounded_count }} 次</p>
+                       </div>
+                       <code>{{ formatMilliseconds(item.avg_execution_ms) }}</code>
+                     </div>
+                   </div>
+                   <p v-else>当前没有形成高频公司样本。</p>
+                 </div>
+                 <div class="report-list-card">
+                   <strong>常用分析工具</strong>
+                   <div v-if="workspaceRuntimeAudit.tool_mix.length" class="tag-row compact-tags mt-2">
+                     <span v-for="item in workspaceRuntimeAudit.tool_mix.slice(0, 5)" :key="item.label" class="tag subtle-tag text-xs">
+                       {{ item.label }} {{ item.count }}
+                     </span>
+                   </div>
+                   <p v-else>当前样本里还没有工具调用记录。</p>
+                 </div>
+               </div>
+               <div class="runtime-check-list">
+                 <div
+                   v-for="item in focusedAuditRuns"
+                   :key="item.run_id"
+                   class="runtime-check-card"
+                   :class="item.assurance_status === 'grounded' ? 'is-ready' : ''"
+                 >
+                   <div class="runtime-check-head">
+                     <strong>{{ item.company_name || '行业视图' }} · {{ item.query_type_label }}</strong>
+                     <span class="tag" :class="item.assurance_status === 'grounded' ? 'success-tag' : 'subtle-tag'">
+                       {{ item.assurance_label }}
+                     </span>
+                   </div>
+                   <p>{{ item.query }}</p>
+                   <div class="audit-meta-row">
+                     <span>{{ item.role_label }}</span>
+                     <span>{{ item.model || '未记录模型' }}</span>
+                     <span>工具 {{ item.tool_call_count }}</span>
+                     <span>证据 {{ item.evidence_count ?? '-' }}</span>
+                     <span>{{ item.trace_status_label }}</span>
+                   </div>
+                   <div v-if="item.tool_labels.length" class="tag-row compact-tags mt-2">
+                     <span v-for="label in item.tool_labels" :key="`${item.run_id}-${label}`" class="tag subtle-tag text-xs">{{ label }}</span>
+                   </div>
+                   <code>{{ item.created_at || '-' }} · 总耗时 {{ formatMilliseconds(item.execution_ms) }} · LLM {{ formatMilliseconds(item.llm_elapsed_ms) }} · 工具 {{ formatMilliseconds(item.tool_elapsed_ms) }}</code>
+                 </div>
+               </div>
+             </article>
+
              <article v-if="selectedCompanyDetail" class="glass-panel p-panel mb-6">
                <div class="matrix-header">
                  <h3 class="panel-sm-title mb-4">公司问题诊断卡</h3>
@@ -797,7 +915,7 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
                    <strong class="detail-company">{{ selectedCompanyDetail.company_name }}</strong>
                    <div class="detail-periods">
                      <span>主周期: {{ state.data.value.health.preferred_period || '-' }}</span>
-                     <span>最新银层: {{ selectedCompanyDetail.latest_silver_period || '-' }}</span>
+                     <span>最新指标层: {{ selectedCompanyDetail.latest_silver_period || '-' }}</span>
                    </div>
                  </div>
                  <div class="detail-health" :class="{ healthy: selectedCompanyDetail.issues.length === 0 }">
@@ -886,10 +1004,33 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 .dashboard-wrapper { display: flex; flex-direction: column; gap: 24px; padding-bottom: 24px; overflow-y: auto; height: 100%; }
 
 /* Metrics Strip */
-.metrics-strip { display: grid; grid-template-columns: repeat(4, 1fr); padding: 16px 24px; border-radius: 16px; flex-shrink: 0; }
-.metric-block { display: flex; flex-direction: column; gap: 6px; border-right: 1px solid rgba(255, 255, 255, 0.08); padding: 0 16px; }
-.metric-block.border-none { border-right: none; }
-.mb-label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: 'JetBrains Mono', monospace; }
+.metrics-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 16px 24px;
+  border-radius: 16px;
+  flex-shrink: 0;
+}
+.metric-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 108px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.42), rgba(2, 6, 23, 0.18));
+}
+.metric-block.is-success {
+  border-color: rgba(16, 185, 129, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.04);
+}
+.metric-block.is-risk {
+  border-color: rgba(244, 63, 94, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.04);
+}
+.mb-label { font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
 .mb-value { font-size: 26px; line-height: 1; font-weight: 600; }
 .mb-val-wrap { display: flex; align-items: center; gap: 10px; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 10px #10b981; }
@@ -945,10 +1086,19 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 .readiness-badge.is-hardening { color: #fbbf24; border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.12); }
 .readiness-badge.is-blocked { color: #f43f5e; border-color: rgba(244,63,94,0.35); background: rgba(244,63,94,0.12); }
 .readiness-badge.is-bootstrapping { color: #60a5fa; border-color: rgba(96,165,250,0.35); background: rgba(96,165,250,0.12); }
+.readiness-badge.is-stable { color: #10b981; border-color: rgba(16,185,129,0.35); background: rgba(16,185,129,0.12); }
+.readiness-badge.is-warming { color: #fbbf24; border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.12); }
+.readiness-badge.is-review,
+.readiness-badge.is-unavailable { color: #94a3b8; border-color: rgba(148,163,184,0.28); background: rgba(148,163,184,0.1); }
 .readiness-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 12px; }
 .readiness-stat { border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.03); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
 .readiness-stat span { color: var(--muted); font-size: 12px; }
 .readiness-stat strong { font-size: 24px; line-height: 1; }
+.audit-company-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px dashed rgba(148, 163, 184, 0.18); }
+.audit-company-row:last-child { border-bottom: none; padding-bottom: 0; }
+.audit-company-row strong { display: block; margin-bottom: 4px; }
+.audit-company-row p { margin: 0; color: #cbd5e1; font-size: 12px; }
+.audit-meta-row { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #94a3b8; font-family: 'JetBrains Mono', monospace; }
 .readiness-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
 .readiness-action-card { border: 1px solid rgba(255,255,255,0.06); background: rgba(0,0,0,0.16); border-radius: 12px; padding: 14px; }
 .readiness-action-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
@@ -983,16 +1133,6 @@ async function exportDeliveryReport(format: 'markdown' | 'json') {
 .glow-button-small { padding: 4px 12px; height: auto; min-height: 28px; font-size: 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; }
 .jc-stats { display: flex; gap: 16px; font-size: 12px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 8px; }
 .risk-text { color: #f43f5e; }
-
-/* Radar */
-.radar-list { display: flex; flex-direction: column; gap: 12px; }
-.radar-card { padding: 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
-.rd-head { display: flex; justify-content: space-between; font-size: 11px; font-family: 'JetBrains Mono', monospace; margin-bottom: 8px; color: var(--muted); }
-.rd-domain { color: #818cf8; }
-.rd-title { font-size: 15px; color: #fff; margin: 0 0 12px; line-height: 1.4; }
-.w-full { width: 100%; }
-.block { display: block; }
-.text-center { text-align: center; }
 
 /* Terminal View */
 .highlight-panel { border-color: rgba(96, 165, 250, 0.4); box-shadow: 0 0 20px rgba(96, 165, 250, 0.1); background: rgba(15, 23, 42, 0.6); }

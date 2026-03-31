@@ -4,26 +4,37 @@ from typing import Any
 
 
 class HybridRepository:
-    def __init__(self, official_repository: Any, sample_repository: Any) -> None:
+    def __init__(
+        self,
+        official_repository: Any,
+        sample_repository: Any | None = None,
+        *,
+        fallback_enabled: bool = False,
+    ) -> None:
         self._official_repository = official_repository
         self._sample_repository = sample_repository
+        self._fallback_enabled = fallback_enabled
+
+    def _can_fallback(self) -> bool:
+        return self._fallback_enabled and self._sample_repository is not None
 
     def list_companies(self, report_period: str | None = None) -> list[dict[str, Any]]:
         official_rows = self._official_repository.list_companies(report_period)
-        if official_rows:
+        if official_rows or not self._can_fallback():
             return official_rows
         return self._sample_repository.list_companies(report_period)
 
     def list_company_names(self) -> list[str]:
-        names = set(self._sample_repository.list_company_names())
-        names.update(self._official_repository.list_company_names())
+        names = set(self._official_repository.list_company_names())
+        if self._can_fallback():
+            names.update(self._sample_repository.list_company_names())
         return sorted(names)
 
     def list_company_periods(self, company_name: str) -> list[str]:
         periods = []
         if hasattr(self._official_repository, "list_company_periods"):
             periods.extend(self._official_repository.list_company_periods(company_name))
-        if hasattr(self._sample_repository, "list_company_periods"):
+        if self._can_fallback() and hasattr(self._sample_repository, "list_company_periods"):
             periods.extend(self._sample_repository.list_company_periods(company_name))
         deduped: list[str] = []
         for period in periods:
@@ -37,6 +48,8 @@ class HybridRepository:
         company = self._official_repository.get_company(company_name, report_period)
         if company is not None:
             return company
+        if not self._can_fallback():
+            return None
         return self._sample_repository.get_company(company_name, report_period)
 
     def find_company_from_query(
@@ -45,6 +58,8 @@ class HybridRepository:
         company_name = self._official_repository.find_company_from_query(query, report_period)
         if company_name is not None:
             return company_name
+        if not self._can_fallback():
+            return None
         return self._sample_repository.find_company_from_query(query, report_period)
 
     def preferred_period(self) -> str | None:
@@ -54,6 +69,8 @@ class HybridRepository:
         evidence = self._official_repository.get_evidence(chunk_id)
         if evidence is not None:
             return evidence
+        if not self._can_fallback():
+            return None
         return self._sample_repository.get_evidence(chunk_id)
 
     def resolve_evidence(self, chunk_ids: list[str]) -> list[dict[str, Any]]:

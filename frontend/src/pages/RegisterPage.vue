@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -8,6 +8,7 @@ import LoadingState from '@/components/LoadingState.vue'
 import { post, saveAuth, type AuthPayload } from '@/lib/api'
 import { useSession } from '@/lib/session'
 
+const route = useRoute()
 const router = useRouter()
 const session = useSession()
 const username = ref('')
@@ -27,7 +28,8 @@ async function submit() {
     })
     saveAuth(payload)
     session.setUser(payload.user)
-    await router.push('/workspace')
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    await router.push(redirect)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '注册失败。'
   } finally {
@@ -39,7 +41,7 @@ async function submit() {
 <template>
   <AppShell
     kicker="账号注册"
-    title="创建 OpsPilot-X 账号"
+    title="创建系统账号"
     subtitle="先完成注册，进入系统后再切换分析视角。"
   >
     <section class="auth-grid">

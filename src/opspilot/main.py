@@ -21,7 +21,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
-        description="新能源企业运营分析与决策支持系统 P0 演示版",
+        description="新能源企业运营分析与决策支持系统",
         lifespan=lifespan,
     )
     app.add_middleware(

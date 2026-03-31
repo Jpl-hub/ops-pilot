@@ -179,12 +179,12 @@ class ScoringService:
             "query_type": "peer_benchmark",
             "answer_markdown": (
                 f"**{company_name}** 当前总分为 **{target['total_score']} 分**，"
-                f"在样本集中位列第 **{rows.index(target) + 1}** 位。"
+                f"在同子行业公司池中位列第 **{rows.index(target) + 1}** 位。"
             ),
             "benchmark": rows,
             "charts": [{
                 "type": "bar",
-                "title": "样本集企业总分对比",
+                "title": "同子行业企业总分对比",
                 "options": {
                     "xAxis": {"type": "category", "data": [row["company_name"] for row in rows]},
                     "yAxis": {"type": "value", "max": 100},

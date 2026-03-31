@@ -1,0 +1,70 @@
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.1.10
+    container_name: ops-pilot-redpanda
+    command:
+      [
+        "redpanda",
+        "start",
+        "--overprovisioned",
+        "--smp",
+        "1",
+        "--memory",
+        "1G",
+        "--reserve-memory",
+        "0M",
+        "--node-id",
+        "0",
+        "--check=false",
+        "--kafka-addr",
+        "internal://0.0.0.0:9092,external://0.0.0.0:19092",
+        "--advertise-kafka-addr",
+        "internal://redpanda:9092,external://127.0.0.1:19092",
+        "--pandaproxy-addr",
+        "internal://0.0.0.0:8082,external://0.0.0.0:18082",
+        "--advertise-pandaproxy-addr",
+        "internal://redpanda:8082,external://127.0.0.1:18082",
+      ]
+    ports:
+      - "19092:19092"
+      - "18082:18082"
+      - "19644:9644"
+
+  redpanda-console:
+    image: redpandadata/console:v2.7.2
+    container_name: ops-pilot-redpanda-console
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      REDPANDA_ADMINAPI_ENABLED: "true"
+      REDPANDA_ADMINAPI_URLS: http://redpanda:9644
+    ports:
+      - "18080:8080"
+    depends_on:
+      - redpanda
+
+  flink-jobmanager:
+    image: flink:1.20.0-scala_2.12-java17
+    container_name: ops-pilot-flink-jobmanager
+    command: jobmanager
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+    ports:
+      - "18081:8081"
+    volumes:
+      - ./:/workspace
+      - ./streaming/flink/usrlib:/opt/flink/usrlib
+    depends_on:
+      - redpanda
+
+  flink-taskmanager:
+    image: flink:1.20.0-scala_2.12-java17
+    container_name: ops-pilot-flink-taskmanager
+    command: taskmanager
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: flink-jobmanager
+      TASK_MANAGER_NUMBER_OF_TASK_SLOTS: 2
+    volumes:
+      - ./:/workspace
+      - ./streaming/flink/usrlib:/opt/flink/usrlib
+    depends_on:
+      - flink-jobmanager

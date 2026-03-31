@@ -16,6 +16,20 @@ const selectedAlertCompany = ref('')
 const alertFilter = ref<'all' | 'delta'>('all')
 const route = useRoute()
 const industryResearchMetrics = computed(() => state.data.value?.industry_research?.key_numbers || [])
+const riskSummaryCards = computed(() => {
+  const riskBoard = state.data.value?.risk_board || []
+  const alertItems = state.data.value?.alert_board || []
+  const researchGroups = state.data.value?.industry_research?.groups || []
+  return [
+    { label: '覆盖公司', value: riskBoard.length, tone: 'default' },
+    { label: '高风险公司', value: riskBoard.filter((item: any) => item.risk_count > 0).length, tone: 'risk' },
+    { label: '新增变化', value: alertItems.filter((item: any) => item.risk_delta > 0).length, tone: 'risk' },
+    { label: '行业研报组', value: researchGroups.length || industryResearchMetrics.value[0]?.value || 0, tone: 'success' },
+  ]
+})
+const visibleRiskBoard = computed(() => (state.data.value?.risk_board || []).slice(0, 8))
+const visibleResearchGroups = computed(() => (state.data.value?.industry_research?.groups || []).slice(0, 4))
+const riskCharts = computed(() => state.data.value?.charts?.slice(0, 1) || [])
 
 const alertBoard = computed(() => {
   const alerts = state.data.value?.alert_board || []
@@ -74,21 +88,14 @@ watch(
       
       <!-- Top Metrics Strip -->
       <section class="glass-panel metrics-strip">
-        <div class="metric-block">
-          <span class="mb-label">覆盖公司</span>
-          <strong class="mb-value text-gradient">{{ state.data.value.risk_board.length }}</strong>
-        </div>
-        <div class="metric-block">
-          <span class="mb-label">高风险公司</span>
-          <strong class="mb-value risk-text">{{ state.data.value.risk_board.filter((item: any) => item.risk_count > 0).length }}</strong>
-        </div>
-        <div class="metric-block">
-          <span class="mb-label">行业研究</span>
-          <strong class="mb-value">{{ industryResearchMetrics[0]?.value || 0 }}</strong>
-        </div>
-        <div class="metric-block border-none">
-          <span class="mb-label">行业研报</span>
-          <strong class="mb-value text-accent">{{ industryResearchMetrics[1]?.value || 0 }}</strong>
+        <div
+          v-for="card in riskSummaryCards"
+          :key="card.label"
+          class="metric-block"
+          :class="`tone-${card.tone}`"
+        >
+          <span class="mb-label">{{ card.label }}</span>
+          <strong class="mb-value">{{ card.value }}</strong>
         </div>
       </section>
 
@@ -160,6 +167,20 @@ watch(
               </div>
             </div>
             <p class="sa-summary">{{ selectedAlert.summary }}</p>
+            <div class="sa-metrics">
+              <div class="sa-metric">
+                <span>风险标签</span>
+                <strong>{{ selectedAlert.risk_count }}</strong>
+              </div>
+              <div class="sa-metric">
+                <span>新增变化</span>
+                <strong>{{ selectedAlert.risk_delta > 0 ? `+${selectedAlert.risk_delta}` : '0' }}</strong>
+              </div>
+              <div class="sa-metric">
+                <span>对比报期</span>
+                <strong>{{ selectedAlert.previous_period || '首个报期' }}</strong>
+              </div>
+            </div>
             <div v-if="selectedAlert.new_labels?.length" class="sa-new-labels mt-3">
               <span class="eyebrow inline-mr">新增标签:</span>
               <TagPill v-for="label in selectedAlert.new_labels" :key="label" :label="label" tone="risk" />
@@ -168,7 +189,7 @@ watch(
 
           <!-- Charts -->
           <div class="charts-row mb-4">
-            <div v-for="chart in state.data.value.charts" :key="chart.title" class="glass-panel chart-container">
+            <div v-for="chart in riskCharts" :key="chart.title" class="glass-panel chart-container">
               <ChartPanel :title="chart.title" :options="chart.options" />
             </div>
           </div>
@@ -180,7 +201,7 @@ watch(
               <h3 class="panel-sm-title mb-3">全量风险名单</h3>
               <div class="company-grid-mini">
                 <RouterLink
-                  v-for="item in state.data.value.risk_board"
+                  v-for="item in visibleRiskBoard"
                   :key="item.company_name"
                   class="mini-company-card glass-panel-hover"
                   :to="`/score?company=${encodeURIComponent(item.company_name)}`"
@@ -198,7 +219,7 @@ watch(
             <div class="glass-panel flex-1 min-w-0 p-5 scroll-area">
               <h3 class="panel-sm-title mb-3">行业研报观察</h3>
               <div class="reports-list">
-                <article v-for="group in state.data.value.industry_research.groups" :key="group.industry_name" class="report-card glass-panel-hover">
+                <article v-for="group in visibleResearchGroups" :key="group.industry_name" class="report-card glass-panel-hover">
                   <div class="rc-head">
                     <span class="rc-industry">{{ group.industry_name }}</span>
                     <span class="rc-count">{{ group.report_count }}篇</span>
@@ -246,6 +267,8 @@ watch(
   padding: 0 16px;
 }
 .metric-block.border-none { border-right: none; }
+.metric-block.tone-risk .mb-value { color: #f43f5e; }
+.metric-block.tone-success .mb-value { color: #10b981; }
 .mb-label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: 'JetBrains Mono', monospace; }
 .mb-value { font-size: 28px; line-height: 1; font-weight: 600; }
 .text-accent { color: #10b981; }
@@ -354,14 +377,31 @@ watch(
 .glow-button { box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
 .p-btn { padding: 0 12px; height: 40px; }
 .sa-summary { margin: 0; font-size: 14px; line-height: 1.6; color: #cbd5e1; }
+.sa-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.sa-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+}
+.sa-metric span { font-size: 11px; color: var(--muted); }
+.sa-metric strong { font-size: 18px; color: #fff; }
 .inline-mr { margin-right: 8px; font-size: 12px; }
 
 /* Charts */
 .charts-row {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr;
   gap: 16px;
-  height: 380px;
+  height: 320px;
   flex-shrink: 0;
 }
 .mb-4 { margin-bottom: 16px; }
@@ -418,4 +458,9 @@ watch(
 .rc-title { margin: 0 0 12px; font-size: 15px; font-weight: 500; color: #fff; line-height: 1.4; }
 .rc-meta { display: flex; justify-content: space-between; font-size: 12px; align-items: center; }
 .rc-link { text-decoration: none; font-weight: 500; }
+
+@media (max-width: 960px) {
+  .sa-head { flex-direction: column; gap: 12px; }
+  .sa-metrics { grid-template-columns: 1fr; }
+}
 </style>

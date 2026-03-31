@@ -31,6 +31,7 @@ services:
       OPS_PILOT_OFFICIAL_DATA_PATH: data/raw/official
       OPS_PILOT_BRONZE_DATA_PATH: data/bronze/official
       OPS_PILOT_SILVER_DATA_PATH: data/silver/official
+      OPS_PILOT_GOLD_DATA_PATH: data/gold/official
       OPS_PILOT_POSTGRES_DSN: postgresql+psycopg://ops_pilot:ops_pilot@postgres:5432/ops_pilot
       OPS_PILOT_CORS_ALLOWED_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
       OPS_PILOT_OCR_PROVIDER: ${OPS_PILOT_OCR_PROVIDER:-PaddleOCR-VL}
@@ -39,6 +40,8 @@ services:
       OPS_PILOT_OCR_RUNTIME_ENABLED: ${OPS_PILOT_OCR_RUNTIME_ENABLED:-false}
       OPS_PILOT_OPENAI_API_KEY: ${OPS_PILOT_OPENAI_API_KEY:-}
       OPS_PILOT_OPENAI_BASE_URL: ${OPS_PILOT_OPENAI_BASE_URL:-https://api.openai-proxy.org/v1}
+      OPS_PILOT_KAFKA_BOOTSTRAP_SERVERS: ${OPS_PILOT_KAFKA_BOOTSTRAP_SERVERS:-redpanda:9092}
+      OPS_PILOT_KAFKA_SIGNAL_TOPIC: ${OPS_PILOT_KAFKA_SIGNAL_TOPIC:-opspilot.external_signals}
       PYTHONPATH: /app/src
     volumes:
       - ./:/app
@@ -46,7 +49,7 @@ services:
       [
         "sh",
         "-c",
-        "python -c \"from opspilot.main import run_api; run_api()\"",
+        "ops-pilot-runtime-check --profile startup && python -c \"from opspilot.main import run_api; run_api()\"",
       ]
     ports:
       - "8000:8000"
@@ -63,6 +66,8 @@ services:
       - ui_node_modules:/app/frontend/node_modules
     environment:
       VITE_PROXY_TARGET: http://api:8000
+      VITE_API_BASE_URL: /api/v1
+      VITE_WS_BASE_URL: /api/v1
     command: ["sh", "-c", "if [ ! -x /app/frontend/node_modules/.bin/vite ]; then npm ci; fi && npm run dev -- --host 0.0.0.0 --port 8080 --strictPort"]
     ports:
       - "8080:8080"

@@ -1,0 +1,755 @@
+{
+  "generated_at": "2026-03-25T04:51:39+00:00",
+  "ingest_batch_id": "20260325045139",
+  "window_days": 7,
+  "date_axis": [
+    "2026-03-12",
+    "2026-03-13",
+    "2026-03-14",
+    "2026-03-15",
+    "2026-03-16",
+    "2026-03-17",
+    "2026-03-18"
+  ],
+  "record_count": 8,
+  "top_subindustries": [
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "锂电池与电池材料",
+      "signal_count": 15,
+      "total_heat": 19,
+      "latest_heat": 13,
+      "active_days": 3,
+      "momentum": 13,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 1,
+          "external_heat": 3
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 1,
+          "external_heat": 3
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 13,
+          "external_heat": 13
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "储能",
+      "signal_count": 8,
+      "total_heat": 8,
+      "latest_heat": 8,
+      "active_days": 1,
+      "momentum": 8,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 8,
+          "external_heat": 8
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "电池",
+      "signal_count": 3,
+      "total_heat": 6,
+      "latest_heat": 0,
+      "active_days": 2,
+      "momentum": 6,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 2,
+          "external_heat": 4
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 0,
+          "external_heat": 0
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "能源金属",
+      "signal_count": 3,
+      "total_heat": 6,
+      "latest_heat": 2,
+      "active_days": 3,
+      "momentum": 2,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 1,
+          "external_heat": 2
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "光伏",
+      "signal_count": 5,
+      "total_heat": 5,
+      "latest_heat": 5,
+      "active_days": 1,
+      "momentum": 5,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 5,
+          "external_heat": 5
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "光伏设备",
+      "signal_count": 2,
+      "total_heat": 4,
+      "latest_heat": 0,
+      "active_days": 2,
+      "momentum": 0,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 0,
+          "external_heat": 0
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "风电设备",
+      "signal_count": 2,
+      "total_heat": 4,
+      "latest_heat": 0,
+      "active_days": 2,
+      "momentum": -2,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 0,
+          "external_heat": 0
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "风电设备与新能源装备",
+      "signal_count": 2,
+      "total_heat": 2,
+      "latest_heat": 2,
+      "active_days": 1,
+      "momentum": 2,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 2,
+          "external_heat": 2
+        }
+      ]
+    }
+  ],
+  "records": [
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "锂电池与电池材料",
+      "signal_count": 15,
+      "total_heat": 19,
+      "latest_heat": 13,
+      "active_days": 3,
+      "momentum": 13,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 1,
+          "external_heat": 3
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 1,
+          "external_heat": 3
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 13,
+          "external_heat": 13
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "储能",
+      "signal_count": 8,
+      "total_heat": 8,
+      "latest_heat": 8,
+      "active_days": 1,
+      "momentum": 8,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 8,
+          "external_heat": 8
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "电池",
+      "signal_count": 3,
+      "total_heat": 6,
+      "latest_heat": 0,
+      "active_days": 2,
+      "momentum": 6,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 2,
+          "external_heat": 4
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 0,
+          "external_heat": 0
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "能源金属",
+      "signal_count": 3,
+      "total_heat": 6,
+      "latest_heat": 2,
+      "active_days": 3,
+      "momentum": 2,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 1,
+          "external_heat": 2
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "光伏",
+      "signal_count": 5,
+      "total_heat": 5,
+      "latest_heat": 5,
+      "active_days": 1,
+      "momentum": 5,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 5,
+          "external_heat": 5
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "光伏设备",
+      "signal_count": 2,
+      "total_heat": 4,
+      "latest_heat": 0,
+      "active_days": 2,
+      "momentum": 0,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 0,
+          "external_heat": 0
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "风电设备",
+      "signal_count": 2,
+      "total_heat": 4,
+      "latest_heat": 0,
+      "active_days": 2,
+      "momentum": -2,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 1,
+          "external_heat": 2
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 0,
+          "external_heat": 0
+        }
+      ]
+    },
+    {
+      "ingest_batch_id": "20260325045139",
+      "subindustry": "风电设备与新能源装备",
+      "signal_count": 2,
+      "total_heat": 2,
+      "latest_heat": 2,
+      "active_days": 1,
+      "momentum": 2,
+      "timeline": [
+        {
+          "date": "2026-03-12",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-13",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-14",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-15",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-16",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-17",
+          "signal_count": 0,
+          "external_heat": 0
+        },
+        {
+          "date": "2026-03-18",
+          "signal_count": 2,
+          "external_heat": 2
+        }
+      ]
+    }
+  ]
+}

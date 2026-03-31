@@ -1,365 +1,442 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import AppShell from '@/components/AppShell.vue'
-import { computed, onMounted } from 'vue'
+import { useSession } from '@/lib/session'
+import type { UserRole } from '@/lib/api'
 
-import LoadingState from '@/components/LoadingState.vue'
-import { useAsyncState } from '@/composables/useAsyncState'
-import { get } from '@/lib/api'
+type ScenarioCard = {
+  role: UserRole
+  roleLabel: string
+  title: string
+  prompt: string
+  cue: string
+}
 
-const overviewState = useAsyncState<any>()
+const session = useSession()
 
-const homeMetrics = computed(() => {
-  const data = overviewState.data.value
+function buildScenarioRoute(role: UserRole, prompt: string) {
   return {
-    companies: data?.quality_overview?.coverage?.pool_companies ?? null,
-    reports: data?.data_status?.periodic_reports?.record_count ?? null,
-    dimensions: 19,
+    path: '/workspace',
+    query: {
+      role,
+      prompt,
+      auto_run: '1',
+    },
+  }
+}
+
+const entryAction = computed(() => {
+  if (session.isAuthenticated.value) {
+    return {
+      label: '进入分析台',
+      to: '/workspace',
+    }
+  }
+  return {
+    label: '登录后开始',
+    to: '/login',
   }
 })
 
-onMounted(async () => {
-  await overviewState.execute(() => get('/admin/overview'))
-})
+const scenarioCards: ScenarioCard[] = [
+  {
+    role: 'investor',
+    roleLabel: '投资者',
+    title: '看风险和分歧',
+    prompt: '这家公司当前最值得警惕的风险是什么？',
+    cue: '先看风险，再决定是否继续跟',
+  },
+  {
+    role: 'management',
+    roleLabel: '管理层',
+    title: '做经营诊断',
+    prompt: '给我一份当前经营体检和整改优先级。',
+    cue: '直接形成一轮经营判断',
+  },
+  {
+    role: 'regulator',
+    roleLabel: '监管 / 风控',
+    title: '做持续巡检',
+    prompt: '当前主周期哪些公司风险抬升最快？',
+    cue: '盯变化，不盯花哨指标',
+  },
+]
 </script>
 
 <template>
-  <AppShell
-    kicker="OpsPilot-X"
-    title="新能源运营分析平台"
-    subtitle="系统概览"
-    compact
-  >
-    <div class="home-wrapper">
-      <LoadingState v-if="overviewState.loading.value" class="home-loading" />
+  <AppShell title="">
+    <div class="landing">
+      <section class="landing-hero">
+        <div class="landing-copy">
+          <span class="landing-kicker">新能源产业决策系统</span>
+          <h1>OpsPilot-X</h1>
+          <p>看企业，做判断。</p>
 
-      <!-- Hero Card -->
-      <section v-else class="glass-panel splash-card">
-        <div class="splash-inner">
-          <div class="glow-icon-splash">OP</div>
-
-          <div class="splash-header">
-            <div class="eyebrow splash-eyebrow">2026 全国大学生计算机设计大赛 · 大数据主题</div>
-            <h1 class="splash-title text-gradient">新能源企业运营分析与决策支持系统</h1>
-            <p class="splash-subtitle muted">OpsPilot-X · 多角色协同分析 × 混合检索增强 × 19 维经营评分</p>
-          </div>
-
-          <!-- Stats Row -->
-          <div class="stats-row">
-            <div class="stat-item">
-              <strong class="stat-val text-accent">{{ homeMetrics.companies ?? '—' }}</strong>
-              <span class="stat-lbl">新能源企业</span>
-            </div>
-            <div class="stat-div"></div>
-            <div class="stat-item">
-              <strong class="stat-val">{{ homeMetrics.reports ?? '—' }}</strong>
-              <span class="stat-lbl">真实财报</span>
-            </div>
-            <div class="stat-div"></div>
-            <div class="stat-item">
-              <strong class="stat-val">{{ homeMetrics.dimensions }}</strong>
-              <span class="stat-lbl">评分维度</span>
-            </div>
-            <div class="stat-div"></div>
-            <div class="stat-item">
-              <strong class="stat-val text-gradient">混合检索</strong>
-              <span class="stat-lbl">BM25 + 向量召回</span>
-            </div>
-          </div>
-
-          <!-- Feature Grid -->
-          <div class="feature-grid">
-            <RouterLink class="feature-card glass-panel-hover" to="/workspace">
-              <div class="fc-icon fc-icon-blue">智</div>
-              <div class="fc-body">
-                <h4 class="fc-title">协同分析</h4>
-                <p class="fc-desc">多角色协同分析 · 工具联动 · 实时溯源</p>
-              </div>
-            </RouterLink>
-            <RouterLink class="feature-card glass-panel-hover" to="/score">
-              <div class="fc-icon fc-icon-green">评</div>
-              <div class="fc-body">
-                <h4 class="fc-title">企业体检</h4>
-                <p class="fc-desc">19 指标评分 · A-D 等级 · 行业分位</p>
-              </div>
-            </RouterLink>
-            <RouterLink class="feature-card glass-panel-hover" to="/risk">
-              <div class="fc-icon fc-icon-red">警</div>
-              <div class="fc-body">
-                <h4 class="fc-title">风险预警</h4>
-                <p class="fc-desc">全量风险扫描 · 新增风险追踪 · 行业研报</p>
-              </div>
-            </RouterLink>
-            <RouterLink class="feature-card glass-panel-hover" to="/brain">
-              <div class="fc-icon fc-icon-purple">脑</div>
-              <div class="fc-body">
-                <h4 class="fc-title">产业大脑</h4>
-                <p class="fc-desc">行业洞察 · 政策解读 · 竞争格局</p>
-              </div>
-            </RouterLink>
-            <RouterLink class="feature-card glass-panel-hover" to="/graph">
-              <div class="fc-icon fc-icon-indigo">图</div>
-              <div class="fc-body">
-                <h4 class="fc-title">图谱检索</h4>
-                <p class="fc-desc">关联实体图谱 · 页级证据溯源</p>
-              </div>
-            </RouterLink>
-            <RouterLink class="feature-card glass-panel-hover" to="/verify">
-              <div class="fc-icon fc-icon-amber">验</div>
-              <div class="fc-body">
-                <h4 class="fc-title">研报核验</h4>
-                <p class="fc-desc">Claim 核实 · 事实对比 · 可信度评分</p>
-              </div>
-            </RouterLink>
-          </div>
-
-          <div class="hero-actions">
-            <RouterLink class="button-primary glow-button splash-btn" to="/workspace">
-              进入协同分析
-              <svg class="btn-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-            </RouterLink>
-            <RouterLink class="button-secondary splash-btn-sec" to="/brain">
-              产业大脑
+          <div class="landing-actions">
+            <RouterLink class="button-primary landing-primary" :to="entryAction.to">
+              {{ entryAction.label }}
             </RouterLink>
           </div>
         </div>
+
+        <div class="landing-stage" aria-hidden="true">
+          <div class="stage-core">
+            <span>Agent</span>
+            <strong>决策中枢</strong>
+          </div>
+
+          <div class="stage-node stage-node-investor">
+            <span>{{ scenarioCards[0].roleLabel }}</span>
+            <strong>{{ scenarioCards[0].title }}</strong>
+          </div>
+          <div class="stage-node stage-node-management">
+            <span>{{ scenarioCards[1].roleLabel }}</span>
+            <strong>{{ scenarioCards[1].title }}</strong>
+          </div>
+          <div class="stage-node stage-node-regulator">
+            <span>{{ scenarioCards[2].roleLabel }}</span>
+            <strong>{{ scenarioCards[2].title }}</strong>
+          </div>
+
+          <div class="stage-footnote">
+            <span>实时监测</span>
+            <span>图谱溯源</span>
+            <span>压力推演</span>
+            <span>文档核验</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="landing-dock">
+        <RouterLink
+          v-for="item in scenarioCards"
+          :key="item.role"
+          class="dock-strip"
+          :class="`is-${item.role}`"
+          :to="buildScenarioRoute(item.role, item.prompt)"
+        >
+          <div class="dock-copy">
+            <span>{{ item.roleLabel }}</span>
+            <strong>{{ item.title }}</strong>
+            <small>{{ item.cue }}</small>
+          </div>
+          <em>进入</em>
+        </RouterLink>
       </section>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-.home-wrapper {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 8px 0 24px;
-  height: 100%;
-  overflow-y: auto;
-}
-.home-loading { width: 100%; max-width: 780px; min-height: 420px; }
-.home-wrapper::-webkit-scrollbar { width: 4px; }
-.home-wrapper::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-
-.splash-card {
-  max-width: 780px;
-  width: 100%;
+.landing {
+  min-height: calc(100vh - 56px);
+  margin: -16px -24px -24px;
   padding: 0;
-  border-radius: 24px;
-  overflow: hidden;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  background:
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.08), transparent 28%),
+    radial-gradient(circle at right, rgba(59, 130, 246, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(7, 10, 18, 0.98), rgba(7, 10, 18, 0.94));
 }
 
-.splash-inner {
-  padding: 40px;
-  display: flex;
-  flex-direction: column;
+.landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
   align-items: center;
-  text-align: center;
-  gap: 28px;
-  position: relative;
+  min-height: 0;
 }
 
-.splash-inner::before {
+.landing-copy,
+.landing-stage {
+  min-width: 0;
+}
+
+.landing-copy {
+  display: grid;
+  align-content: center;
+  gap: 18px;
+  padding: 48px 54px;
+}
+
+.landing-kicker,
+.stage-core span,
+.stage-node span,
+.dock-strip span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.82);
+}
+
+.landing-copy h1,
+.stage-core strong,
+.stage-node strong,
+.dock-strip strong {
+  margin: 0;
+  letter-spacing: -0.05em;
+  color: #f8fafc;
+}
+
+.landing-copy h1 {
+  font-size: clamp(40px, 5vw, 68px);
+  line-height: 0.96;
+  max-width: 520px;
+}
+
+.landing-copy p {
+  margin: 0;
+  color: rgba(203, 213, 225, 0.78);
+  font-size: 16px;
+  max-width: 240px;
+}
+
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.landing-primary {
+  min-width: 156px;
+}
+
+.landing-stage {
+  position: relative;
+  min-height: 100%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.landing-stage::before,
+.landing-stage::after {
   content: '';
   position: absolute;
-  top: -80px;
+  border-radius: 999px;
+  inset: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.landing-stage::before {
+  width: min(52vw, 640px);
+  height: min(52vw, 640px);
+  border: 1px solid rgba(52, 211, 153, 0.12);
+  box-shadow:
+    0 0 0 90px rgba(52, 211, 153, 0.03),
+    0 0 0 180px rgba(52, 211, 153, 0.02);
+}
+
+.landing-stage::after {
+  width: min(26vw, 320px);
+  height: min(26vw, 320px);
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.18), transparent 68%);
+}
+
+.stage-core,
+.stage-node {
+  position: absolute;
+  z-index: 1;
+}
+
+.stage-core {
+  display: grid;
+  gap: 8px;
+  padding: 34px;
+  width: 220px;
+  height: 220px;
+  border-radius: 999px;
+  place-content: center;
+  text-align: center;
+  background:
+    radial-gradient(circle, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05)),
+    rgba(8, 12, 18, 0.72);
+  border: 1px solid rgba(52, 211, 153, 0.18);
+}
+
+.stage-core strong {
+  font-size: 28px;
+  line-height: 1.02;
+}
+
+.stage-node {
+  display: grid;
+  gap: 6px;
+  width: 190px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(8, 12, 18, 0.76);
+  backdrop-filter: blur(10px);
+}
+
+.stage-node strong {
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.stage-node-investor {
+  top: 16%;
+  right: 16%;
+}
+
+.stage-node-management {
+  bottom: 18%;
+  right: 10%;
+}
+
+.stage-node-regulator {
+  bottom: 20%;
+  left: 10%;
+}
+
+.stage-footnote {
+  position: absolute;
   left: 50%;
+  bottom: 8%;
   transform: translateX(-50%);
-  width: 400px;
-  height: 300px;
-  background: radial-gradient(circle, rgba(16,185,129,0.12) 0%, transparent 70%);
-  pointer-events: none;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
-.glow-icon-splash {
-  width: 72px;
-  height: 72px;
-  border-radius: 18px;
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  display: grid;
-  place-items: center;
-  box-shadow: 0 0 30px rgba(16, 185, 129, 0.2);
-  color: #10b981;
-  font-size: 28px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.splash-eyebrow {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 4px;
-  background: rgba(59, 130, 246, 0.1);
-  color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.2);
+.stage-footnote span {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(203, 213, 225, 0.84);
   font-size: 12px;
-  margin-bottom: 12px;
-  font-family: 'JetBrains Mono', monospace;
 }
 
-.splash-title {
-  font-size: 28px;
-  font-weight: 700;
-  margin: 0 0 8px;
-  letter-spacing: -0.02em;
-  line-height: 1.3;
-}
-
-.text-gradient {
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-image: linear-gradient(to right, #60a5fa, #34d399);
-}
-
-.text-accent { color: #10b981; }
-
-.muted { color: #94a3b8; }
-.splash-subtitle {
-  font-size: 13px;
-  margin: 0;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-/* Stats */
-.stats-row {
-  display: flex;
-  gap: 0;
-  justify-content: center;
-  background: rgba(0,0,0,0.2);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 14px;
-  width: 100%;
-  padding: 0;
-  overflow: hidden;
-}
-
-.stat-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 16px 12px;
-}
-
-.stat-val {
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1;
-  color: #fff;
-}
-
-.stat-lbl {
-  font-size: 11px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.stat-div {
-  width: 1px;
-  background: rgba(255,255,255,0.07);
-  align-self: stretch;
-  flex-shrink: 0;
-}
-
-/* Feature Grid */
-.feature-grid {
+.landing-dock {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  width: 100%;
+  padding: 0 24px 24px;
 }
 
-.feature-card {
+.dock-strip,
+.dock-module {
+  text-decoration: none;
+}
+
+.dock-strip {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.05);
-  text-decoration: none;
-  background: rgba(255,255,255,0.02);
-  transition: all 0.2s;
-  text-align: left;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 92px;
+  padding: 0 20px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.024);
 }
 
-.feature-card:hover {
-  border-color: rgba(16,185,129,0.3);
-  background: rgba(16,185,129,0.05);
-  transform: translateY(-1px);
+.dock-copy {
+  display: grid;
+  gap: 6px;
 }
 
-.fc-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+.dock-copy small {
+  color: rgba(148, 163, 184, 0.84);
+  font-size: 13px;
+}
+
+.dock-strip.is-investor {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.dock-strip.is-management {
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.dock-strip.is-regulator {
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.dock-strip em {
+  min-width: 54px;
+  min-height: 54px;
+  border-radius: 999px;
   display: grid;
   place-items: center;
-  font-weight: 700;
-  font-size: 15px;
-  flex-shrink: 0;
+  font-style: normal;
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.06);
 }
 
-.fc-icon-blue { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.25); }
-.fc-icon-green { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.25); }
-.fc-icon-red { background: rgba(244,63,94,0.15); color: #f43f5e; border: 1px solid rgba(244,63,94,0.25); }
-.fc-icon-purple { background: rgba(168,85,247,0.15); color: #a855f7; border: 1px solid rgba(168,85,247,0.25); }
-.fc-icon-indigo { background: rgba(129,140,248,0.15); color: #818cf8; border: 1px solid rgba(129,140,248,0.25); }
-.fc-icon-amber { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.25); }
+@media (max-width: 1260px) {
+  .landing-hero {
+    grid-template-columns: 1fr;
+  }
 
-.fc-body { min-width: 0; }
-.fc-title { margin: 0 0 4px; font-size: 14px; font-weight: 600; color: #fff; }
-.fc-desc { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.5; font-family: 'JetBrains Mono', monospace; }
+  .landing-stage {
+    min-height: 420px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
 
-/* Actions */
-.hero-actions {
-  display: flex;
-  gap: 12px;
-  width: 100%;
+  .landing-dock {
+    grid-template-columns: 1fr;
+  }
 }
 
-.glow-button {
-  transition: all 0.2s ease;
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
-}
-.glow-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
-}
+@media (max-width: 720px) {
+  .landing-copy {
+    padding: 28px 18px;
+  }
 
-.splash-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 14px;
-  font-size: 15px;
-  font-weight: 500;
-  border-radius: 12px;
-  text-decoration: none;
-}
+  .landing-copy h1 {
+    font-size: clamp(32px, 14vw, 50px);
+  }
 
-.splash-btn-sec {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 14px 24px;
-  font-size: 15px;
-  border-radius: 12px;
-  text-decoration: none;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: #94a3b8;
-  transition: all 0.2s;
-}
-.splash-btn-sec:hover {
-  background: rgba(255,255,255,0.08);
-  color: #fff;
-}
+  .landing-stage {
+    min-height: 360px;
+  }
 
-.btn-icon { width: 18px; height: 18px; margin-left: 8px; }
+  .stage-core {
+    width: 180px;
+    height: 180px;
+  }
 
-.splash-header { width: 100%; }
+  .stage-node {
+    width: 148px;
+    padding: 12px 14px;
+  }
+
+  .stage-node strong {
+    font-size: 15px;
+  }
+
+  .stage-node-investor {
+    top: 10%;
+    right: 4%;
+  }
+
+  .stage-node-management {
+    bottom: 10%;
+    right: 2%;
+  }
+
+  .stage-node-regulator {
+    bottom: 12%;
+    left: 2%;
+  }
+
+  .stage-footnote {
+    bottom: 4%;
+    width: calc(100% - 32px);
+  }
+
+  .landing-dock {
+    padding: 0 16px 16px;
+  }
+}
 </style>
