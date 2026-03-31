@@ -49,7 +49,7 @@ services:
       [
         "sh",
         "-c",
-        "ops-pilot-runtime-check --profile startup && python -c \"from opspilot.main import run_api; run_api()\"",
+        "ops-pilot-runtime-check --profile startup || true; python -c \"from opspilot.main import run_api; run_api()\"",
       ]
     ports:
       - "8000:8000"

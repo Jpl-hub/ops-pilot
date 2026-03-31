@@ -46,7 +46,7 @@ docker compose up --build
 - 前端：`http://127.0.0.1:8080`
 - PostgreSQL：`127.0.0.1:5432`
 - OCR 标准能力：在 `.env` 中配置 `OPS_PILOT_OCR_ASSETS_PATH` 和 `OPS_PILOT_OCR_RUNTIME_ENABLED=true`
-- API 容器启动前会自动执行 `ops-pilot-runtime-check`，OCR 资产缺失会直接阻断启动
+- API 容器启动前会自动执行 `ops-pilot-runtime-check` 输出当前运行检查；本地开发环境不会因为 OCR 资产缺失而阻断启动
 - 首次准备模型目录可执行 `ops-pilot-init-ocr-assets`
 - 需要导出运行周报时可执行 `ops-pilot-delivery-report --format markdown --output docs/ops_runtime_report.md`
 

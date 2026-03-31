@@ -5,12 +5,12 @@ import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { buildWebSocketUrl, get, loadAccessToken } from '@/lib/api'
+import { get } from '@/lib/api'
 
 const state = useAsyncState<any>()
 const livePayload = ref<any | null>(null)
 const wsStatus = ref<'connecting' | 'connected' | 'disconnected'>('connecting')
-let socket: WebSocket | null = null
+let liveTimer: number | null = null
 
 const payload = computed(() => livePayload.value || state.data.value)
 const marketTape = computed(() => payload.value?.market_tape || [])
@@ -94,40 +94,30 @@ function displayResearchSource(event: any) {
   return event?.source || event?.source_name || event?.domain || '外部线索'
 }
 
-function closeSocket() {
-  socket?.close()
-  socket = null
+function stopLiveRefresh() {
+  if (liveTimer !== null) {
+    window.clearInterval(liveTimer)
+    liveTimer = null
+  }
 }
 
-function connectStream() {
-  const token = loadAccessToken()
-  if (!token) {
+async function refreshLive() {
+  try {
+    const payload = await get('/industry/brain/tick')
+    livePayload.value = payload
+    wsStatus.value = 'connected'
+  } catch {
     wsStatus.value = 'disconnected'
-    closeSocket()
-    return
   }
+}
 
-  closeSocket()
-  const url = `${buildWebSocketUrl('/ws/industry-brain')}?token=${encodeURIComponent(token)}`
-  socket = new WebSocket(url)
+function startLiveRefresh() {
+  stopLiveRefresh()
   wsStatus.value = 'connecting'
-
-  socket.onopen = () => {
-    wsStatus.value = 'connected'
-  }
-
-  socket.onmessage = (event) => {
-    wsStatus.value = 'connected'
-    livePayload.value = JSON.parse(event.data)
-  }
-
-  socket.onclose = () => {
-    wsStatus.value = 'disconnected'
-  }
-
-  socket.onerror = () => {
-    wsStatus.value = 'disconnected'
-  }
+  void refreshLive()
+  liveTimer = window.setInterval(() => {
+    void refreshLive()
+  }, 4000)
 }
 
 async function loadPage() {
@@ -136,11 +126,11 @@ async function loadPage() {
 
 onMounted(async () => {
   await loadPage()
-  connectStream()
+  startLiveRefresh()
 })
 
 onBeforeUnmount(() => {
-  closeSocket()
+  stopLiveRefresh()
 })
 </script>
 
@@ -152,7 +142,7 @@ onBeforeUnmount(() => {
       <div v-else-if="state.error.value && !payload" class="brain-surface brain-error">
         <strong>产业大脑暂时不可用</strong>
         <p>{{ state.error.value }}</p>
-        <button type="button" class="brain-action" @click="() => { loadPage(); connectStream() }">重新连接</button>
+        <button type="button" class="brain-action" @click="() => { loadPage(); startLiveRefresh() }">重新连接</button>
       </div>
 
       <template v-else-if="payload">

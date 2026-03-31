@@ -429,14 +429,23 @@ class OpsPilotService:
         health = self.health()
         alert_workflow = self.alert_workflow(report_period=preferred_period)
         task_board = self.task_board(user_role="management", report_period=preferred_period, limit=200)
-        watchboard = self.watchboard(user_role="management", report_period=preferred_period)
         risk_payload = self.risk_scan(preferred_period)
+        watchboard = _build_industry_brain_watchboard_snapshot(
+            self.settings,
+            report_period=preferred_period,
+            user_role="management",
+            alert_workflow=alert_workflow,
+            task_board=task_board,
+            risk_payload=risk_payload,
+            limit=8,
+        )
         innovation_radar = self.innovation_radar()
         data_status = self.official_data_status()
-        workspace_history = self.workspace_history(
-            user_role="management",
+        workspace_history = _build_industry_brain_history_snapshot(
+            self.settings,
             report_period=preferred_period,
-            limit=30,
+            user_role="management",
+            limit=10,
         )
 
         live_point = {
@@ -717,6 +726,8 @@ class OpsPilotService:
         *,
         user_role: str = "management",
         report_period: str | None = None,
+        include_research: bool = True,
+        item_limit: int | None = None,
     ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
         manifest = _load_watchboard_manifest(self.settings)
@@ -745,12 +756,16 @@ class OpsPilotService:
             alert_items = alert_items_by_company.get(company_name, [])
             task_items = task_items_by_company.get(company_name, [])
             document_items = document_items_by_company.get(company_name, [])
-            try:
-                research_payload = self.verify_claim(company_name, period)
-                research_status = "ready"
-                research_title = research_payload["report_meta"]["title"]
-            except ValueError:
-                research_status = "missing"
+            if include_research:
+                try:
+                    research_payload = self.verify_claim(company_name, period)
+                    research_status = "ready"
+                    research_title = research_payload["report_meta"]["title"]
+                except ValueError:
+                    research_status = "missing"
+                    research_title = None
+            else:
+                research_status = "skipped"
                 research_title = None
             watch_items.append(
                 {
@@ -791,7 +806,7 @@ class OpsPilotService:
                     1 for item in watch_items if item["in_progress_alerts"] > 0 or item["task_count"] > 0
                 ),
             },
-            "items": watch_items,
+            "items": watch_items[:item_limit] if item_limit is not None else watch_items,
         }
 
     def scan_watchboard(
@@ -1190,10 +1205,13 @@ class OpsPilotService:
         research_status: dict[str, Any]
         try:
             research_payload = self.verify_claim(company_name, period)
+            research_meta = research_payload.get("report_meta", {})
             research_status = {
                 "status": "ready",
-                "report_title": research_payload["report_meta"]["title"],
-                "institution": research_payload["report_meta"]["institution"],
+                "report_title": research_meta.get("title") or "最新研报",
+                "institution": research_meta.get("institution")
+                or research_meta.get("source_name")
+                or "机构未披露",
                 "claim_matches": sum(
                     1 for item in research_payload["claim_cards"] if item["status"] == "match"
                 ),
@@ -3560,6 +3578,7 @@ class OpsPilotService:
         user_role: str = "management",
         report_period: str | None = None,
         limit: int = 30,
+        source_limit: int = 200,
     ) -> dict[str, Any]:
         period = report_period or self._preferred_period()
         analysis_runs = [
@@ -3580,7 +3599,7 @@ class OpsPilotService:
                     },
                 },
             }
-            for item in self.workspace_runs(limit=200)["runs"]
+            for item in self.workspace_runs(limit=source_limit)["runs"]
             if item.get("user_role") == user_role and item.get("report_period") == period
         ]
         watch_runs = [
@@ -3604,7 +3623,7 @@ class OpsPilotService:
             for item in self.watchboard_runs(
                 user_role=user_role,
                 report_period=period,
-                limit=200,
+                limit=source_limit,
             )["runs"]
         ]
         document_jobs = [
@@ -3625,7 +3644,7 @@ class OpsPilotService:
                     },
                 },
             }
-            for item in self.document_pipeline_results(limit=300)["results"]
+            for item in self.document_pipeline_results(limit=max(source_limit, limit))["results"]
             if item.get("report_period") == period
         ]
         document_runs = [
@@ -3650,7 +3669,7 @@ class OpsPilotService:
                     },
                 },
             }
-            for item in self.document_pipeline_runs(limit=200)["runs"]
+            for item in self.document_pipeline_runs(limit=source_limit)["runs"]
             if item.get("report_period") == period
         ]
         stress_runs = [
@@ -3674,7 +3693,7 @@ class OpsPilotService:
             for item in self.stress_test_runs(
                 report_period=period,
                 user_role=user_role,
-                limit=200,
+                limit=source_limit,
             )["runs"]
         ]
         graph_runs = [
@@ -3697,7 +3716,7 @@ class OpsPilotService:
             for item in self.graph_query_runs(
                 report_period=period,
                 user_role=user_role,
-                limit=200,
+                limit=source_limit,
             )["runs"]
         ]
         vision_runs = [
@@ -3720,7 +3739,7 @@ class OpsPilotService:
             for item in self.vision_runs(
                 report_period=period,
                 user_role=user_role,
-                limit=200,
+                limit=source_limit,
             )["runs"]
         ]
         records = analysis_runs + watch_runs + document_jobs + document_runs + stress_runs
@@ -10145,6 +10164,81 @@ def _load_watchboard_manifest(settings: Settings) -> dict[str, Any]:
     }
 
 
+def _build_industry_brain_watchboard_snapshot(
+    settings: Settings,
+    *,
+    report_period: str,
+    user_role: str,
+    alert_workflow: dict[str, Any],
+    task_board: dict[str, Any],
+    risk_payload: dict[str, Any],
+    limit: int = 8,
+) -> dict[str, Any]:
+    manifest = _load_watchboard_manifest(settings)
+    records = [
+        item
+        for item in manifest["records"]
+        if item.get("user_role") == user_role and item.get("report_period") == report_period
+    ]
+
+    alert_items_by_company: dict[str, list[dict[str, Any]]] = {}
+    for item in alert_workflow.get("alerts", []):
+        alert_items_by_company.setdefault(item["company_name"], []).append(item)
+
+    task_count_by_company: dict[str, int] = {}
+    for item in task_board.get("tasks", []):
+        task_count_by_company[item["company_name"]] = task_count_by_company.get(item["company_name"], 0) + 1
+
+    risk_lookup = {
+        item["company_name"]: item
+        for item in risk_payload.get("risk_board", [])
+        if item.get("company_name")
+    }
+
+    watch_items: list[dict[str, Any]] = []
+    for item in records:
+        company_name = item["company_name"]
+        alert_items = alert_items_by_company.get(company_name, [])
+        risk_item = risk_lookup.get(company_name, {})
+        watch_items.append(
+            {
+                "company_name": company_name,
+                "report_period": report_period,
+                "user_role": user_role,
+                "note": item.get("note"),
+                "risk_count": int(risk_item.get("risk_count") or 0),
+                "task_count": task_count_by_company.get(company_name, 0),
+                "new_alerts": sum(1 for alert in alert_items if alert.get("status") == "new"),
+                "in_progress_alerts": sum(
+                    1 for alert in alert_items if alert.get("status") == "in_progress"
+                ),
+                "top_risks": (risk_item.get("risk_labels") or [])[:3],
+            }
+        )
+
+    watch_items.sort(
+        key=lambda item: (
+            item["new_alerts"],
+            item["in_progress_alerts"],
+            item["risk_count"],
+            item["task_count"],
+        ),
+        reverse=True,
+    )
+    return {
+        "report_period": report_period,
+        "user_role": user_role,
+        "summary": {
+            "tracked_companies": len(watch_items),
+            "companies_with_new_alerts": sum(1 for item in watch_items if item["new_alerts"] > 0),
+            "companies_in_progress": sum(
+                1 for item in watch_items if item["in_progress_alerts"] > 0 or item["task_count"] > 0
+            ),
+        },
+        "items": watch_items[:limit],
+    }
+
+
 def _write_watchboard_manifest(settings: Settings, payload: dict[str, Any]) -> None:
     payload["generated_at"] = _utcnow_iso()
     payload["record_count"] = len(payload.get("records", []))
@@ -10314,6 +10408,96 @@ def _load_workspace_run_manifest(settings: Settings) -> dict[str, Any]:
         "generated_at": payload.get("generated_at", _utcnow_iso()),
         "record_count": len(payload.get("records", [])),
         "records": payload.get("records", []),
+    }
+
+
+def _build_industry_brain_history_snapshot(
+    settings: Settings,
+    *,
+    report_period: str,
+    user_role: str,
+    limit: int = 10,
+) -> dict[str, Any]:
+    analysis_runs = [
+        {
+            "history_type": "analysis_run",
+            "title": item.get("query") or "协同分析",
+            "created_at": item.get("created_at"),
+            "status_label": "已完成",
+            "type_label": "协同分析",
+            "route": {"path": f"/api/v1/workspace/runs/{item['run_id']}"},
+        }
+        for item in _load_workspace_run_manifest(settings)["records"]
+        if item.get("user_role") == user_role and item.get("report_period") == report_period
+    ]
+    watch_runs = [
+        {
+            "history_type": "watchboard_scan",
+            "title": f"监测扫描 · {item.get('report_period')}",
+            "created_at": item.get("created_at"),
+            "status_label": "已完成",
+            "type_label": "监测扫描",
+            "route": {"path": f"/api/v1/watchboard/runs/{item['run_id']}"},
+        }
+        for item in _load_watchboard_runs_manifest(settings)["records"]
+        if item.get("user_role") == user_role and item.get("report_period") == report_period
+    ]
+    document_runs = [
+        {
+            "history_type": "document_pipeline_run",
+            "title": f"{item.get('stage') or 'document'} 批量执行",
+            "created_at": item.get("created_at"),
+            "status_label": item.get("status", "completed"),
+            "type_label": "文档升级",
+            "route": {"path": f"/api/v1/admin/document-pipeline/runs/{item['run_id']}"},
+        }
+        for item in _load_document_pipeline_run_manifest(settings)["records"]
+        if item.get("report_period") == report_period
+    ]
+    stress_runs = [
+        {
+            "history_type": "stress_test",
+            "title": f"压力测试 · {item.get('company_name')}",
+            "created_at": item.get("created_at"),
+            "status_label": item.get("severity", {}).get("label") or "已完成",
+            "type_label": "压力测试",
+            "route": {"path": f"/api/v1/stress-test/runs/{item['run_id']}"},
+        }
+        for item in _load_stress_test_run_manifest(settings)["records"]
+        if item.get("user_role") == user_role and item.get("report_period") == report_period
+    ]
+    graph_runs = [
+        {
+            "history_type": "graph_query",
+            "title": f"图谱检索 · {item.get('company_name')}",
+            "created_at": item.get("created_at"),
+            "status_label": "已完成",
+            "type_label": "图谱检索",
+            "route": {"path": f"/api/v1/graph-query/runs/{item['run_id']}"},
+        }
+        for item in _load_graph_query_run_manifest(settings)["records"]
+        if item.get("user_role") == user_role and item.get("report_period") == report_period
+    ]
+    vision_runs = [
+        {
+            "history_type": "vision_analyze",
+            "title": f"文档复核 · {item.get('company_name')}",
+            "created_at": item.get("created_at"),
+            "status_label": item.get("status_label") or "已完成",
+            "type_label": "文档复核",
+            "route": {"path": f"/api/v1/vision-analyze/runs/{item['run_id']}"},
+        }
+        for item in _load_vision_run_manifest(settings)["records"]
+        if item.get("user_role") == user_role and item.get("report_period") == report_period
+    ]
+
+    records = analysis_runs + watch_runs + document_runs + stress_runs + graph_runs + vision_runs
+    records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    return {
+        "user_role": user_role,
+        "report_period": report_period,
+        "total": len(records),
+        "records": records[:limit],
     }
 
 

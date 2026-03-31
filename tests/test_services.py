@@ -2960,6 +2960,107 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(graph["summary"]["watch_tracked"])
             self.assertTrue(any(node["type"] == "execution_stream" for node in graph["nodes"]))
 
+    def test_company_workspace_research_uses_source_name_when_institution_missing(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 12.0},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    }
+                ]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            score_payload = {
+                "report_period": "2025Q3",
+                "subindustry": "储能",
+                "scorecard": {
+                    "total_score": 82.0,
+                    "grade": "A",
+                    "subindustry_percentile": 91.0,
+                    "risk_labels": [{"name": "现金流压力"}],
+                    "opportunity_labels": [{"name": "储能订单扩张"}],
+                },
+                "action_cards": [],
+                "formula_cards": [],
+            }
+            with (
+                patch.object(service, "score_company", return_value=score_payload),
+                patch.object(
+                    service,
+                    "company_timeline",
+                    return_value={"latest_period": "2025Q3", "key_numbers": [], "snapshots": []},
+                ),
+                patch.object(service, "benchmark_company", return_value={"benchmark": []}),
+                patch.object(service, "alert_workflow", return_value={"alerts": []}),
+                patch.object(service, "task_board", return_value={"tasks": []}),
+                patch.object(
+                    service,
+                    "company_document_upgrades",
+                    return_value={"count": 0, "stage_summary": {}, "items": []},
+                ),
+                patch.object(
+                    service,
+                    "company_execution_stream",
+                    return_value={"summary": {"document_upgrades": 0}, "total": 0, "records": []},
+                ),
+                patch.object(service, "workspace_runs", return_value={"runs": []}),
+                patch.object(
+                    service,
+                    "company_intelligence_runtime",
+                    return_value={"runtime_bus": {"total": 0, "records": []}, "module_pulses": []},
+                ),
+                patch.object(service, "company_runtime_capsule", return_value=None),
+                patch.object(
+                    service,
+                    "verify_claim",
+                    return_value={
+                        "report_meta": {"title": "测试研报", "source_name": "测试证券"},
+                        "claim_cards": [],
+                        "forecast_cards": [],
+                    },
+                ),
+                patch(
+                    "opspilot.application.services._build_company_signal_graph_context",
+                    return_value={"event_available": False},
+                ),
+            ):
+                workspace = service.company_workspace("测试公司", "2025Q3", user_role="management")
+                graph = service.company_graph(
+                    "测试公司",
+                    "2025Q3",
+                    user_role="management",
+                    workspace=workspace,
+                )
+
+            self.assertEqual(workspace["research"]["status"], "ready")
+            self.assertEqual(workspace["research"]["institution"], "测试证券")
+            research_node = next(node for node in graph["nodes"] if node["type"] == "research_report")
+            self.assertEqual(research_node["meta"]["institution"], "测试证券")
+
     def test_workspace_overview_keeps_company_pool_when_risk_board_is_empty(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
