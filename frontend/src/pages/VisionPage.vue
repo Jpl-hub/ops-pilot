@@ -186,7 +186,7 @@ watch(
 </script>
 
 <template>
-  <AppShell title="文档智能解析">
+  <AppShell title="财报文档复核">
     <div class="dashboard-wrapper">
 
       <!-- Control Bar -->
@@ -216,7 +216,7 @@ watch(
             :disabled="!canRunPipeline || pipelineRunning"
             @click="runPipeline"
           >
-            {{ pipelineRunning ? '处理中…' : '刷新解析链' }}
+            {{ pipelineRunning ? '处理中…' : '刷新文档链' }}
           </button>
         </div>
       </section>
@@ -460,7 +460,7 @@ watch(
           <article v-else class="glass-panel empty-panel">
             <div class="empty-content">
               <h3 class="text-gradient mb-2">等待解析结果</h3>
-              <p class="muted">选择公司后点击「刷新解析链」触发多模态解析流水线。</p>
+              <p class="muted">选择公司后点击「刷新文档链」，回看当前页块、表格与证据链。</p>
             </div>
           </article>
 

@@ -28,7 +28,7 @@ const sidebarItems = [
   { to: '/stress', label: '产业链压力测试', detail: '冲击传导推演', auth: true },
   { to: '/score', label: '企业运营体检', detail: '经营健康诊断', auth: true },
   { to: '/verify', label: '研报观点核验', detail: '观点事实核卡', auth: true },
-  { to: '/vision', label: '多模态图表解析', detail: '图表与文档识别', auth: true },
+  { to: '/vision', label: '财报文档复核', detail: '页块 / 表格 / 证据', auth: true },
 ]
 
 const visibleSidebarItems = computed(() =>
@@ -38,6 +38,19 @@ const visibleSidebarItems = computed(() =>
 const activeNavLabel = computed(
   () => sidebarItems.find((item) => item.to === route.path)?.label || '协同分析',
 )
+
+const routeContext = computed(() => {
+  const mapping: Record<string, { title: string; cues: string[] }> = {
+    '/brain': { title: '先看行业脉冲', cues: ['信号', '热点', '异动'] },
+    '/workspace': { title: '直接发起判断', cues: ['研判', '证据', '动作'] },
+    '/graph': { title: '沿证据路径追溯', cues: ['节点', '链路', '原文'] },
+    '/stress': { title: '看冲击怎么传导', cues: ['假设', '路径', '影响'] },
+    '/score': { title: '先诊断企业体质', cues: ['经营', '风险', '对标'] },
+    '/verify': { title: '核对观点是否站得住', cues: ['研报', '财报', '偏差'] },
+    '/vision': { title: '回看财报结构与证据', cues: ['页块', '表格', '证据'] },
+  }
+  return mapping[route.path] || { title: activeNavLabel.value, cues: ['判断', '证据', '路径'] }
+})
 
 async function logout() {
   try {
@@ -82,6 +95,14 @@ async function logout() {
       </nav>
 
       <div class="app-sidebar-footer">
+        <div class="app-context-card">
+          <span class="app-muted-label">{{ activeNavLabel }}</span>
+          <strong>{{ routeContext.title }}</strong>
+          <div class="app-context-cues">
+            <span v-for="cue in routeContext.cues" :key="cue">{{ cue }}</span>
+          </div>
+        </div>
+
         <div v-if="session.isAuthenticated.value" class="app-role-box">
           <span class="app-muted-label">当前视角</span>
           <label class="app-role-select">
@@ -106,11 +127,6 @@ async function logout() {
             <RouterLink to="/login" class="app-footer-link">登录</RouterLink>
             <RouterLink to="/register" class="app-footer-link">注册</RouterLink>
           </template>
-        </div>
-
-        <div class="app-status-line">
-          <i></i>
-          <span>System Online · {{ activeNavLabel }}</span>
         </div>
       </div>
     </aside>
@@ -237,6 +253,39 @@ async function logout() {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.app-context-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.app-context-card strong {
+  font-size: 14px;
+  line-height: 1.35;
+  color: #eef2f7;
+}
+
+.app-context-cues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-context-cues span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.14);
+  color: rgba(143, 239, 200, 0.86);
+  font-size: 11px;
+}
+
 .app-muted-label {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
@@ -280,24 +329,6 @@ async function logout() {
 
 .app-footer-link.is-button {
   cursor: pointer;
-}
-
-.app-status-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: rgba(120, 143, 172, 0.88);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-}
-
-.app-status-line i {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #2ee6a6;
-  box-shadow: 0 0 14px rgba(46, 230, 166, 0.38);
 }
 
 .app-main {
