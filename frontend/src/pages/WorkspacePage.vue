@@ -564,6 +564,9 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
+  width: 100%;
+  max-width: 1480px;
+  margin: 0 auto;
 }
 
 .console-header {
@@ -606,13 +609,14 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .console-heading h1 {
-  font-size: clamp(34px, 4vw, 46px);
+  font-size: clamp(30px, 3.4vw, 40px);
   line-height: 0.98;
 }
 
 .console-heading p {
   margin: 0;
   color: rgba(148, 163, 184, 0.92);
+  font-size: 13px;
 }
 
 .console-toolbar {
@@ -665,7 +669,7 @@ watch(selectedCompany, async (company, previous) => {
 .workspace-state,
 .console-stage {
   min-height: 0;
-  border-radius: 26px;
+  border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: linear-gradient(180deg, rgba(16, 17, 20, 0.98), rgba(12, 13, 17, 0.98));
 }
@@ -696,9 +700,9 @@ watch(selectedCompany, async (company, previous) => {
 .console-stream {
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 24px 8px;
+  padding: 18px 18px 8px;
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
 .console-message {
@@ -712,8 +716,8 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .message-glyph {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: 12px;
   border: 1px solid rgba(52, 211, 153, 0.22);
   background: rgba(18, 62, 45, 0.92);
@@ -721,7 +725,7 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   place-items: center;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .message-panel,
@@ -729,15 +733,15 @@ watch(selectedCompany, async (company, previous) => {
 .analysis-sheet,
 .evidence-dock,
 .user-query-panel {
-  border-radius: 22px;
+  border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.07);
   background: rgba(255, 255, 255, 0.02);
 }
 
 .message-panel {
-  padding: 18px 20px;
+  padding: 16px 18px;
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .message-panel strong,
@@ -770,9 +774,9 @@ watch(selectedCompany, async (company, previous) => {
 .signal-chip {
   display: grid;
   gap: 6px;
-  min-width: 120px;
-  padding: 12px 14px;
-  border-radius: 16px;
+  min-width: 108px;
+  padding: 10px 12px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
 }
 
@@ -787,8 +791,8 @@ watch(selectedCompany, async (company, previous) => {
 
 .user-query-panel {
   margin-left: auto;
-  max-width: min(780px, 78%);
-  padding: 18px 22px;
+  max-width: min(700px, 76%);
+  padding: 16px 18px;
   display: grid;
   gap: 8px;
   background: rgba(27, 43, 108, 0.72);
@@ -797,7 +801,7 @@ watch(selectedCompany, async (company, previous) => {
 
 .user-query-panel strong {
   color: #f8fafc;
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1.45;
 }
 
@@ -807,9 +811,9 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .workflow-panel {
-  padding: 18px 20px;
+  padding: 16px 18px;
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .workflow-head {
@@ -853,9 +857,9 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .analysis-sheet {
-  padding: 20px 22px;
+  padding: 18px 20px;
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
 .analysis-head {
@@ -872,7 +876,7 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .analysis-head h2 {
-  font-size: clamp(28px, 3vw, 40px);
+  font-size: clamp(24px, 2.6vw, 34px);
   line-height: 1.02;
 }
 
@@ -896,7 +900,7 @@ watch(selectedCompany, async (company, previous) => {
 .analysis-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.7fr);
-  gap: 18px;
+  gap: 16px;
 }
 
 .analysis-copy,
@@ -917,7 +921,7 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .analysis-block h3 {
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .analysis-block ul {
@@ -928,8 +932,8 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .side-stack {
-  padding: 14px;
-  border-radius: 18px;
+  padding: 12px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.025);
 }
 
@@ -946,7 +950,7 @@ watch(selectedCompany, async (company, previous) => {
 
 .metric-row strong {
   color: #f8fafc;
-  font-size: 24px;
+  font-size: 21px;
   letter-spacing: -0.04em;
 }
 
@@ -970,9 +974,9 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .evidence-dock {
-  padding: 16px 18px;
+  padding: 14px 16px;
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 
 .evidence-groups {
@@ -984,8 +988,8 @@ watch(selectedCompany, async (company, previous) => {
 .evidence-group {
   display: grid;
   gap: 8px;
-  padding: 14px;
-  border-radius: 16px;
+  padding: 12px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
 }
 
@@ -1038,13 +1042,13 @@ watch(selectedCompany, async (company, previous) => {
 .prep-cell {
   display: grid;
   gap: 8px;
-  padding: 14px;
-  border-radius: 16px;
+  padding: 12px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
 }
 
 .console-composer {
-  padding: 14px 24px 24px;
+  padding: 12px 18px 18px;
   display: grid;
   gap: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -1055,8 +1059,8 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 148px;
   gap: 12px;
-  padding: 12px;
-  border-radius: 18px;
+  padding: 10px;
+  border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
 }

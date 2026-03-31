@@ -447,6 +447,9 @@ watch(selectedPeriod, async () => { await loadGraph() })
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
   gap: 16px;
+  width: 100%;
+  max-width: 1480px;
+  margin: 0 auto;
 }
 
 .graph-header {
@@ -490,7 +493,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .graph-heading h1 {
-  font-size: clamp(34px, 4vw, 46px);
+  font-size: clamp(30px, 3.4vw, 40px);
   line-height: 0.98;
 }
 
@@ -503,6 +506,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   margin: 0;
   color: rgba(148, 163, 184, 0.9);
   line-height: 1.7;
+  font-size: 13px;
 }
 
 .graph-controls {
@@ -540,7 +544,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .path-dock,
 .bottom-panel,
 .graph-state {
-  border-radius: 24px;
+  border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: linear-gradient(180deg, rgba(16, 17, 20, 0.98), rgba(12, 13, 17, 0.98));
 }
@@ -550,7 +554,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 20px;
+  padding: 16px 18px;
 }
 
 .query-strip-main {
@@ -561,14 +565,14 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .query-strip-main h2 {
-  font-size: 28px;
+  font-size: clamp(22px, 2.2vw, 26px);
   line-height: 1.05;
 }
 
 .query-strip-icon {
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
   display: grid;
   place-items: center;
   color: #60a5fa;
@@ -598,12 +602,12 @@ watch(selectedPeriod, async () => { await loadGraph() })
   display: grid;
   grid-template-columns: minmax(0, 1fr) 160px;
   gap: 12px;
-  padding: 12px;
+  padding: 10px;
 }
 
 .intent-textarea {
   width: 100%;
-  min-height: 86px;
+  min-height: 74px;
   resize: none;
   border: none;
   background: transparent;
@@ -641,7 +645,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-stage {
   position: relative;
-  min-height: 640px;
+  min-height: 560px;
   overflow: hidden;
   background:
     radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.1), transparent 24%),
@@ -659,17 +663,17 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .stage-summary {
   left: 18px;
   top: 18px;
-  max-width: 440px;
+  max-width: 380px;
   display: grid;
   gap: 8px;
-  padding: 16px 18px;
-  border-radius: 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
   background: rgba(7, 10, 16, 0.86);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .stage-summary strong {
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1.06;
 }
 
@@ -716,18 +720,18 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .selected-node-panel {
   left: 18px;
   bottom: 18px;
-  max-width: 420px;
+  max-width: 360px;
   display: grid;
   gap: 8px;
-  padding: 16px 18px;
-  border-radius: 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
   background: rgba(7, 10, 16, 0.88);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .selected-node-panel strong {
   color: #f8fafc;
-  font-size: 20px;
+  font-size: 17px;
   line-height: 1.08;
 }
 
@@ -759,14 +763,14 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .graph-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  min-width: 124px;
-  max-width: 172px;
+  min-width: 108px;
+  max-width: 150px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   cursor: grab;
   text-align: left;
@@ -825,13 +829,13 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .node-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1.35;
 }
 
 .node-type {
-  font-size: 11px;
+  font-size: 10px;
   opacity: 0.72;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -847,7 +851,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .path-dock,
 .bottom-panel {
-  padding: 16px 18px;
+  padding: 14px 16px;
 }
 
 .path-dock-head,
@@ -872,9 +876,9 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .path-step {
-  min-width: 240px;
-  padding: 14px;
-  border-radius: 18px;
+  min-width: 220px;
+  padding: 12px;
+  border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
   text-align: left;
@@ -908,8 +912,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 14px;
-  border-radius: 16px;
+  padding: 12px;
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.025);
   color: inherit;
@@ -952,7 +956,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   }
 
   .graph-stage {
-    min-height: 560px;
+    min-height: 500px;
   }
 
   .stage-summary,
