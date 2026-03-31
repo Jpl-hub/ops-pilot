@@ -160,6 +160,49 @@ const consoleSyncLabel = computed(() => {
   return roleLabel.value
 })
 
+const analysisStages = computed(() => {
+  const sourceLine = controlPlane.value?.data_sources?.length
+    ? controlPlane.value.data_sources.join('、')
+    : '评分、图谱、压力、核验等真实服务'
+  const riskLine = companyTopRisks.value[0] || '回放证据与风险标签'
+  return [
+    {
+      index: '01',
+      meta: '任务识别',
+      title: '识别问题类型',
+      detail: latestUserMessage.value
+        ? `锁定 ${selectedCompany.value || '目标企业'} 的判断问题`
+        : '锁定问题意图、公司主体和目标报期',
+      status: latestUserMessage.value ? 'completed' : 'pending',
+    },
+    {
+      index: '02',
+      meta: '数据分析',
+      title: '拉取真实数据与工具',
+      detail: `调取 ${sourceLine}`,
+      status: latestAnswer.value || loadingTurn.value ? 'completed' : 'pending',
+    },
+    {
+      index: '03',
+      meta: '证据核验',
+      title: '校验证据与风险',
+      detail: latestEvidenceGroups.value.length
+        ? `已挂接 ${latestEvidenceGroups.value.length} 组证据，重点围绕 ${riskLine}`
+        : `围绕 ${riskLine} 回放证据与风险`,
+      status: latestEvidenceGroups.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
+    },
+    {
+      index: '04',
+      meta: '策略生成',
+      title: '生成角色动作',
+      detail: latestActionCards.value.length
+        ? `输出 ${roleLabel.value} 视角下的下一步动作`
+        : `按 ${roleLabel.value} 视角生成动作`,
+      status: latestActionCards.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
+    },
+  ]
+})
+
 function parseAnswerMarkdown(markdown: string, fallbackSections: any[]): AnswerBlock[] {
   const lines = markdown
     .split(/\r?\n/)
@@ -334,142 +377,98 @@ watch(selectedCompany, async (company, previous) => {
 <template>
   <AppShell title="">
     <div class="workspace-console">
-      <section class="console-header">
-        <div class="console-heading">
-          <span class="console-kicker">Data x Risk x Strategy x Self-Reflection</span>
-          <h1>多智能体协同研判</h1>
-          <p>{{ consoleSyncLabel }}</p>
-        </div>
-
-        <div class="console-toolbar">
-          <label class="toolbar-select">
-            <span>企业</span>
-            <select v-model="selectedCompany" :disabled="loadingCompanies || !companies.length">
-              <option value="" disabled>{{ companySelectPlaceholder }}</option>
-              <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-            </select>
-          </label>
-          <button type="button" class="toolbar-button is-primary" :disabled="!selectedCompany || watchBusy" @click="toggleWatchCompany">
-            {{ watchBusy ? '处理中...' : companyWatch.tracked ? '移出跟踪' : '加入跟踪' }}
-          </button>
-          <button type="button" class="toolbar-button" :disabled="scanBusy || !hasCompanies" @click="scanTrackedCompanies">
-            {{ scanBusy ? '刷新中...' : '刷新' }}
-          </button>
-        </div>
-      </section>
-
       <ErrorState v-if="pageLoadError" :message="pageLoadError" class="workspace-state" />
       <section v-else-if="!hasCompanies && !loadingCompanies" class="workspace-state workspace-empty">
         <span class="console-kicker">Workspace Offline</span>
-        <h2>公司池尚未就绪。</h2>
-        <p>先把真实公司数据接进来，再开始协同研判。</p>
+        <h2>公司池尚未就绪</h2>
+        <p>先把正式公司池接入，再开始协同分析。</p>
       </section>
 
-      <section v-else class="console-stage">
-        <div class="console-stream">
-          <article class="console-message is-assistant">
-            <div class="message-glyph">AI</div>
-            <div class="message-panel intro-panel">
-              <strong>你好，我是协同研判台。</strong>
-              <p>
-                围绕 {{ selectedCompany || '目标企业' }} 的收益质量、风险暴露、证据链和下一步动作，直接给出一轮可继续追问的判断。
-              </p>
+      <section v-else class="console-board">
+        <header class="board-topbar">
+          <div class="board-title">
+            <div class="board-mark">⎔</div>
+            <strong>OpsPilot-X</strong>
+            <span class="board-subtitle">{{ roleFocusTitle }}</span>
+          </div>
 
-              <div class="intro-signal-row">
-                <span v-for="item in companySignals" :key="item.label" class="signal-chip">
-                  <em>{{ item.label }}</em>
-                  <strong>{{ item.value }}</strong>
-                </span>
+          <div class="board-topbar-meta">
+            <label class="board-select">
+              <span>分析公司</span>
+              <select v-model="selectedCompany" :disabled="loadingCompanies || !companies.length">
+                <option value="" disabled>{{ companySelectPlaceholder }}</option>
+                <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+              </select>
+            </label>
+            <span class="board-role-chip">{{ roleLabel }}</span>
+          </div>
+        </header>
+
+        <section class="board-flow">
+          <article
+            v-for="stage in analysisStages"
+            :key="stage.index"
+            class="flow-card"
+            :class="`is-${stage.status}`"
+          >
+            <div class="flow-meta">
+              <span>{{ stage.index }}</span>
+              <em>{{ stage.meta }}</em>
+            </div>
+            <strong>{{ stage.title }}</strong>
+            <p>{{ stage.detail }}</p>
+          </article>
+        </section>
+
+        <section class="board-body">
+          <div class="board-canvas">
+            <header class="canvas-head">
+              <div>
+                <span class="canvas-kicker">当前问题</span>
+                <strong>{{ latestUserMessage?.text || '从一个判断问题开始' }}</strong>
+              </div>
+              <div class="canvas-head-meta">
+                <span>{{ selectedCompany || '未选择公司' }}</span>
+                <span>{{ consoleSyncLabel }}</span>
+              </div>
+            </header>
+
+            <div v-if="loadingTurn" class="canvas-loading">
+              <div class="canvas-loading-card">
+                <strong>正在调度真实服务</strong>
+                <p>评分、图谱、证据校验和动作规划已经开始运行。</p>
+                <div class="loading-steps">
+                  <div v-for="step in workflowSteps.slice(0, 4)" :key="step.step" class="loading-step">
+                    <span>[{{ step.agent_label || step.agent }}]</span>
+                    <strong>{{ displayFlowStatus(step.status) }}</strong>
+                  </div>
+                </div>
               </div>
             </div>
-          </article>
 
-          <article v-if="latestUserMessage" class="console-message is-user">
-            <div class="user-query-panel">
-              <span>本轮问题</span>
-              <strong>{{ latestUserMessage.text }}</strong>
-            </div>
-          </article>
-
-          <article v-if="loadingTurn" class="console-message is-assistant">
-            <div class="message-glyph">AI</div>
-            <div class="message-stack">
-              <section class="workflow-panel">
-                <div class="workflow-head">
-                  <span>Executing Multi-Agent Workflow</span>
-                  <strong>Running</strong>
-                </div>
-                <p>正在检索真实评分、风险扫描、证据链与动作建议。</p>
-              </section>
-            </div>
-          </article>
-
-          <article v-else-if="latestAnswer" class="console-message is-assistant">
-            <div class="message-glyph">AI</div>
-            <div class="message-stack">
-              <section class="workflow-panel">
-                <div class="workflow-head">
-                  <span>Executing Multi-Agent Workflow</span>
-                  <strong>{{ aiAssurance?.label || 'Done' }}</strong>
-                </div>
-
-                <div class="workflow-list">
-                  <div v-for="step in workflowSteps" :key="step.step" class="workflow-row">
-                    <div class="workflow-copy">
-                      <strong>[{{ step.agent_label || step.agent }}]</strong>
-                      <p>{{ step.summary }}</p>
-                    </div>
-                    <em>{{ displayFlowStatus(step.status) }}</em>
-                  </div>
+            <div v-else-if="latestAnswer" class="canvas-content">
+              <section class="canvas-summary">
+                <h2>{{ latestAnswer.summary || '已生成当前轮次研判' }}</h2>
+                <div class="analysis-meta">
+                  <span v-for="item in workspaceStatus" :key="item">{{ item }}</span>
+                  <span v-if="controlPlane?.steps_completed">流程 {{ controlPlane.steps_completed }}/{{ controlPlane.step_total }}</span>
+                  <span v-if="controlPlane?.execution_ms">耗时 {{ formatExecutionMs(controlPlane.execution_ms) }}</span>
                 </div>
               </section>
 
-              <section class="analysis-sheet">
-                <div class="analysis-head">
-                  <span>当前结论</span>
-                  <h2>{{ latestAnswer.summary || '已生成当前轮次研判' }}</h2>
-                  <div class="analysis-meta">
-                    <span v-for="item in workspaceStatus" :key="item">{{ item }}</span>
-                    <span v-if="controlPlane?.steps_completed">流程 {{ controlPlane.steps_completed }}/{{ controlPlane.step_total }}</span>
-                    <span v-if="controlPlane?.execution_ms">耗时 {{ formatExecutionMs(controlPlane.execution_ms) }}</span>
-                  </div>
+              <div class="canvas-columns">
+                <div class="canvas-copy">
+                  <section v-for="block in answerBlocks" :key="block.title" class="analysis-block">
+                    <h3>{{ block.title }}</h3>
+                    <p v-for="line in block.paragraphs" :key="line">{{ line }}</p>
+                    <ul v-if="block.bullets.length">
+                      <li v-for="line in block.bullets" :key="line">{{ line }}</li>
+                    </ul>
+                  </section>
                 </div>
 
-                <div class="analysis-grid">
-                  <div class="analysis-copy">
-                    <section v-for="block in answerBlocks" :key="block.title" class="analysis-block">
-                      <h3>{{ block.title }}</h3>
-                      <p v-for="line in block.paragraphs" :key="line">{{ line }}</p>
-                      <ul v-if="block.bullets.length">
-                        <li v-for="line in block.bullets" :key="line">{{ line }}</li>
-                      </ul>
-                    </section>
-                  </div>
-
-                  <aside class="analysis-side">
-                    <section v-if="insightNumbers.length" class="side-stack">
-                      <span class="side-label">关键数字</span>
-                      <article v-for="item in insightNumbers" :key="item.label" class="metric-row">
-                        <span>{{ item.label }}</span>
-                        <strong>{{ displayMetricValue(item) }}</strong>
-                      </article>
-                    </section>
-
-                    <section v-if="latestActionCards.length" class="side-stack">
-                      <span class="side-label">下一步动作</span>
-                      <article v-for="item in latestActionCards" :key="item.title" class="action-row">
-                        <em>{{ item.priority || 'Action' }}</em>
-                        <strong>{{ item.title }}</strong>
-                        <p>{{ item.action || item.reason }}</p>
-                      </article>
-                    </section>
-                  </aside>
-                </div>
-              </section>
-
-              <section v-if="latestEvidenceGroups.length || resultLinks.length" class="evidence-dock">
-                <div v-if="latestEvidenceGroups.length" class="evidence-groups">
-                  <article v-for="group in latestEvidenceGroups" :key="group.title || group.code" class="evidence-group">
+                <div v-if="latestEvidenceGroups.length" class="canvas-evidence">
+                  <article v-for="group in latestEvidenceGroups" :key="group.title || group.code" class="evidence-card">
                     <strong>{{ group.title || group.group_type || '证据组' }}</strong>
                     <p>{{ group.subtitle || '真实证据已挂接到当前判断。' }}</p>
                     <ul v-if="group.items?.length">
@@ -479,53 +478,103 @@ watch(selectedCompany, async (company, previous) => {
                     </ul>
                   </article>
                 </div>
-
-                <div v-if="resultLinks.length" class="evidence-links">
-                  <RouterLink
-                    v-for="link in resultLinks"
-                    :key="`${link.label}-${link.path}`"
-                    :to="{ path: link.path, query: link.query || {} }"
-                    class="evidence-link"
-                  >
-                    <span>{{ link.label }}</span>
-                    <strong>进入</strong>
-                  </RouterLink>
-                </div>
-              </section>
-            </div>
-          </article>
-
-          <article v-else class="console-message is-assistant">
-            <div class="message-glyph">AI</div>
-            <div class="message-panel prep-panel">
-              <strong>从一个判断问题开始。</strong>
-              <p>我会调用真实评分、行业风险扫描、证据校验和动作规划，把结果压成一轮结论。</p>
-
-              <div class="prep-grid">
-                <article class="prep-cell">
-                  <span>当前研报</span>
-                  <strong>{{ companyResearch?.status === 'ready' ? companyResearch.report_title : '等待核验' }}</strong>
-                </article>
-                <article class="prep-cell">
-                  <span>重点风险</span>
-                  <strong>{{ companyTopRisks[0] || '等待识别' }}</strong>
-                </article>
-                <article class="prep-cell">
-                  <span>优先动作</span>
-                  <strong>{{ companyActions[0]?.title || '等待生成' }}</strong>
-                </article>
               </div>
             </div>
-          </article>
-        </div>
 
-        <div class="console-composer">
+            <div v-else class="canvas-empty">
+              <div class="empty-flag">↓</div>
+              <div class="empty-copy">
+                <strong>当前还没有可分析内容</strong>
+                <p>先完成正式公司池和页级指标接入，再发起协同分析。</p>
+
+                <div class="empty-signal-row">
+                  <span v-for="item in companySignals" :key="item.label" class="signal-chip">
+                    <em>{{ item.label }}</em>
+                    <strong>{{ item.value }}</strong>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="result-rail">
+            <header class="rail-head">
+              <strong>分析结果</strong>
+              <span>{{ roleLabel }}</span>
+            </header>
+
+            <div v-if="latestAnswer" class="rail-body">
+              <section class="rail-section">
+                <span class="rail-label">本轮结论</span>
+                <p>{{ latestAnswer.summary || '已生成当前结论。' }}</p>
+              </section>
+
+              <section v-if="insightNumbers.length" class="rail-section">
+                <span class="rail-label">关键数字</span>
+                <article v-for="item in insightNumbers" :key="item.label" class="metric-row">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ displayMetricValue(item) }}</strong>
+                </article>
+              </section>
+
+              <section v-if="latestActionCards.length" class="rail-section">
+                <span class="rail-label">下一步动作</span>
+                <article v-for="item in latestActionCards" :key="item.title" class="action-row">
+                  <em>{{ item.priority || 'Action' }}</em>
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.action || item.reason }}</p>
+                </article>
+              </section>
+
+              <section v-if="resultLinks.length" class="rail-section">
+                <span class="rail-label">继续下钻</span>
+                <RouterLink
+                  v-for="link in resultLinks"
+                  :key="`${link.label}-${link.path}`"
+                  :to="{ path: link.path, query: link.query || {} }"
+                  class="evidence-link"
+                >
+                  <span>{{ link.label }}</span>
+                  <strong>进入</strong>
+                </RouterLink>
+              </section>
+            </div>
+
+            <div v-else class="rail-empty">
+              <div class="rail-empty-icon">▤</div>
+              <p>发起分析后结果将展示于此</p>
+            </div>
+
+            <footer class="rail-footer">
+              <button type="button" class="toolbar-button is-primary" :disabled="!selectedCompany || watchBusy" @click="toggleWatchCompany">
+                {{ watchBusy ? '处理中...' : companyWatch.tracked ? '移出跟踪' : '加入跟踪' }}
+              </button>
+              <button type="button" class="toolbar-button" :disabled="scanBusy || !hasCompanies" @click="scanTrackedCompanies">
+                {{ scanBusy ? '刷新中...' : '刷新状态' }}
+              </button>
+            </footer>
+          </aside>
+        </section>
+
+        <footer class="board-composer">
+          <div class="composer-prompts">
+            <button
+              v-for="question in starterQueries.slice(0, 3)"
+              :key="question"
+              type="button"
+              class="prompt-chip"
+              @click="pickStarterQuery(question)"
+            >
+              {{ question }}
+            </button>
+          </div>
+
           <div class="composer-shell">
             <textarea
               v-model="query"
               :disabled="loadingCompanies || !hasCompanies"
               :placeholder="selectedCompany ? `输入你要围绕 ${selectedCompany} 继续判断的问题` : '先选择公司，再发起协同研判'"
-              rows="4"
+              rows="2"
               @keydown="handleComposerKeydown"
             ></textarea>
 
@@ -539,20 +588,8 @@ watch(selectedCompany, async (company, previous) => {
             </button>
           </div>
 
-          <div class="composer-prompts">
-            <button
-              v-for="question in starterQueries.slice(0, 3)"
-              :key="question"
-              type="button"
-              class="prompt-chip"
-              @click="pickStarterQuery(question)"
-            >
-              {{ question }}
-            </button>
-          </div>
-
           <ErrorState v-if="turnError" :message="turnError" />
-        </div>
+        </footer>
       </section>
     </div>
   </AppShell>
@@ -562,34 +599,17 @@ watch(selectedCompany, async (company, previous) => {
 .workspace-console {
   min-height: 100%;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 18px;
+  gap: 16px;
   width: 100%;
-  max-width: 1480px;
+  max-width: 1460px;
   margin: 0 auto;
 }
 
-.console-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 18px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.console-heading {
-  display: grid;
-  gap: 8px;
-}
-
 .console-kicker,
-.toolbar-select span,
-.user-query-panel span,
-.workflow-head span,
-.side-label,
-.signal-chip em,
-.prep-cell span {
+.board-select span,
+.canvas-kicker,
+.rail-label,
+.signal-chip em {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   letter-spacing: 0.16em;
@@ -600,74 +620,8 @@ watch(selectedCompany, async (company, previous) => {
   color: rgba(94, 234, 212, 0.72);
 }
 
-.console-heading h1,
-.analysis-head h2,
-.analysis-block h3 {
-  margin: 0;
-  letter-spacing: -0.05em;
-  color: #f8fafc;
-}
-
-.console-heading h1 {
-  font-size: clamp(30px, 3.4vw, 40px);
-  line-height: 0.98;
-}
-
-.console-heading p {
-  margin: 0;
-  color: rgba(148, 163, 184, 0.92);
-  font-size: 13px;
-}
-
-.console-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.toolbar-select {
-  display: grid;
-  gap: 8px;
-}
-
-.toolbar-select span {
-  color: rgba(120, 143, 172, 0.82);
-}
-
-.toolbar-select select {
-  min-width: 220px;
-  min-height: 46px;
-  padding: 0 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
-  color: #eef2f7;
-}
-
-.toolbar-button {
-  min-height: 46px;
-  padding: 0 16px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
-  color: #d7dee8;
-  cursor: pointer;
-}
-
-.toolbar-button.is-primary {
-  border-color: rgba(52, 211, 153, 0.24);
-  background: rgba(18, 62, 45, 0.9);
-  color: #f0fdf4;
-}
-
-.toolbar-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .workspace-state,
-.console-stage {
+.console-board {
   min-height: 0;
   border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -691,84 +645,298 @@ watch(selectedCompany, async (company, previous) => {
   color: rgba(148, 163, 184, 0.88);
 }
 
-.console-stage {
+.console-board {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   overflow: hidden;
 }
 
-.console-stream {
-  min-height: 0;
-  overflow-y: auto;
-  padding: 18px 18px 8px;
-  display: grid;
+.board-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 16px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.console-message {
-  display: grid;
-  gap: 16px;
+.board-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
-.console-message.is-assistant {
-  grid-template-columns: 44px minmax(0, 1fr);
-  align-items: flex-start;
-}
-
-.message-glyph {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+.board-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   border: 1px solid rgba(52, 211, 153, 0.22);
   background: rgba(18, 62, 45, 0.92);
-  color: #73f0c7;
   display: grid;
   place-items: center;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
+  color: #73f0c7;
 }
 
-.message-panel,
-.workflow-panel,
-.analysis-sheet,
-.evidence-dock,
-.user-query-panel {
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.message-panel {
-  padding: 16px 18px;
-  display: grid;
-  gap: 10px;
-}
-
-.message-panel strong,
-.workflow-copy strong,
+.board-title strong,
+.canvas-head strong,
+.canvas-summary h2,
+.analysis-block h3,
+.evidence-card strong,
+.rail-head strong,
+.metric-row strong,
 .action-row strong,
-.prep-cell strong,
-.signal-chip strong {
+.empty-copy strong,
+.canvas-loading-card strong,
+.loading-step strong {
   color: #f8fafc;
 }
 
-.message-panel p,
-.workflow-copy p,
+.board-title strong {
+  font-size: 28px;
+  letter-spacing: -0.04em;
+}
+
+.board-subtitle {
+  color: rgba(120, 143, 172, 0.88);
+  font-size: 13px;
+}
+
+.board-topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.board-select {
+  display: grid;
+  gap: 6px;
+}
+
+.board-select span,
+.canvas-kicker,
+.rail-label,
+.signal-chip em {
+  color: rgba(120, 143, 172, 0.82);
+  font-style: normal;
+}
+
+.board-select select {
+  min-width: 168px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #eef2f7;
+}
+
+.board-role-chip {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(72, 51, 107, 0.46);
+  color: #e5def8;
+  font-size: 13px;
+}
+
+.board-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 18px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.flow-card {
+  display: grid;
+  gap: 8px;
+  min-height: 120px;
+  padding: 14px 14px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.flow-card.is-completed {
+  border-color: rgba(52, 211, 153, 0.16);
+}
+
+.flow-card.is-running {
+  border-color: rgba(96, 165, 250, 0.18);
+}
+
+.flow-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.flow-meta span {
+  color: #73f0c7;
+}
+
+.flow-meta em {
+  color: rgba(120, 143, 172, 0.8);
+  font-style: normal;
+}
+
+.flow-card strong {
+  font-size: 15px;
+}
+
+.flow-card p {
+  margin: 0;
+  color: rgba(161, 174, 193, 0.88);
+  line-height: 1.55;
+  font-size: 13px;
+}
+
+.board-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 296px;
+}
+
+.board-canvas {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.canvas-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.canvas-head strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 16px;
+  line-height: 1.45;
+  letter-spacing: -0.02em;
+}
+
+.canvas-head-meta,
+.analysis-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.canvas-head-meta span,
+.analysis-meta span {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(203, 213, 225, 0.84);
+  font-size: 12px;
+}
+
+.canvas-loading,
+.canvas-empty {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.canvas-loading-card,
+.empty-copy {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+}
+
+.canvas-loading-card {
+  min-width: min(420px, 100%);
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(52, 211, 153, 0.14);
+  background: rgba(18, 62, 45, 0.18);
+}
+
+.canvas-loading-card strong,
+.empty-copy strong {
+  font-size: 22px;
+}
+
+.canvas-loading-card p,
+.empty-copy p,
 .analysis-block p,
 .analysis-block li,
-.action-row p,
-.evidence-group p,
-.evidence-group li,
-.prep-cell strong {
+.evidence-card p,
+.evidence-card li,
+.rail-section p,
+.action-row p {
   margin: 0;
-  color: rgba(221, 228, 238, 0.9);
+  color: rgba(221, 228, 238, 0.88);
   line-height: 1.75;
 }
 
-.intro-signal-row {
+.loading-steps {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.loading-step {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(218, 226, 236, 0.88);
+  font-size: 12px;
+}
+
+.loading-step span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(120, 143, 172, 0.82);
+}
+
+.loading-step strong {
+  color: #73f0c7;
+  font-size: 12px;
+}
+
+.empty-flag {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  font-size: 32px;
+  color: #73f0c7;
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  background: rgba(18, 62, 45, 0.16);
+}
+
+.empty-signal-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
 }
 
 .signal-chip {
@@ -780,132 +948,37 @@ watch(selectedCompany, async (company, previous) => {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.signal-chip em,
-.workflow-head span,
-.side-label,
-.prep-cell span,
-.user-query-panel span {
-  color: rgba(120, 143, 172, 0.86);
-  font-style: normal;
+.signal-chip strong {
+  font-size: 13px;
 }
 
-.user-query-panel {
-  margin-left: auto;
-  max-width: min(700px, 76%);
-  padding: 16px 18px;
-  display: grid;
-  gap: 8px;
-  background: rgba(27, 43, 108, 0.72);
-  border-color: rgba(82, 118, 255, 0.24);
-}
-
-.user-query-panel strong {
-  color: #f8fafc;
-  font-size: 18px;
-  line-height: 1.45;
-}
-
-.message-stack {
+.canvas-content {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
   display: grid;
   gap: 16px;
 }
 
-.workflow-panel {
-  padding: 16px 18px;
-  display: grid;
-  gap: 12px;
-}
-
-.workflow-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.workflow-head strong {
-  color: #73f0c7;
-  font-size: 14px;
-}
-
-.workflow-panel > p {
-  margin: 0;
-  color: rgba(148, 163, 184, 0.88);
-}
-
-.workflow-list {
+.canvas-summary {
   display: grid;
   gap: 10px;
 }
 
-.workflow-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+.canvas-summary h2 {
+  font-size: clamp(22px, 2.5vw, 30px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
 }
 
-.workflow-copy {
-  display: grid;
-  gap: 6px;
-}
-
-.workflow-row em {
-  color: #73f0c7;
-  font-style: normal;
-  white-space: nowrap;
-}
-
-.analysis-sheet {
-  padding: 18px 20px;
+.canvas-columns {
   display: grid;
   gap: 16px;
+  grid-template-columns: minmax(0, 1.08fr) minmax(240px, 0.68fr);
 }
 
-.analysis-head {
-  display: grid;
-  gap: 10px;
-}
-
-.analysis-head > span {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(120, 143, 172, 0.86);
-}
-
-.analysis-head h2 {
-  font-size: clamp(24px, 2.6vw, 34px);
-  line-height: 1.02;
-}
-
-.analysis-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.analysis-meta span {
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(203, 213, 225, 0.88);
-  font-size: 12px;
-}
-
-.analysis-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.7fr);
-  gap: 16px;
-}
-
-.analysis-copy,
-.analysis-side,
-.side-stack {
+.canvas-copy,
+.canvas-evidence {
   display: grid;
   gap: 14px;
 }
@@ -913,28 +986,74 @@ watch(selectedCompany, async (company, previous) => {
 .analysis-block {
   display: grid;
   gap: 10px;
-}
-
-.analysis-block + .analysis-block {
-  padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .analysis-block h3 {
   font-size: 16px;
+  letter-spacing: -0.02em;
 }
 
-.analysis-block ul {
+.analysis-block ul,
+.evidence-card ul {
   margin: 0;
   padding-left: 18px;
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
-.side-stack {
-  padding: 12px;
-  border-radius: 16px;
+.evidence-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.025);
+}
+
+.result-rail {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.rail-head strong {
+  font-size: 18px;
+}
+
+.rail-head span {
+  color: rgba(120, 143, 172, 0.86);
+  font-size: 12px;
+}
+
+.rail-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.rail-section {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.rail-section:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .metric-row,
@@ -949,19 +1068,8 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .metric-row strong {
-  color: #f8fafc;
   font-size: 21px;
   letter-spacing: -0.04em;
-}
-
-.action-row {
-  padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.action-row:first-of-type {
-  padding-top: 0;
-  border-top: none;
 }
 
 .action-row em {
@@ -973,42 +1081,9 @@ watch(selectedCompany, async (company, previous) => {
   color: #73f0c7;
 }
 
-.evidence-dock {
-  padding: 14px 16px;
-  display: grid;
-  gap: 12px;
-}
-
-.evidence-groups {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.evidence-group {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.evidence-group strong {
-  color: #f8fafc;
-}
-
-.evidence-group ul {
-  margin: 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 6px;
-  color: rgba(203, 213, 225, 0.86);
-}
-
-.evidence-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.evidence-link strong {
+  color: #73f0c7;
+  font-size: 12px;
 }
 
 .evidence-link {
@@ -1021,46 +1096,67 @@ watch(selectedCompany, async (company, previous) => {
   text-decoration: none;
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
 }
 
-.evidence-link strong {
-  color: #73f0c7;
-  font-size: 12px;
-}
-
-.prep-panel {
-  gap: 14px;
-}
-
-.prep-grid {
+.rail-empty {
+  min-height: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  place-items: center;
+  padding: 24px 16px;
   gap: 12px;
+  text-align: center;
+  color: rgba(120, 143, 172, 0.78);
 }
 
-.prep-cell {
+.rail-empty-icon {
+  font-size: 32px;
+  color: rgba(120, 143, 172, 0.6);
+}
+
+.rail-footer {
   display: grid;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.03);
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.console-composer {
+.toolbar-button {
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #d7dee8;
+  cursor: pointer;
+}
+
+.toolbar-button.is-primary {
+  border-color: rgba(52, 211, 153, 0.24);
+  background: rgba(18, 62, 45, 0.9);
+  color: #f0fdf4;
+}
+
+.toolbar-button:disabled,
+.composer-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.board-composer {
   padding: 12px 18px 18px;
   display: grid;
-  gap: 12px;
+  gap: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: linear-gradient(180deg, rgba(12, 13, 17, 0), rgba(12, 13, 17, 0.96) 26%);
 }
 
 .composer-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 148px;
+  grid-template-columns: minmax(0, 1fr) 132px;
   gap: 12px;
-  padding: 10px;
-  border-radius: 16px;
+  padding: 8px;
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
 }
@@ -1078,17 +1174,12 @@ watch(selectedCompany, async (company, previous) => {
 
 .composer-submit {
   min-height: 100%;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid rgba(52, 211, 153, 0.28);
   background: rgba(18, 62, 45, 0.92);
   color: #f0fdf4;
   font-weight: 700;
   cursor: pointer;
-}
-
-.composer-submit:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .composer-prompts {
@@ -1098,7 +1189,7 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .prompt-chip {
-  min-height: 38px;
+  min-height: 34px;
   padding: 0 14px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1107,44 +1198,29 @@ watch(selectedCompany, async (company, previous) => {
   cursor: pointer;
 }
 
-@media (max-width: 1100px) {
-  .analysis-grid,
-  .evidence-groups {
+@media (max-width: 1180px) {
+  .board-flow,
+  .board-body,
+  .canvas-columns {
     grid-template-columns: 1fr;
   }
 
-  .prep-grid {
-    grid-template-columns: 1fr;
+  .board-canvas {
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
 }
 
-@media (max-width: 800px) {
-  .console-header,
-  .console-toolbar {
+@media (max-width: 820px) {
+  .board-topbar,
+  .board-topbar-meta,
+  .canvas-head {
     flex-direction: column;
     align-items: stretch;
   }
 
   .composer-shell {
     grid-template-columns: 1fr;
-  }
-
-  .console-stream,
-  .console-composer {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
-
-  .console-message.is-assistant {
-    grid-template-columns: 1fr;
-  }
-
-  .message-glyph {
-    display: none;
-  }
-
-  .user-query-panel {
-    max-width: 100%;
   }
 }
 </style>
