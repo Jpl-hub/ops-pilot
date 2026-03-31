@@ -198,6 +198,8 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.turnError = null
     },
     async loadCompanies() {
+      if (this.loadingCompanies) return
+      if (this.companies.length) return
       this.loadingCompanies = true
       this.companiesError = null
       try {
@@ -211,6 +213,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
     },
     async loadOverview(role: UserRole) {
+      if (this.loadingOverview) return
       this.loadingOverview = true
       this.overviewError = null
       try {
@@ -233,6 +236,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       await this.loadOverview(role)
     },
     async loadCompanyWorkspace(role: UserRole) {
+      if (this.loadingCompanyWorkspace) return
       if (!this.selectedCompany) {
         this.companyWorkspace = null
         return
