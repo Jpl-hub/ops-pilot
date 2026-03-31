@@ -378,6 +378,9 @@ watch(
   gap: 16px;
   height: 100%;
   overflow: hidden;
+  width: 100%;
+  max-width: 1480px;
+  margin: 0 auto;
 }
 
 /* Control Bar */
@@ -385,8 +388,8 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 24px;
-  border-radius: 16px;
+  padding: 12px 20px;
+  border-radius: 14px;
   flex-shrink: 0;
 }
 
@@ -454,7 +457,7 @@ watch(
 /* Main Grid */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 332px 1fr;
   gap: 16px;
   flex: 1;
   min-height: 0;
@@ -491,27 +494,27 @@ watch(
 
 /* Left Hero Panel */
 .score-hero-panel {
-  padding: 20px;
-  border-radius: 20px;
+  padding: 18px;
+  border-radius: 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   flex-shrink: 0;
 }
 
 .grade-display {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 16px;
+  gap: 18px;
+  padding: 14px;
   background: rgba(0,0,0,0.2);
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.05);
 }
 
 .grade-circle {
-  width: 80px;
-  height: 80px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   display: flex;
   flex-direction: column;
@@ -526,7 +529,7 @@ watch(
 .grade-circle[data-grade^="B"] { border-color: #3b82f6; box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
 .grade-circle[data-grade^="C"] { border-color: #f59e0b; box-shadow: 0 0 20px rgba(245, 158, 11, 0.3); }
 
-.grade-score { font-size: 24px; font-weight: 700; line-height: 1; color: #fff; }
+.grade-score { font-size: 21px; font-weight: 700; line-height: 1; color: #fff; }
 .grade-letter { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
 .grade-metrics {
@@ -546,8 +549,8 @@ watch(
 .risk-text { color: #f43f5e; }
 
 .hero-summary {
-  padding: 16px;
-  border-radius: 16px;
+  padding: 14px;
+  border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.06);
   background: rgba(255,255,255,0.03);
 }
@@ -561,7 +564,7 @@ watch(
 
 .hero-summary-head strong {
   color: #fff;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -595,8 +598,8 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 12px;
-  border-radius: 12px;
+  padding: 10px;
+  border-radius: 10px;
   background: rgba(0,0,0,0.18);
   border: 1px solid rgba(255,255,255,0.05);
 }
@@ -608,7 +611,7 @@ watch(
 
 .watch-card strong {
   color: #fff;
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .subtle-band {
@@ -621,8 +624,8 @@ watch(
 
 /* Actions Panel */
 .support-panel {
-  padding: 20px;
-  border-radius: 20px;
+  padding: 18px;
+  border-radius: 18px;
   min-height: 180px;
 }
 
@@ -638,7 +641,7 @@ watch(
 }
 
 .action-item {
-  padding: 12px 16px;
+  padding: 12px 14px;
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.05);
   margin-bottom: 8px;
@@ -648,7 +651,7 @@ watch(
 .action-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .priority-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 .action-item h4 { margin: 0; font-size: 16px; font-weight: 500; color: #fff; }
-.action-desc { margin: 0; font-size: 14px; color: var(--muted); line-height: 1.6; }
+.action-desc { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.6; }
 .action-next { margin: 10px 0 0; font-size: 12px; line-height: 1.6; color: #cbd5e1; }
 
 /* Right Col Layout */
@@ -660,8 +663,8 @@ watch(
 }
 
 .chart-container {
-  border-radius: 20px;
-  padding: 16px;
+  border-radius: 18px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -688,8 +691,8 @@ watch(
 
 .details-panel {
   flex: 1;
-  padding: 20px;
-  border-radius: 20px;
+  padding: 18px;
+  border-radius: 18px;
   min-height: 200px;
 }
 .details-panel::-webkit-scrollbar { width: 4px; }
@@ -719,8 +722,8 @@ watch(
 }
 
 .metric-glance {
-  padding: 18px;
-  border-radius: 14px;
+  padding: 16px;
+  border-radius: 12px;
   border: 1px solid rgba(255,255,255,0.05);
   display: flex;
   flex-direction: column;
@@ -731,7 +734,7 @@ watch(
 .mg-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-family: 'JetBrains Mono', monospace; }
 .mg-code { color: var(--muted); background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 6px; }
 .mg-val { color: var(--accent); background: rgba(16,185,129,0.1); padding: 4px 8px; border-radius: 6px; }
-.mg-title { margin: 0; font-size: 16px; font-weight: 500; color: #fff;}
+.mg-title { margin: 0; font-size: 15px; font-weight: 500; color: #fff;}
 
 .inline-glass-link {
   font-size: 13px;
