@@ -102,8 +102,22 @@ def probe_llm_runtime(settings: Settings, *, force_refresh: bool = False) -> dic
     return dict(result)
 
 
+def _resolve_universe_manifest_path(settings: Settings) -> Path:
+    configured_root = getattr(settings, "universe_data_path", None)
+    if configured_root:
+        return Path(configured_root) / "formal_company_pool.json"
+
+    official_root = Path(getattr(settings, "official_data_path", "data/raw/official"))
+    if official_root.name == "official" and official_root.parent.name == "raw":
+        return official_root.parent.parent / "universe" / "formal_company_pool.json"
+    if official_root.name == "raw":
+        return official_root.parent / "universe" / "formal_company_pool.json"
+    return official_root.parent / "universe" / "formal_company_pool.json"
+
+
 def build_runtime_report(settings: Settings) -> dict[str, Any]:
     ocr_assets_path = Path(settings.ocr_assets_path)
+    universe_manifest_path = _resolve_universe_manifest_path(settings)
     checks = [
         {
             **probe_llm_runtime(settings),
@@ -125,6 +139,16 @@ def build_runtime_report(settings: Settings) -> dict[str, Any]:
             if settings.official_data_path.exists()
             else "原始数据目录不存在。",
             "remediation": "确认 data/raw/official 已挂载到交付环境。",
+            "blocking_profiles": [PROFILE_STARTUP, PROFILE_DELIVERY],
+        },
+        {
+            "key": "universe_data",
+            "status": "ready" if universe_manifest_path.exists() else "blocked",
+            "detail": str(universe_manifest_path),
+            "summary": "正式公司池目录存在。"
+            if universe_manifest_path.exists()
+            else "正式公司池缺失。",
+            "remediation": "确认 data/universe/formal_company_pool.json 已挂载到交付环境。",
             "blocking_profiles": [PROFILE_STARTUP, PROFILE_DELIVERY],
         },
         {

@@ -21,7 +21,6 @@ from opspilot.domain.catalog import METRIC_BY_CODE
 from opspilot.domain.routing import detect_query_type
 from opspilot.domain.rules import evaluate_opportunity_labels, evaluate_risk_labels
 from opspilot.domain.scoring import score_company
-from opspilot.infra.sample_repository import SampleRepository
 from opspilot.runtime_checks import probe_llm_runtime
 
 # 域服务 — 拆分后的模块化架构
@@ -124,7 +123,7 @@ SUBINDUSTRY_SIGNAL_TOPICS = {
 
 
 class OpsPilotService:
-    def __init__(self, repository: SampleRepository, settings: Settings) -> None:
+    def __init__(self, repository: Any, settings: Settings) -> None:
         self.repository = repository
         self.settings = settings
         self._industry_brain_cache: dict[str, Any] = {
@@ -9403,8 +9402,22 @@ def _build_streaming_attention_matrix(
     return matrix
 
 
+def _resolve_universe_root(settings: Settings) -> Path:
+    configured_root = getattr(settings, "universe_data_path", None)
+    if configured_root:
+        return Path(configured_root)
+
+    official_root = Path(getattr(settings, "official_data_path", "data/raw/official"))
+    if official_root.name == "official" and official_root.parent.name == "raw":
+        return official_root.parent.parent / "universe"
+    if official_root.name == "raw":
+        return official_root.parent / "universe"
+    return official_root.parent / "universe"
+
+
 def _build_admin_quality_overview(settings: Settings, preferred_period: str | None) -> dict[str, Any]:
-    company_pool = _load_json_records(settings.sample_data_path.parent / "universe" / "formal_company_pool.json")
+    universe_root = _resolve_universe_root(settings)
+    company_pool = _load_json_records(universe_root / "formal_company_pool.json")
     raw_reports = _load_manifest_records(settings.official_data_path / "manifests" / "periodic_reports_manifest.json")
     research_reports = _load_manifest_records(
         settings.official_data_path / "manifests" / "research_reports_manifest.json"

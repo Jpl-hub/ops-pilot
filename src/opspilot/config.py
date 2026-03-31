@@ -17,7 +17,7 @@ class Settings:
     port: int
     default_period: str
     sample_data_path: Path
-    allow_sample_fallback: bool
+    universe_data_path: Path
     official_data_path: Path
     bronze_data_path: Path
     silver_data_path: Path
@@ -53,6 +53,7 @@ def _resolve_data_path(root: Path, value: str) -> Path:
 def get_settings() -> Settings:
     root = Path(__file__).resolve().parents[2]
     sample_path = os.getenv("OPS_PILOT_SAMPLE_DATA_PATH", "data/bootstrap")
+    universe_path = os.getenv("OPS_PILOT_UNIVERSE_DATA_PATH", "data/universe")
     settings = Settings(
         app_name="OpsPilot-X",
         env=os.getenv("OPS_PILOT_ENV", "development"),
@@ -60,8 +61,7 @@ def get_settings() -> Settings:
         port=int(os.getenv("OPS_PILOT_PORT", "8000")),
         default_period=os.getenv("OPS_PILOT_DEFAULT_PERIOD", "2024Q3"),
         sample_data_path=_resolve_data_path(root, sample_path),
-        allow_sample_fallback=os.getenv("OPS_PILOT_ALLOW_SAMPLE_FALLBACK", "false").lower()
-        in {"1", "true", "yes", "on"},
+        universe_data_path=_resolve_data_path(root, universe_path),
         official_data_path=_resolve_data_path(
             root, os.getenv("OPS_PILOT_OFFICIAL_DATA_PATH", "data/raw/official")
         ),

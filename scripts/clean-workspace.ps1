@@ -4,6 +4,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 
 $targets = @(
   ".pytest_cache",
+  "src\\ops_pilot.egg-info",
   "frontend\\dist",
   "frontend\\tsconfig.app.tsbuildinfo",
   "src\\opspilot\\__pycache__",

@@ -2,7 +2,7 @@
 
 统一以下四类证据来源的数据结构：
   - 官方财报（OfficialRepository）：summary/statement/event 三种页类型
-  - Bootstrap 样本（SampleRepository）：预置注释证据
+  - 测试夹具（SampleRepository）：仅测试使用的预置注释证据
   - Hybrid RAG 检索（VectorStore + ChunkRetriever）：BM25 ⊕ pgvector 融合结果
   - 研报摘录（Claim / Verify）：研报观点片段
 
@@ -31,7 +31,7 @@ SourceType = Literal[
     "official_statement_page",  # 官方报告：财务报表页
     "official_event_page",      # 官方报告：重大事项页
     "official_snapshot_page",   # 官方报告：快照页（VisionAgent 多模态）
-    "bootstrap_note",           # 预置样本注释
+    "bootstrap_note",           # 测试夹具注释
     "hybrid_rag_chunk",         # Hybrid RAG 检索块（BM25 + pgvector RRF）
     "research_report_excerpt",  # 研报观点摘录
     "research_forecast_excerpt",  # 研报盈利预测摘录
@@ -46,7 +46,7 @@ class EvidenceDict(TypedDict):
     """
     OpsPilot-X 统一证据结构。
 
-    所有来源（官方财报 / Bootstrap 样本 / Hybrid RAG / 研报）最终都应转换为
+    所有来源（官方财报 / 测试夹具 / Hybrid RAG / 研报）最终都应转换为
     本结构，供 resolve_evidence / build_audit / _build_evidence_groups 等下游
     函数消费。
 

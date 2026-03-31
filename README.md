@@ -107,12 +107,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\clean-workspace.ps1
 | `OPS_PILOT_OPENAI_API_KEY` | OpenAI API Key（必填） | `sk-xxx` |
 | `OPS_PILOT_OPENAI_BASE_URL` | API 端点 | `https://api.openai.com/v1` |
 | `OPS_PILOT_POSTGRES_DSN` | 数据库连接 | `postgresql+psycopg://...` |
-| `OPS_PILOT_ALLOW_SAMPLE_FALLBACK` | 是否允许在正式数据缺失时退回 bootstrap 样本；正式交付建议关闭 | `false` |
+| `OPS_PILOT_UNIVERSE_DATA_PATH` | 正式公司池目录 | `data/universe` |
 | `OPS_PILOT_OCR_ASSETS_PATH` | 标准 OCR 模型/权重目录（必填） | `models/paddleocr-vl` |
 | `OPS_PILOT_OCR_RUNTIME_ENABLED` | 标准 OCR 运行时开关，生产环境必须为 `true` | `true` |
 | `OPS_PILOT_DEFAULT_PERIOD` | 默认分析报期 | `2025Q3` |
 | `OPS_PILOT_KAFKA_BOOTSTRAP_SERVERS` | 外部信号 Kafka 地址，可选 | `127.0.0.1:19092` |
 | `OPS_PILOT_KAFKA_SIGNAL_TOPIC` | 外部信号 Topic 名称 | `opspilot.external_signals` |
+
+交付模式下默认只读取正式公司池和正式数据，不再提供运行态样本回退。
 
 Colab 验证和 Docker 部署作业书见 [docs/ocr_delivery_runbook.md](/D:/code/ops-pilot/docs/ocr_delivery_runbook.md)。
 Colab 最小操作说明见 [docs/colab_quickstart.md](/D:/code/ops-pilot/docs/colab_quickstart.md)。

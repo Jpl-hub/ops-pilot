@@ -4137,12 +4137,18 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 openai_api_key = "test-key"
                 openai_base_url = "https://api.openai.com/v1"
                 official_data_path = root / "raw"
+                universe_data_path = root / "universe"
                 silver_data_path = root / "silver"
                 ocr_runtime_enabled = True
                 ocr_assets_path = root / "models" / "missing-paddleocr-vl"
 
             StubSettings.official_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.universe_data_path.mkdir(parents=True, exist_ok=True)
             StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
+            (StubSettings.universe_data_path / "formal_company_pool.json").write_text(
+                json.dumps([{"company_name": "测试公司"}], ensure_ascii=False),
+                encoding="utf-8",
+            )
 
             report = build_runtime_report(StubSettings())
 
@@ -4164,13 +4170,19 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 openai_api_key = "test-key"
                 openai_base_url = "https://api.openai.com/v1"
                 official_data_path = root / "raw"
+                universe_data_path = root / "universe"
                 silver_data_path = root / "silver"
                 ocr_runtime_enabled = True
                 ocr_assets_path = root / "models" / "paddleocr-vl"
 
             StubSettings.official_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.universe_data_path.mkdir(parents=True, exist_ok=True)
             StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
             StubSettings.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+            (StubSettings.universe_data_path / "formal_company_pool.json").write_text(
+                json.dumps([{"company_name": "测试公司"}], ensure_ascii=False),
+                encoding="utf-8",
+            )
 
             report = validate_delivery_runtime(StubSettings())
 
@@ -4186,13 +4198,19 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 openai_api_key = "bad-key"
                 openai_base_url = "https://api.openai.com/v1"
                 official_data_path = root / "raw"
+                universe_data_path = root / "universe"
                 silver_data_path = root / "silver"
                 ocr_runtime_enabled = True
                 ocr_assets_path = root / "models" / "paddleocr-vl"
 
             StubSettings.official_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.universe_data_path.mkdir(parents=True, exist_ok=True)
             StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
             StubSettings.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+            (StubSettings.universe_data_path / "formal_company_pool.json").write_text(
+                json.dumps([{"company_name": "测试公司"}], ensure_ascii=False),
+                encoding="utf-8",
+            )
 
             with patch("opspilot.runtime_checks.httpx.post") as mock_post:
                 mock_post.return_value = type(
@@ -4221,12 +4239,18 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                 openai_api_key = "test-key"
                 openai_base_url = "https://api.openai.com/v1"
                 official_data_path = root / "raw"
+                universe_data_path = root / "universe"
                 silver_data_path = root / "silver"
                 ocr_runtime_enabled = False
                 ocr_assets_path = root / "models" / "missing-paddleocr-vl"
 
             StubSettings.official_data_path.mkdir(parents=True, exist_ok=True)
+            StubSettings.universe_data_path.mkdir(parents=True, exist_ok=True)
             StubSettings.silver_data_path.mkdir(parents=True, exist_ok=True)
+            (StubSettings.universe_data_path / "formal_company_pool.json").write_text(
+                json.dumps([{"company_name": "测试公司"}], ensure_ascii=False),
+                encoding="utf-8",
+            )
 
             report = validate_delivery_runtime(StubSettings(), profile="startup")
 
