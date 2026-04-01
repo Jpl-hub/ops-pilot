@@ -121,6 +121,25 @@ function nodeDetail(node: GraphNode) {
   return node.type
 }
 
+function displayNodeType(type: string) {
+  const map: Record<string, string> = {
+    company: '企业',
+    report_period: '报期',
+    risk_label: '风险',
+    alert: '预警',
+    task: '动作',
+    signal_event: '信号',
+    subindustry_signal: '信号',
+    watchboard: '观察',
+    execution_stream: '执行',
+    workspace_run: '执行',
+    document_artifact: '文档',
+    artifact_evidence: '证据',
+    research_report: '研报',
+  }
+  return map[type] || '节点'
+}
+
 function initializeGraphLayout() {
   const grouped = new Map<string, GraphNode[]>()
   rawGraphNodes.value.forEach((node) => {
@@ -321,7 +340,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
         <div class="query-strip-meta">
           <span>{{ selectedCompany || '未选择公司' }}</span>
-          <span>节点 {{ graphSummary.node_count ?? 0 }}</span>
+          <span v-if="selectedPeriod">{{ selectedPeriod }}</span>
         </div>
       </section>
 
@@ -383,8 +402,9 @@ watch(selectedPeriod, async () => { await loadGraph() })
             @click="selectedNodeId = node.id"
             @pointerdown="beginDrag(node.id, $event)"
           >
+            <span class="node-pill" :class="`kind-${node.kind}`"></span>
             <span class="node-name">{{ node.label }}</span>
-            <span class="node-type">{{ node.type }}</span>
+            <span class="node-type">{{ displayNodeType(node.type) }}</span>
           </button>
 
           <div v-if="selectedNode" class="selected-node-panel">
@@ -531,7 +551,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .graph-heading h1 {
-  font-size: clamp(26px, 2.8vw, 34px);
+  font-size: clamp(24px, 2.4vw, 30px);
   line-height: 1.02;
 }
 
@@ -632,8 +652,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
-  background: rgba(27, 43, 108, 0.4);
-  color: rgba(172, 196, 255, 0.9);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(203, 213, 225, 0.82);
 }
 
 .graph-intent-dock {
@@ -686,9 +706,9 @@ watch(selectedPeriod, async () => { await loadGraph() })
   min-height: 520px;
   overflow: hidden;
   background:
-    radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.1), transparent 24%),
-    radial-gradient(circle at 82% 18%, rgba(96, 165, 250, 0.12), transparent 26%),
-    linear-gradient(180deg, rgba(8, 10, 14, 0.98), rgba(5, 7, 10, 0.98));
+    radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.08), transparent 24%),
+    radial-gradient(circle at 82% 18%, rgba(96, 165, 250, 0.08), transparent 26%),
+    linear-gradient(180deg, rgba(7, 9, 13, 0.98), rgba(5, 7, 10, 0.98));
 }
 
 .stage-summary,
@@ -706,8 +726,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
   gap: 8px;
   padding: 12px 14px;
   border-radius: 16px;
-  background: rgba(7, 10, 16, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(9, 11, 16, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .stage-summary strong {
@@ -746,8 +766,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .stage-signal.is-accent {
-  background: rgba(27, 43, 108, 0.68);
-  color: #c7d2fe;
+  background: rgba(8, 47, 73, 0.62);
+  color: #bfdbfe;
 }
 
 .stage-signal.is-default {
@@ -756,15 +776,15 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .selected-node-panel {
-  left: 18px;
+  right: 18px;
   bottom: 18px;
   max-width: 280px;
   display: grid;
   gap: 8px;
   padding: 12px 14px;
   border-radius: 16px;
-  background: rgba(7, 10, 16, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(9, 11, 16, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .selected-node-panel strong {
@@ -782,19 +802,19 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-link {
   fill: none;
-  stroke: rgba(148, 163, 184, 0.28);
+  stroke: rgba(71, 85, 105, 0.46);
   stroke-width: 0.24;
-  opacity: 0.72;
+  opacity: 0.62;
 }
 
 .graph-link.is-active {
-  stroke: rgba(94, 234, 212, 0.92);
+  stroke: rgba(94, 234, 212, 0.96);
   opacity: 1;
 }
 
 .graph-link-label {
-  fill: rgba(226, 232, 240, 0.86);
-  font-size: 1.55px;
+  fill: rgba(148, 163, 184, 0.84);
+  font-size: 1.35px;
   text-anchor: middle;
 }
 
@@ -807,9 +827,11 @@ watch(selectedPeriod, async () => { await loadGraph() })
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 6px 8px;
+  padding: 7px 8px 7px 10px;
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 11, 16, 0.92);
+  backdrop-filter: blur(14px);
   cursor: grab;
   text-align: left;
   z-index: 2;
@@ -820,61 +842,90 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .graph-node.is-focal {
-  box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.24), 0 18px 36px rgba(20, 184, 166, 0.14);
+  box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.18), 0 16px 30px rgba(0, 0, 0, 0.3);
 }
 
 .graph-node.is-selected {
-  border-color: rgba(125, 211, 252, 0.56);
-  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.24), 0 18px 42px rgba(14, 165, 233, 0.16);
+  border-color: rgba(94, 234, 212, 0.42);
+  box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.2), 0 18px 38px rgba(0, 0, 0, 0.36);
 }
 
 .node-company {
-  background: rgba(8, 47, 73, 0.92);
-  color: #e0f2fe;
+  border-color: rgba(16, 185, 129, 0.2);
 }
 
 .node-period {
-  background: rgba(20, 83, 45, 0.92);
-  color: #dcfce7;
+  border-color: rgba(59, 130, 246, 0.2);
 }
 
 .node-risk {
-  background: rgba(88, 28, 28, 0.92);
-  color: #fee2e2;
+  border-color: rgba(244, 63, 94, 0.2);
 }
 
 .node-alert {
-  background: rgba(120, 53, 15, 0.92);
-  color: #ffedd5;
+  border-color: rgba(251, 191, 36, 0.2);
 }
 
 .node-task {
-  background: rgba(27, 43, 108, 0.86);
-  color: #dbeafe;
+  border-color: rgba(96, 165, 250, 0.2);
 }
 
 .node-signal {
-  background: rgba(76, 29, 149, 0.9);
-  color: #ede9fe;
+  border-color: rgba(34, 211, 238, 0.2);
 }
 
 .node-watch,
 .node-stream,
 .node-evidence,
 .node-support {
-  background: rgba(15, 23, 42, 0.9);
-  color: #dbe7f3;
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+.node-pill {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  margin-bottom: 3px;
+}
+
+.node-pill.kind-company {
+  background: #34d399;
+}
+
+.node-pill.kind-period,
+.node-pill.kind-task {
+  background: #60a5fa;
+}
+
+.node-pill.kind-risk {
+  background: #f43f5e;
+}
+
+.node-pill.kind-alert {
+  background: #f59e0b;
+}
+
+.node-pill.kind-signal {
+  background: #22d3ee;
+}
+
+.node-pill.kind-watch,
+.node-pill.kind-stream,
+.node-pill.kind-evidence,
+.node-pill.kind-support {
+  background: #94a3b8;
 }
 
 .node-name {
   font-size: 10px;
   font-weight: 700;
   line-height: 1.35;
+  color: #f8fafc;
 }
 
 .node-type {
   font-size: 9px;
-  opacity: 0.72;
+  color: rgba(148, 163, 184, 0.86);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
