@@ -49,6 +49,40 @@ const graphSummary = computed(() => graphState.data.value?.graph?.summary || {})
 const graphCommandSurface = computed(() => graphState.data.value?.graph_command_surface || null)
 const graphLiveFrames = computed(() => graphState.data.value?.graph_live_frames || [])
 const currentFrame = computed(() => graphLiveFrames.value[activePathStep.value] || null)
+const visibleNodeIds = computed(() => {
+  const nodes = rawGraphNodes.value
+  const edges = rawGraphEdges.value
+  if (!nodes.length) return new Set<string>()
+
+  const focalSet = new Set(focalNodes.value.map((item) => item.id))
+  const selected = selectedNodeId.value
+  if (selected) focalSet.add(selected)
+  if (!focalSet.size && nodes[0]) focalSet.add(nodes[0].id)
+
+  const visible = new Set<string>(focalSet)
+  edges.forEach((edge) => {
+    if (focalSet.has(edge.source) || focalSet.has(edge.target)) {
+      visible.add(edge.source)
+      visible.add(edge.target)
+    }
+  })
+
+  if (visible.size < 8) {
+    edges.forEach((edge) => {
+      if (visible.has(edge.source) || visible.has(edge.target)) {
+        visible.add(edge.source)
+        visible.add(edge.target)
+      }
+    })
+  }
+
+  if (visible.size > 12) {
+    const ordered = nodes.filter((node) => visible.has(node.id)).slice(0, 12)
+    return new Set(ordered.map((node) => node.id))
+  }
+
+  return visible
+})
 
 function nodeKind(type: string) {
   if (type === 'company') return 'company'
@@ -113,37 +147,42 @@ function initializeGraphLayout() {
 }
 
 const graphCanvasNodes = computed(() =>
-  rawGraphNodes.value.map((node) => {
-    const position = nodeLayout.value[node.id] || { x: 50, y: 50 }
-    return {
-      ...node,
-      kind: nodeKind(node.type),
-      detail: nodeDetail(node),
-      x: position.x,
-      y: position.y,
-      isFocal: focalNodes.value.some((item) => item.id === node.id),
-      isSelected: selectedNodeId.value === node.id,
-    }
-  }),
+  rawGraphNodes.value
+    .filter((node) => visibleNodeIds.value.has(node.id))
+    .map((node) => {
+      const position = nodeLayout.value[node.id] || { x: 50, y: 50 }
+      return {
+        ...node,
+        kind: nodeKind(node.type),
+        detail: nodeDetail(node),
+        x: position.x,
+        y: position.y,
+        isFocal: focalNodes.value.some((item) => item.id === node.id),
+        isSelected: selectedNodeId.value === node.id,
+      }
+    }),
 )
 
 const graphCanvasLinks = computed(() =>
-  rawGraphEdges.value.map((edge, index) => {
-    const source = graphCanvasNodes.value.find((node) => node.id === edge.source)
-    const target = graphCanvasNodes.value.find((node) => node.id === edge.target)
-    if (!source || !target) return null
-    const midX = (source.x + target.x) / 2
-    const midY = (source.y + target.y) / 2
-    const curve = Math.max(10, Math.abs(target.x - source.x) * 0.16)
-    return {
-      id: `edge-${index}-${edge.source}-${edge.target}`,
-      pathData: `M ${source.x} ${source.y} C ${source.x + curve} ${source.y}, ${target.x - curve} ${target.y}, ${target.x} ${target.y}`,
-      label: edge.label,
-      midX,
-      midY,
-      isActive: selectedNodeId.value === source.id || selectedNodeId.value === target.id,
-    }
-  }).filter(Boolean),
+  rawGraphEdges.value
+    .filter((edge) => visibleNodeIds.value.has(edge.source) && visibleNodeIds.value.has(edge.target))
+    .map((edge, index) => {
+      const source = graphCanvasNodes.value.find((node) => node.id === edge.source)
+      const target = graphCanvasNodes.value.find((node) => node.id === edge.target)
+      if (!source || !target) return null
+      const midX = (source.x + target.x) / 2
+      const midY = (source.y + target.y) / 2
+      const curve = Math.max(10, Math.abs(target.x - source.x) * 0.16)
+      return {
+        id: `edge-${index}-${edge.source}-${edge.target}`,
+        pathData: `M ${source.x} ${source.y} C ${source.x + curve} ${source.y}, ${target.x - curve} ${target.y}, ${target.x} ${target.y}`,
+        label: edge.label,
+        midX,
+        midY,
+        isActive: selectedNodeId.value === source.id || selectedNodeId.value === target.id,
+      }
+    })
+    .filter(Boolean),
 )
 
 const selectedNode = computed(() =>
@@ -248,7 +287,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
     <div class="graph-console">
       <section class="graph-header">
         <div class="graph-heading">
-          <span class="graph-kicker">Evidence Graph Workspace</span>
+          <span class="graph-kicker">证据链图谱工作台</span>
           <h1>图谱检索</h1>
           <p>{{ selectedCompany || '选择公司' }} · {{ graphCommandSurface?.focus_label || '沿证据、风险与执行链路继续追下去' }}</p>
         </div>
@@ -273,16 +312,16 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
       <section class="graph-query-strip">
         <div class="query-strip-main">
-          <div class="query-strip-icon">图</div>
-          <div>
-            <h2>{{ graphIntent }}</h2>
-            <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '围绕真实节点、执行流和原文证据继续追问。' }}</p>
+            <div class="query-strip-icon">图</div>
+            <div>
+              <h2>{{ graphIntent }}</h2>
+              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '先看这一轮真正相关的关键链路，再决定要不要继续追原文。' }}</p>
+            </div>
           </div>
-        </div>
 
         <div class="query-strip-meta">
-          <span>Nodes: {{ graphSummary.node_count ?? 0 }}</span>
-          <span>Edges: {{ graphSummary.edge_count ?? 0 }}</span>
+          <span>节点 {{ graphSummary.node_count ?? 0 }}</span>
+          <span>连边 {{ graphSummary.edge_count ?? 0 }}</span>
           <span>{{ graphCommandSurface?.watch_items?.[0]?.value || '等待时序信号' }}</span>
         </div>
       </section>
@@ -310,12 +349,12 @@ watch(selectedPeriod, async () => { await loadGraph() })
           <div class="stage-summary">
             <span>当前聚焦</span>
             <strong>{{ currentFrame?.headline || graphCommandSurface?.title || '关键证据链路' }}</strong>
-            <p>{{ graphCommandSurface?.headline || '拖拽节点查看这一轮的关键链路。' }}</p>
+            <p>{{ graphCommandSurface?.headline || '只保留这一轮真正相关的节点和路径，先看清，再决定是否继续追原文。' }}</p>
           </div>
 
           <div class="stage-signal-row">
             <span
-              v-for="item in signalStream.slice(0, 4)"
+              v-for="item in signalStream.slice(0, 2)"
               :key="`${item.label}-${item.value}`"
               class="stage-signal"
               :class="toneClass(item.tone)"
@@ -645,7 +684,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-stage {
   position: relative;
-  min-height: 520px;
+  min-height: 560px;
   overflow: hidden;
   background:
     radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.1), transparent 24%),
@@ -684,7 +723,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  max-width: 520px;
+  max-width: 360px;
 }
 
 .stage-signal {
@@ -756,7 +795,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-link-label {
   fill: rgba(226, 232, 240, 0.86);
-  font-size: 2.1px;
+  font-size: 1.85px;
   text-anchor: middle;
 }
 
@@ -876,7 +915,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .path-step {
-  min-width: 220px;
+  min-width: 200px;
   padding: 12px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -912,7 +951,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 12px;
+  padding: 11px 12px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.025);

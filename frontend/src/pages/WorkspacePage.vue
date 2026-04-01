@@ -38,8 +38,6 @@ const {
 } = storeToRefs(workspace)
 
 const appliedScenarioKey = ref('')
-const watchBusy = ref(false)
-const scanBusy = ref(false)
 
 const { roleCopy } = useWorkspaceRole(() => session.activeRole.value || 'investor')
 
@@ -78,9 +76,6 @@ const latestEvidenceGroups = computed<any[]>(() => (latestAnswer.value?.evidence
 
 const companySummary = computed(() => companyWorkspace.value?.score_summary ?? null)
 const companyTopRisks = computed(() => companyWorkspace.value?.top_risks ?? [])
-const companyActions = computed(() => (companyWorkspace.value?.action_cards ?? []).slice(0, 3))
-const companyWatch = computed(() => companyWorkspace.value?.watchboard ?? { tracked: false })
-const companyResearch = computed(() => companyWorkspace.value?.research ?? null)
 const timelineSnapshot = computed(() => companyWorkspace.value?.timeline?.snapshots?.[0] ?? null)
 
 const answerBlocks = computed<AnswerBlock[]>(() =>
@@ -128,8 +123,8 @@ const companySignals = computed(() => {
       value: snapshotLabel,
     },
     {
-      label: '持续跟踪',
-      value: companyWatch.value?.tracked ? '已纳入' : '未纳入',
+      label: '数据状态',
+      value: companyWorkspace.value?.timeline?.snapshots?.length ? '已接入' : '待补齐',
     },
   ]
 })
@@ -244,14 +239,14 @@ function parseAnswerMarkdown(markdown: string, fallbackSections: any[]): AnswerB
 
 function displayFlowStatus(status?: string) {
   const map: Record<string, string> = {
-    completed: 'Done',
-    done: 'Done',
-    active: 'Live',
-    running: 'Live',
-    failed: 'Error',
-    blocked: 'Blocked',
+    completed: '完成',
+    done: '完成',
+    active: '进行中',
+    running: '进行中',
+    failed: '异常',
+    blocked: '阻断',
   }
-  return map[(status || '').toLowerCase()] || 'Done'
+  return map[(status || '').toLowerCase()] || '完成'
 }
 
 function displayMetricValue(item: any) {
@@ -316,29 +311,6 @@ function handleComposerKeydown(event: KeyboardEvent) {
   }
 }
 
-async function toggleWatchCompany() {
-  if (!selectedCompany.value) return
-  watchBusy.value = true
-  try {
-    if (companyWatch.value.tracked) {
-      await workspace.removeCurrentCompanyFromWatchboard(session.activeRole.value || 'investor')
-    } else {
-      await workspace.addCurrentCompanyToWatchboard(session.activeRole.value || 'investor', `${roleLabel.value}持续跟踪`)
-    }
-  } finally {
-    watchBusy.value = false
-  }
-}
-
-async function scanTrackedCompanies() {
-  scanBusy.value = true
-  try {
-    await workspace.scanWatchboard(session.activeRole.value || 'investor')
-  } finally {
-    scanBusy.value = false
-  }
-}
-
 onMounted(async () => {
   const initialRole = parseRoleQuery(route.query.role)
   if (initialRole && session.activeRole.value !== initialRole) session.setActiveRole(initialRole)
@@ -379,7 +351,7 @@ watch(selectedCompany, async (company, previous) => {
     <div class="workspace-console">
       <ErrorState v-if="pageLoadError" :message="pageLoadError" class="workspace-state" />
       <section v-else-if="!hasCompanies && !loadingCompanies" class="workspace-state workspace-empty">
-        <span class="console-kicker">Workspace Offline</span>
+        <span class="console-kicker">工作台未就绪</span>
         <h2>公司池尚未就绪</h2>
         <p>先把正式公司池接入，再开始协同分析。</p>
       </section>
@@ -424,7 +396,7 @@ watch(selectedCompany, async (company, previous) => {
           <div class="board-canvas">
             <header class="canvas-head">
               <div>
-                <span class="canvas-kicker">当前问题</span>
+                <span class="canvas-kicker">正在判断</span>
                 <strong>{{ latestUserMessage?.text || '从一个判断问题开始' }}</strong>
               </div>
               <div class="canvas-head-meta">
@@ -504,6 +476,12 @@ watch(selectedCompany, async (company, previous) => {
             </header>
 
             <div v-if="latestAnswer" class="rail-body">
+              <section class="rail-section subject-row">
+                <span class="rail-label">当前对象</span>
+                <strong>{{ selectedCompany || '未选择公司' }}</strong>
+                <p>{{ latestUserMessage?.text || '先输入一个判断问题，结果会在这里沉淀。' }}</p>
+              </section>
+
               <section class="rail-section">
                 <span class="rail-label">本轮结论</span>
                 <p>{{ latestAnswer.summary || '已生成当前结论。' }}</p>
@@ -520,7 +498,7 @@ watch(selectedCompany, async (company, previous) => {
               <section v-if="latestActionCards.length" class="rail-section">
                 <span class="rail-label">下一步动作</span>
                 <article v-for="item in latestActionCards" :key="item.title" class="action-row">
-                  <em>{{ item.priority || 'Action' }}</em>
+                  <em>{{ item.priority || '动作' }}</em>
                   <strong>{{ item.title }}</strong>
                   <p>{{ item.action || item.reason }}</p>
                 </article>
@@ -544,22 +522,13 @@ watch(selectedCompany, async (company, previous) => {
               <div class="rail-empty-icon">▤</div>
               <p>发起分析后结果将展示于此</p>
             </div>
-
-            <footer class="rail-footer">
-              <button type="button" class="toolbar-button is-primary" :disabled="!selectedCompany || watchBusy" @click="toggleWatchCompany">
-                {{ watchBusy ? '处理中...' : companyWatch.tracked ? '移出跟踪' : '加入跟踪' }}
-              </button>
-              <button type="button" class="toolbar-button" :disabled="scanBusy || !hasCompanies" @click="scanTrackedCompanies">
-                {{ scanBusy ? '刷新中...' : '刷新状态' }}
-              </button>
-            </footer>
           </aside>
         </section>
 
         <footer class="board-composer">
           <div class="composer-prompts">
             <button
-              v-for="question in starterQueries.slice(0, 3)"
+              v-for="question in starterQueries.slice(0, 2)"
               :key="question"
               type="button"
               class="prompt-chip"
@@ -574,7 +543,7 @@ watch(selectedCompany, async (company, previous) => {
               v-model="query"
               :disabled="loadingCompanies || !hasCompanies"
               :placeholder="selectedCompany ? `输入你要围绕 ${selectedCompany} 继续判断的问题` : '先选择公司，再发起协同研判'"
-              rows="2"
+              rows="1"
               @keydown="handleComposerKeydown"
             ></textarea>
 
@@ -802,7 +771,7 @@ watch(selectedCompany, async (company, previous) => {
 .board-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-columns: minmax(0, 1fr) 324px;
 }
 
 .board-canvas {
@@ -974,7 +943,7 @@ watch(selectedCompany, async (company, previous) => {
 .canvas-columns {
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(0, 1.08fr) minmax(240px, 0.68fr);
+  grid-template-columns: minmax(0, 1.16fr) minmax(220px, 0.56fr);
 }
 
 .canvas-copy,
@@ -1015,7 +984,7 @@ watch(selectedCompany, async (company, previous) => {
 .result-rail {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .rail-head {
@@ -1054,6 +1023,12 @@ watch(selectedCompany, async (company, previous) => {
 .rail-section:last-child {
   padding-bottom: 0;
   border-bottom: none;
+}
+
+.subject-row strong {
+  font-size: 20px;
+  letter-spacing: -0.04em;
+  color: #f8fafc;
 }
 
 .metric-row,
@@ -1115,30 +1090,6 @@ watch(selectedCompany, async (company, previous) => {
   color: rgba(120, 143, 172, 0.6);
 }
 
-.rail-footer {
-  display: grid;
-  gap: 10px;
-  padding: 12px 14px 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.toolbar-button {
-  min-height: 42px;
-  padding: 0 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
-  color: #d7dee8;
-  cursor: pointer;
-}
-
-.toolbar-button.is-primary {
-  border-color: rgba(52, 211, 153, 0.24);
-  background: rgba(18, 62, 45, 0.9);
-  color: #f0fdf4;
-}
-
-.toolbar-button:disabled,
 .composer-submit:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -1155,7 +1106,7 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 118px;
   gap: 12px;
-  padding: 8px;
+  padding: 7px 8px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
@@ -1168,7 +1119,9 @@ watch(selectedCompany, async (company, previous) => {
   background: transparent;
   color: #eef2f7;
   font: inherit;
-  line-height: 1.7;
+  line-height: 1.55;
+  min-height: 42px;
+  padding-top: 8px;
   outline: none;
 }
 

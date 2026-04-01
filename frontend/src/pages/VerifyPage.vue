@@ -336,7 +336,7 @@ watch(
 
           <!-- Bottom Row: Claim Cards List -->
           <div class="glass-panel details-panel scroll-area flex-1">
-            <h3 class="panel-sm-title mb-4">观点校验明细</h3>
+            <h3 class="panel-sm-title mb-4">逐条核验</h3>
             
             <div class="claims-grid">
               <div
@@ -401,7 +401,7 @@ watch(
 .empty-content { text-align: center; }
 
 /* Dashboard Grid */
-.dashboard-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; flex: 1; min-height: 0; }
+.dashboard-grid { display: grid; grid-template-columns: 292px 1fr; gap: 16px; flex: 1; min-height: 0; }
 .dashboard-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .dashboard-col::-webkit-scrollbar { width: 4px; }
 .dashboard-col::-webkit-scrollbar-track { background: transparent; }

@@ -47,6 +47,16 @@ const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.
 const canRunStress = computed(() => !!selectedCompany.value && !!scenarioDraft.value.trim())
 const stressLinks = computed(() => [...relatedRoutes.value, ...evidenceLinks.value].slice(0, 4))
 
+function displaySeverityLevel(level?: string) {
+  const map: Record<string, string> = {
+    CRITICAL: '极高',
+    HIGH: '高',
+    MODERATE: '中',
+    LOW: '低',
+  }
+  return map[(level || '').toUpperCase()] || '待定'
+}
+
 async function runStress() {
   if (!selectedCompany.value || !scenarioDraft.value.trim()) return
   scenario.value = scenarioDraft.value.trim()
@@ -134,7 +144,7 @@ function selectPreset(item: string) {
           @keydown.enter="runStress"
         />
         <div v-if="stressState.data.value?.severity" class="severity-badge" :class="`tone-${stressState.data.value.severity.color || 'warning'}`">
-          {{ stressState.data.value.severity.level }} {{ stressState.data.value.severity.label }}
+          {{ displaySeverityLevel(stressState.data.value.severity.level) }} · {{ stressState.data.value.severity.label }}
         </div>
         <button class="button-primary scenario-btn" :disabled="stressState.loading.value || !canRunStress" @click="runStress">
           {{ stressState.loading.value ? '推演中…' : '启动推演' }}
@@ -171,7 +181,7 @@ function selectPreset(item: string) {
                 <p class="overview-desc muted">{{ scenario }}</p>
               </div>
               <div class="severity-badge" :class="`tone-${stressState.data.value?.severity?.color || 'warning'}`">
-                {{ stressState.data.value?.severity?.level || 'UNKNOWN' }} {{ stressState.data.value?.severity?.label || '待确认' }}
+                {{ displaySeverityLevel(stressState.data.value?.severity?.level) }} · {{ stressState.data.value?.severity?.label || '待确认' }}
               </div>
             </div>
             <div class="overview-grid">
