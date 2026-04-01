@@ -41,13 +41,13 @@ const activeNavLabel = computed(
 
 const routeContext = computed(() => {
   const mapping: Record<string, { title: string; note: string }> = {
-    '/brain': { title: '先看行业变化', note: '今天真正值得继续盯的变化会先收在这里。' },
-    '/workspace': { title: '围绕问题直接判断', note: '从一个问题出发，把结论、动作和证据压成一页。' },
-    '/graph': { title: '顺着证据继续追', note: '沿节点、链路和原文继续追这条判断为什么成立。' },
-    '/stress': { title: '看冲击会传到哪', note: '先看冲击会先打到哪，再决定先处理什么。' },
-    '/score': { title: '先看企业体质', note: '把经营问题、优先动作和对标关系先看清。' },
-    '/verify': { title: '核对观点靠不靠谱', note: '把研报说法和财报原文放到一起核对。' },
-    '/vision': { title: '回看财报原文结构', note: '回到页块、表格和原文，不靠口头描述。' },
+    '/brain': { title: '先看行业变化', note: '把今天值得继续盯的变化先拎出来。' },
+    '/workspace': { title: '围绕问题直接判断', note: '把结论、动作和证据压成一页。' },
+    '/graph': { title: '顺着证据继续追', note: '沿节点和原文继续追这条判断。' },
+    '/stress': { title: '看冲击会传到哪', note: '先看冲击会先打到哪，再决定先做什么。' },
+    '/score': { title: '先看企业体质', note: '把经营问题和优先动作先看清。' },
+    '/verify': { title: '核对观点靠不靠谱', note: '把研报说法和财报原文放在一起。' },
+    '/vision': { title: '回看财报原文结构', note: '直接回看页块、表格和原文。' },
   }
   return mapping[route.path] || { title: activeNavLabel.value, note: '先看当前工作面，再决定下一步往哪追。' }
 })

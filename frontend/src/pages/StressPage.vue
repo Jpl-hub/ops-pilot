@@ -233,8 +233,8 @@ function selectPreset(item: string) {
       <section v-else class="stress-layout">
         <aside class="scenario-panel">
           <div class="panel-head">
-            <strong>给一个冲击假设</strong>
-            <span>不用懂模型，直接说会发生什么。</span>
+            <strong>先说会发生什么</strong>
+            <span>不用懂模型，直接说你担心哪种冲击。</span>
           </div>
 
           <div class="scenario-shell">
@@ -290,8 +290,8 @@ function selectPreset(item: string) {
           <div class="result-body">
             <article class="chain-panel" v-if="focusedPropagationSteps.length">
               <div class="panel-head">
-                <strong>这条传导主链最值得看</strong>
-                <span>它会按这个顺序往下传。</span>
+                <strong>先看这条传导链</strong>
+                <span>冲击会按这个顺序传下去。</span>
               </div>
 
               <div class="chain-steps">
@@ -312,8 +312,8 @@ function selectPreset(item: string) {
 
             <article class="action-panel">
               <div class="panel-head">
-                <strong>现在先做什么</strong>
-                <span>先把当前这一轮的动作说清楚。</span>
+                <strong>这一轮先做什么</strong>
+                <span>先把最需要立刻做的动作说清楚。</span>
               </div>
 
               <div v-if="primaryRecoveryAction" class="action-focus">

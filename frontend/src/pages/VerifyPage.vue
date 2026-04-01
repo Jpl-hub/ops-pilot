@@ -260,7 +260,7 @@ watch(
                   <strong class="text-accent">{{ state.data.value.claim_cards.length }} 项</strong>
                 </div>
                 <div class="metric-row-inline">
-                  <span>存在偏差</span>
+                  <span>有分歧</span>
                   <strong class="risk-text">{{ state.data.value.key_numbers[1].value }}</strong>
                 </div>
                 <div class="metric-row-inline mt-2">
@@ -308,7 +308,7 @@ watch(
           </article>
           
           <article class="glass-panel support-panel mt-4">
-            <h3 class="panel-sm-title">先看哪几处对不上</h3>
+            <h3 class="panel-sm-title">先看哪几处不一致</h3>
             <div v-if="verifyPrimaryInsights.length" class="insight-list">
               <div
                 v-for="insight in verifyPrimaryInsights"
@@ -333,8 +333,8 @@ watch(
                  </div>
                  <h4 class="ci-title">{{ row.title }}</h4>
                  <div class="ci-metrics">
-                   <span>评级: <strong :class="row.rating_text.includes('买入') ? 'text-accent' : ''">{{ row.rating_text }}</strong></span>
-                   <span>目标: <strong>{{ row.target_price ?? '--' }}</strong></span>
+                   <span>评级 <strong :class="row.rating_text.includes('买入') ? 'text-accent' : ''">{{ row.rating_text }}</strong></span>
+                   <span>目标价 <strong>{{ row.target_price ?? '--' }}</strong></span>
                  </div>
                </div>
             </div>
@@ -368,12 +368,12 @@ watch(
                 <h4 class="cc-title">{{ card.label }}</h4>
                 <div class="cc-vs">
                   <div class="vs-col">
-                    <span class="muted">研报披露</span>
+                    <span class="muted">研报写法</span>
                     <strong class="text-accent">{{ card.claimed_value }}</strong>
                   </div>
-                  <div class="vs-vs">VS</div>
+                  <div class="vs-vs">对照</div>
                   <div class="vs-col text-right">
-                    <span class="muted">财报回溯</span>
+                    <span class="muted">财报原文</span>
                     <strong :class="card.status === 'match' ? 'text-accent' : 'risk-text'">{{ card.actual_value }}</strong>
                   </div>
                 </div>
