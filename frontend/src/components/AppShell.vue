@@ -77,8 +77,8 @@ async function logout() {
           </svg>
         </div>
         <div class="brand-copy app-brand-copy">
-          <strong class="brand-name">N.E.W.S. Agent</strong>
-          <span class="brand-kicker">{{ kicker || 'NEW ENERGY WISDOM SYSTEM' }}</span>
+          <strong class="brand-name">OpsPilot-X</strong>
+          <span class="brand-kicker">{{ kicker || '新能源运营决策智能体' }}</span>
         </div>
       </RouterLink>
 

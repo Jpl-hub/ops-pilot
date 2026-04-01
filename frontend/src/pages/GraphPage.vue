@@ -33,6 +33,19 @@ let upHandler: ((event: PointerEvent) => void) | null = null
 
 const companies = computed(() => overviewState.data.value?.companies || [])
 const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
+const periodOptions = computed(() =>
+  (availablePeriods.value || [])
+    .map((item: any) => {
+      if (typeof item === 'string') return { value: item, label: item }
+      if (item && typeof item === 'object') {
+        const value = String(item.value || item.period || item.report_period || item.label || '')
+        const label = String(item.label || item.period || item.report_period || item.value || '')
+        return value ? { value, label } : null
+      }
+      return null
+    })
+    .filter(Boolean) as Array<{ value: string; label: string }>,
+)
 const hasCompanies = computed(() => companies.value.length > 0)
 const canSubmitIntent = computed(() => !!selectedCompany.value && !!graphIntentDraft.value.trim())
 const focalNodes = computed<GraphFocalNode[]>(() => graphState.data.value?.focal_nodes || [])
@@ -95,16 +108,16 @@ function nodeKind(type: string) {
 }
 
 function nodeAnchor(kind: string) {
-  if (kind === 'company') return { x: 18, y: 48 }
-  if (kind === 'period') return { x: 38, y: 22 }
-  if (kind === 'risk') return { x: 58, y: 28 }
-  if (kind === 'alert') return { x: 80, y: 28 }
+  if (kind === 'company') return { x: 16, y: 46 }
+  if (kind === 'period') return { x: 32, y: 22 }
+  if (kind === 'watch') return { x: 32, y: 72 }
+  if (kind === 'risk') return { x: 50, y: 28 }
+  if (kind === 'signal') return { x: 50, y: 66 }
+  if (kind === 'evidence') return { x: 68, y: 76 }
+  if (kind === 'alert') return { x: 82, y: 28 }
   if (kind === 'task') return { x: 82, y: 50 }
-  if (kind === 'signal') return { x: 54, y: 66 }
-  if (kind === 'watch') return { x: 26, y: 74 }
   if (kind === 'stream') return { x: 82, y: 72 }
-  if (kind === 'evidence') return { x: 54, y: 82 }
-  return { x: 34, y: 78 }
+  return { x: 66, y: 84 }
 }
 
 function nodeDetail(node: GraphNode) {
@@ -115,7 +128,7 @@ function nodeDetail(node: GraphNode) {
   if (typeof meta.priority === 'string' && meta.priority) return `优先级：${meta.priority}`
   if (typeof meta.grade === 'string' && meta.grade) return `评级：${meta.grade}`
   if (typeof meta.report_period === 'string' && meta.report_period) return `报期：${meta.report_period}`
-  return node.type
+  return `类型：${displayNodeType(node.type)}`
 }
 
 function displayNodeType(type: string) {
@@ -149,8 +162,8 @@ function initializeGraphLayout() {
     const anchor = nodeAnchor(kind)
     nodes.forEach((node, index) => {
       const spread = nodes.length === 1 ? 0 : index - (nodes.length - 1) / 2
-      const verticalOffset = spread * 11
-      const horizontalOffset = (Math.abs(spread) % 2) * 5
+      const verticalOffset = spread * 9
+      const horizontalOffset = (Math.abs(spread) % 2) * 3
       nextLayout[node.id] = {
         x: Math.max(8, Math.min(92, anchor.x + horizontalOffset)),
         y: Math.max(10, Math.min(90, anchor.y + verticalOffset)),
@@ -186,13 +199,10 @@ const graphCanvasLinks = computed(() =>
       const source = graphCanvasNodes.value.find((node) => node.id === edge.source)
       const target = graphCanvasNodes.value.find((node) => node.id === edge.target)
       if (!source || !target) return null
-      const direction = target.x >= source.x ? 1 : -1
-      const offset = Math.max(4, Math.min(14, Math.abs(target.x - source.x) * 0.38))
-      const controlStart = source.x + offset * direction
-      const controlEnd = target.x - offset * direction
+      const midX = Number(((source.x + target.x) / 2).toFixed(2))
       return {
         id: `edge-${index}-${edge.source}-${edge.target}`,
-        pathData: `M ${source.x} ${source.y} C ${controlStart} ${source.y}, ${controlEnd} ${target.y}, ${target.x} ${target.y}`,
+        pathData: `M ${source.x} ${source.y} L ${midX} ${source.y} L ${midX} ${target.y} L ${target.x} ${target.y}`,
         isActive: selectedNodeId.value === source.id || selectedNodeId.value === target.id,
       }
     })
@@ -268,9 +278,12 @@ onMounted(async () => {
   await overviewState.execute(() => get('/workspace/companies'))
   selectedCompany.value =
     (typeof route.query.company === 'string' ? route.query.company : '') || companies.value[0] || ''
+  const preferredPeriod = overviewState.data.value?.preferred_period
   selectedPeriod.value = typeof route.query.period === 'string' && route.query.period
     ? route.query.period
-    : (overviewState.data.value?.preferred_period || '')
+    : typeof preferredPeriod === 'string'
+      ? preferredPeriod
+      : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
   await loadGraph()
 
   graphTicker = window.setInterval(() => {
@@ -318,7 +331,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
             <span>报期</span>
             <select v-model="selectedPeriod">
               <option value="">默认主周期</option>
-              <option v-for="period in availablePeriods" :key="period" :value="period">{{ period }}</option>
+              <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
             </select>
           </label>
         </div>
@@ -358,7 +371,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
           <div class="stage-summary">
             <span>当前聚焦</span>
             <strong>{{ currentFrame?.headline || graphCommandSurface?.title || '关键证据链路' }}</strong>
-            <p>{{ graphCommandSurface?.headline || '只保留这一轮真正相关的节点和主链。' }}</p>
+            <p>{{ graphCommandSurface?.headline || '只留下这一轮真正相关的节点、链路和证据。' }}</p>
           </div>
 
           <div v-if="signalStream.length" class="stage-signal-row">
@@ -776,40 +789,40 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-link-glow {
   stroke: rgba(125, 211, 252, 0);
-  stroke-width: 0.34;
+  stroke-width: 0.22;
   opacity: 0;
   transition: opacity 0.2s ease, stroke 0.2s ease;
 }
 
 .graph-link-glow.is-active {
-  stroke: rgba(110, 231, 255, 0.08);
-  opacity: 0.44;
+  stroke: rgba(110, 231, 255, 0.06);
+  opacity: 0.28;
 }
 
 .graph-link {
   stroke: url(#graph-link-gradient);
-  stroke-width: 0.09;
-  opacity: 0.36;
+  stroke-width: 0.07;
+  opacity: 0.28;
   transition: opacity 0.2s ease, stroke 0.2s ease, stroke-width 0.2s ease;
 }
 
 .graph-link.is-active {
   stroke: url(#graph-link-gradient-active);
-  stroke-width: 0.13;
-  opacity: 0.78;
+  stroke-width: 0.11;
+  opacity: 0.64;
 }
 
 .graph-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  min-width: 82px;
-  max-width: 112px;
+  min-width: 78px;
+  max-width: 104px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 3px;
-  padding: 8px 9px 8px 10px;
-  border-radius: 12px;
+  padding: 7px 8px 7px 9px;
+  border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(9, 11, 16, 0.92);
   backdrop-filter: blur(14px);
