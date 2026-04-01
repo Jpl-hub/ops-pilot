@@ -41,11 +41,22 @@ const signalFreshnessTone = computed(() => {
 
 function displayWsStatus(status: 'connecting' | 'connected' | 'disconnected') {
   const map: Record<string, string> = {
-    connecting: '连接中',
-    connected: '实时已接通',
-    disconnected: '实时已断开',
+    connecting: '连通中',
+    connected: '实时连通',
+    disconnected: '已断开',
   }
   return map[status] || status
+}
+
+function displaySignalFreshnessLabel(label?: string) {
+  const normalized = label || ''
+  const map: Record<string, string> = {
+    正式信号待接入: '实时信号未接通',
+    正式信号已接通: '实时信号已接通',
+    stale: '信号已过时',
+    unavailable: '实时信号未接通',
+  }
+  return map[normalized] || normalized || '实时信号未接通'
 }
 
 function displaySignalMeta(item: any) {
@@ -55,7 +66,7 @@ function displaySignalMeta(item: any) {
 
 function displayFocusMeta(item: any) {
   const parts = [
-    item?.signal_status || '持续跟踪',
+    item?.signal_status || '持续关注',
     item?.signal_count ? `${item.signal_count} 条信号` : '',
     item?.external_heat ? `热度 ${item.external_heat}` : '',
     item?.risk_count ? `风险 ${item.risk_count}` : '',
@@ -65,7 +76,7 @@ function displayFocusMeta(item: any) {
 
 function displayAnomalyMeta(item: any) {
   const parts = [
-    item?.signal_status || '流式异动',
+    item?.signal_status || '异动观察',
     item?.score ? `评分 ${item.score}` : '',
     item?.triggers?.length ? `${item.triggers.length} 个触发因子` : '',
   ].filter(Boolean)
@@ -74,12 +85,12 @@ function displayAnomalyMeta(item: any) {
 
 function displayAnomalyLevel(level?: string) {
   const map: Record<string, string> = {
-    critical: '高危异动',
-    high: '重点异动',
-    medium: '持续异动',
-    low: '轻度异动',
+    critical: '高压变化',
+    high: '重点变化',
+    medium: '持续变化',
+    low: '轻微变化',
   }
-  return map[(level || '').toLowerCase()] || '异动跟踪'
+  return map[(level || '').toLowerCase()] || '变化跟踪'
 }
 
 function anomalyTone(level?: string) {
@@ -153,7 +164,7 @@ onBeforeUnmount(() => {
                 {{ displayWsStatus(wsStatus) }}
               </span>
               <span class="brain-live-chip" :class="signalFreshnessTone">
-                {{ externalSignalStream?.freshness_label || '正式信号待接入' }}
+                {{ displaySignalFreshnessLabel(externalSignalStream?.freshness_label) }}
               </span>
             </div>
             <h1 class="brain-title">
@@ -245,7 +256,7 @@ onBeforeUnmount(() => {
               <div>
                 <h2>今天最值得看</h2>
               </div>
-              <span class="brain-section-meta">先看这 {{ signalCards.length }} 条</span>
+              <span class="brain-section-meta">今日 {{ signalCards.length }} 条</span>
             </div>
 
             <div v-if="signalCards.length" class="brain-stream-list">
@@ -265,7 +276,7 @@ onBeforeUnmount(() => {
                 <small>{{ displaySignalMeta(item) }}</small>
               </a>
             </div>
-            <div v-else class="brain-empty-state">当前还没有新的正式线索进入这一轮监测。</div>
+            <div v-else class="brain-empty-state">当前还没有新的正式线索。</div>
           </article>
         </section>
 
@@ -273,7 +284,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <h2>正在升温的风险</h2>
+                <h2>今天需要盯紧的变化</h2>
               </div>
               <span class="brain-section-meta">
                 {{ streamingAnomalies?.summary?.detected_count || 0 }} 家
@@ -297,7 +308,7 @@ onBeforeUnmount(() => {
               </RouterLink>
             </div>
             <div v-else class="brain-empty-state">
-              {{ streamingAnomalies?.freshness_label || '当前没有高优先级异动。' }}
+              {{ streamingAnomalies?.freshness_label || '当前没有需要立刻处理的变化。' }}
             </div>
           </article>
         </section>
@@ -306,9 +317,9 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <h2>继续跟这些企业</h2>
+                <h2>继续看这些企业</h2>
               </div>
-              <span class="brain-section-meta">先跟这 {{ focusCompanies.length }} 家</span>
+              <span class="brain-section-meta">先看这 {{ focusCompanies.length }} 家</span>
             </div>
 
             <div v-if="focusCompanies.length" class="brain-company-list">
@@ -325,7 +336,7 @@ onBeforeUnmount(() => {
                 <small>{{ displayFocusMeta(item) }}</small>
               </RouterLink>
             </div>
-            <div v-else class="brain-empty-state">当前没有热点公司进入观察池。</div>
+            <div v-else class="brain-empty-state">当前还没有进入观察池的公司。</div>
           </article>
 
           <article class="brain-surface">
@@ -351,7 +362,7 @@ onBeforeUnmount(() => {
                 <small>{{ (item.risk_labels || []).slice(0, 3).join(' · ') }}</small>
               </RouterLink>
             </div>
-            <div v-else class="brain-empty-state">当前没有需要优先处置的公司。</div>
+            <div v-else class="brain-empty-state">当前没有需要优先处理的公司。</div>
           </article>
         </section>
 
@@ -380,7 +391,7 @@ onBeforeUnmount(() => {
               <small>{{ displayResearchSource(item) }}</small>
             </a>
           </div>
-          <div v-else class="brain-empty-state">当前还没有值得摆上台面的政策或技术变化。</div>
+          <div v-else class="brain-empty-state">当前还没有需要重点关注的政策或技术变化。</div>
         </section>
       </template>
     </div>

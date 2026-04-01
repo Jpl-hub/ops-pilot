@@ -31,6 +31,36 @@ const scoreTagGroups = computed(() => ({
   risks: scoreState.data.value?.scorecard?.risk_labels?.slice(0, 4) || [],
   opportunities: scoreState.data.value?.scorecard?.opportunity_labels?.slice(0, 3) || [],
 }))
+const availablePeriods = computed(() =>
+  (scoreState.data.value?.available_periods || [])
+    .map((period: any) => normalizePeriodOption(period))
+    .filter((period: { value: string; label: string }) => period.value),
+)
+
+function normalizePeriodOption(period: any) {
+  if (typeof period === 'string') {
+    return { value: period, label: period }
+  }
+  if (period && typeof period === 'object') {
+    const value = period.value || period.report_period || period.period || period.label || ''
+    const label = period.label || period.report_period || period.period || period.value || ''
+    return {
+      value: String(value || ''),
+      label: String(label || value || ''),
+    }
+  }
+  return { value: '', label: '' }
+}
+
+function normalizePeriodValue(period: any) {
+  if (typeof period === 'string') {
+    return period
+  }
+  if (period && typeof period === 'object') {
+    return String(period.value || period.report_period || period.period || period.label || '')
+  }
+  return ''
+}
 
 async function loadCompanies() {
   const data = await get<any>('/workspace/companies')
@@ -102,7 +132,7 @@ onMounted(async () => {
   await loadScore()
   await loadTimeline()
   if (!selectedPeriod.value) {
-    selectedPeriod.value = scoreState.data.value?.report_period || ''
+    selectedPeriod.value = normalizePeriodValue(scoreState.data.value?.report_period) || availablePeriods.value[0]?.value || ''
   }
   await loadCompanyWorkspace()
 })
@@ -115,7 +145,7 @@ watch(selectedCompany, async (_, oldValue) => {
     selectedPeriod.value = ''
     await loadScore()
     await loadTimeline()
-    selectedPeriod.value = scoreState.data.value?.report_period || ''
+    selectedPeriod.value = normalizePeriodValue(scoreState.data.value?.report_period) || availablePeriods.value[0]?.value || ''
     await loadCompanyWorkspace()
   }
 })
@@ -143,7 +173,7 @@ watch(
       await loadScore()
       await loadTimeline()
       if (!period) {
-        selectedPeriod.value = scoreState.data.value?.report_period || ''
+        selectedPeriod.value = normalizePeriodValue(scoreState.data.value?.report_period) || availablePeriods.value[0]?.value || ''
       }
       await loadCompanyWorkspace()
       return
@@ -169,7 +199,7 @@ watch(
           <div class="mode-query-copy">
             <span class="control-kicker">经营体检</span>
             <h3 class="company-name text-gradient">{{ selectedCompany || '经营诊断' }}</h3>
-            <p class="control-meta">{{ scoreCommandSurface?.headline || '先看当前判断' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+            <p class="control-meta">{{ scoreCommandSurface?.headline || '先看这次判断' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
         </div>
         
@@ -184,11 +214,11 @@ watch(
             <span class="subtle-label">报告期</span>
             <select v-model="selectedPeriod" class="glass-select">
               <option
-                v-for="period in scoreState.data.value?.available_periods || []"
-                :key="period"
-                :value="period"
+                v-for="period in availablePeriods"
+                :key="period.value"
+                :value="period.value"
               >
-                {{ period }}
+                {{ period.label }}
               </option>
             </select>
           </label>
@@ -227,7 +257,7 @@ watch(
               <div class="grade-metrics">
                 <div class="metric-row-inline">
                   <span>行业分位</span>
-                  <strong class="text-gradient">{{ scoreState.data.value.scorecard.subindustry_percentile }}pct</strong>
+                  <strong class="text-gradient">{{ scoreState.data.value.scorecard.subindustry_percentile }}分位</strong>
                 </div>
                 <div class="metric-row-inline">
                   <span>总风险</span>
@@ -275,7 +305,7 @@ watch(
 
           <!-- Tags & Actions -->
           <article class="glass-panel support-panel scroll-area">
-            <h3 class="panel-sm-title">先处理这些</h3>
+            <h3 class="panel-sm-title">先做这两步</h3>
             <div class="tag-row compact-tags">
               <TagPill
                 v-for="label in scoreTagGroups.risks.slice(0, 3)"
@@ -321,7 +351,7 @@ watch(
           <div class="details-row">
             <!-- Timeline Snapshots -->
             <article class="glass-panel details-panel scroll-area" v-if="timelineState.data.value">
-              <h3 class="panel-sm-title">最近报期</h3>
+              <h3 class="panel-sm-title">最近两期</h3>
               <div class="timeline-stack">
                 <div
                   v-for="item in timelineState.data.value.snapshots.slice(0, 2)"
@@ -333,8 +363,8 @@ watch(
                     <strong class="tc-grade">{{ item.grade }} ({{ item.total_score }}分)</strong>
                   </div>
                   <div class="tc-metrics">
-                    <span>风险: {{ item.risk_count }}</span>
-                    <span>增速: {{ item.revenue_growth ?? '--' }}</span>
+                    <span>风险项 {{ item.risk_count }}</span>
+                    <span>营收增速 {{ item.revenue_growth ?? '--' }}</span>
                   </div>
                 </div>
               </div>
@@ -342,7 +372,7 @@ watch(
 
             <!-- Key Metrics Highlights -->
             <article class="glass-panel details-panel scroll-area flex-2">
-              <h3 class="panel-sm-title">先看这几个指标</h3>
+              <h3 class="panel-sm-title">先盯这几个指标</h3>
               <div class="metrics-grid-compact">
                 <div
                   v-for="card in scoreMetricCards"
