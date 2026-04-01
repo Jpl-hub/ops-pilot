@@ -185,15 +185,15 @@ function parseAnswerMarkdown(markdown: string, fallbackSections: any[]): AnswerB
   let current: AnswerBlock = { title: '本轮结论', paragraphs: [], bullets: [] }
 
   for (const line of lines) {
-    if (line.startsWith('### ')) {
+    if (line.startsWith('### ') || line.startsWith('## ')) {
       if (current.paragraphs.length || current.bullets.length || blocks.length === 0) {
         blocks.push(current)
       }
-      current = { title: line.replace(/^###\s+/, ''), paragraphs: [], bullets: [] }
+      current = { title: line.replace(/^#{2,3}\s+/, ''), paragraphs: [], bullets: [] }
       continue
     }
-    if (line.startsWith('- ')) {
-      current.bullets.push(line.replace(/^- /, ''))
+    if (line.startsWith('- ') || line.startsWith('* ') || /^\d+\.\s+/.test(line)) {
+      current.bullets.push(line.replace(/^(-|\*|\d+\.)\s+/, ''))
       continue
     }
     current.paragraphs.push(line)
@@ -227,6 +227,16 @@ function formatExecutionMs(value?: number) {
   if (!value) return ''
   if (value >= 1000) return `${(value / 1000).toFixed(1)}s`
   return `${Math.round(value)}ms`
+}
+
+function renderInlineMarkdown(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
 }
 
 function readQueryString(value: unknown) {
@@ -400,9 +410,9 @@ watch(selectedCompany, async (company, previous) => {
               <div class="canvas-copy">
                 <section v-for="block in answerBlocks" :key="block.title" class="analysis-block">
                   <h3>{{ block.title }}</h3>
-                  <p v-for="line in block.paragraphs" :key="line">{{ line }}</p>
+                  <p v-for="line in block.paragraphs" :key="line" v-html="renderInlineMarkdown(line)"></p>
                   <ul v-if="block.bullets.length">
-                    <li v-for="line in block.bullets" :key="line">{{ line }}</li>
+                    <li v-for="line in block.bullets" :key="line" v-html="renderInlineMarkdown(line)"></li>
                   </ul>
                 </section>
               </div>
@@ -1063,6 +1073,7 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   gap: 6px;
   align-items: start;
+  justify-items: center;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -1070,11 +1081,12 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 88px;
   gap: 10px;
-  width: min(100%, 620px);
+  width: min(100%, 760px);
   padding: 4px 6px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
+  justify-self: center;
 }
 
 .composer-shell textarea {
@@ -1104,6 +1116,8 @@ watch(selectedCompany, async (company, previous) => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  width: min(100%, 760px);
+  justify-content: center;
 }
 
 .prompt-chip {

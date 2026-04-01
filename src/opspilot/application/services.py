@@ -4235,8 +4235,10 @@ def _select_research_report(
     available_periods: set[str] | None = None,
 ) -> dict[str, Any] | None:
     matches = [report for report in reports if report.get("company_name") == company_name]
+    title_matches = matches
     if report_title:
-        matches = [report for report in matches if report_title in report.get("title", "")]
+        title_matches = [report for report in matches if report_title in report.get("title", "")]
+        matches = title_matches
     if report_period:
         period_matches = [
             report
@@ -4244,8 +4246,12 @@ def _select_research_report(
             if _infer_report_period_from_text(report.get("title", "")) == report_period
         ]
         if not period_matches:
-            return None
-        matches = period_matches
+            if report_title and title_matches:
+                matches = title_matches
+            else:
+                return None
+        else:
+            matches = period_matches
     matches.sort(key=lambda item: item.get("publish_date", ""), reverse=True)
     if report_period is None:
         matches.sort(key=lambda item: _research_report_content_score(item), reverse=True)

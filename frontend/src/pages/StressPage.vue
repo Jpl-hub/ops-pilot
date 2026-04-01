@@ -47,6 +47,32 @@ const scenarioStatusLine = computed(() =>
   selectedPeriod.value ? `${selectedPeriod} · 从一个明确冲击假设开始` : '默认主周期 · 从一个明确冲击假设开始',
 )
 
+function localizeStressText(value?: string) {
+  if (!value) return ''
+  return value
+    .replace(/\bupstream\b/gi, '上游')
+    .replace(/\bmidstream\b/gi, '中游')
+    .replace(/\bdownstream\b/gi, '下游')
+    .replace(/\bactions?\b/gi, '动作')
+    .replace(/\bcritical\b/gi, '极高')
+    .replace(/\bhigh\b/gi, '高')
+    .replace(/\bmedium\b/gi, '中')
+    .replace(/\blow\b/gi, '低')
+    .replace(/\brisk\b/gi, '风险')
+    .replace(/\bimpact\b/gi, '冲击')
+}
+
+function displayStageName(value?: string) {
+  const normalized = (value || '').toLowerCase()
+  const map: Record<string, string> = {
+    upstream: '上游',
+    midstream: '中游',
+    downstream: '下游',
+    actions: '动作',
+  }
+  return map[normalized] || localizeStressText(value)
+}
+
 function displaySeverityLevel(level?: string) {
   const map: Record<string, string> = {
     CRITICAL: '极高',
@@ -215,7 +241,7 @@ function selectPreset(item: string) {
 
           <article class="glass-panel recovery-panel" v-if="recoverySequence.length">
             <div class="section-head">
-              <h3 class="panel-title">优先动作</h3>
+              <h3 class="panel-title">先做什么</h3>
             </div>
             <div class="recovery-list">
               <article
@@ -235,7 +261,7 @@ function selectPreset(item: string) {
 
           <!-- Transmission Matrix -->
           <article class="glass-panel matrix-panel" v-if="focusedTransmissionMatrix.length">
-            <h3 class="panel-title">冲击先传到这里</h3>
+            <h3 class="panel-title">先传到哪里</h3>
             <div class="matrix-grid">
               <div
                 v-for="(item, index) in focusedTransmissionMatrix"
@@ -249,10 +275,10 @@ function selectPreset(item: string) {
               >
                 <div class="node-header">
                   <div class="node-dot"></div>
-                  <span class="node-stage">{{ item.stage }}</span>
+                  <span class="node-stage">{{ displayStageName(item.stage) }}</span>
                 </div>
-                <div class="node-headline">{{ item.headline }}</div>
-                <span class="node-label muted">{{ item.impact_label }}</span>
+                <div class="node-headline">{{ localizeStressText(item.headline) }}</div>
+                <span class="node-label muted">{{ localizeStressText(item.impact_label) }}</span>
               </div>
             </div>
           </article>
@@ -291,8 +317,8 @@ function selectPreset(item: string) {
                 <span class="wavefront-lbl">当前重点</span>
                 <span class="wavefront-badge">{{ activeWavefront ? '推演中' : '就绪' }}</span>
               </div>
-              <h4 class="wavefront-title">{{ activeWavefront?.headline || stressCommandSurface?.headline || activeSimulationLog?.title || '等待推演' }}</h4>
-              <p class="wavefront-desc muted">{{ activeWavefront?.log || stressCommandSurface?.impact_label || activeSimulationLog?.detail || '系统准备冲击波前计算…' }}</p>
+              <h4 class="wavefront-title">{{ localizeStressText(activeWavefront?.headline || stressCommandSurface?.headline || activeSimulationLog?.title || '等待推演') }}</h4>
+              <p class="wavefront-desc muted">{{ localizeStressText(activeWavefront?.log || stressCommandSurface?.impact_label || activeSimulationLog?.detail || '系统准备冲击波前计算…') }}</p>
               <div class="meter-box">
                 <div class="meter-row">
                   <span class="muted">冲击能量</span>
@@ -314,8 +340,8 @@ function selectPreset(item: string) {
               >
                 <div class="log-num">{{ item.step }}</div>
                 <div class="log-body">
-                  <strong class="log-title">{{ item.title }}</strong>
-                  <p class="log-desc muted">{{ item.detail }}</p>
+                  <strong class="log-title">{{ localizeStressText(item.title) }}</strong>
+                  <p class="log-desc muted">{{ localizeStressText(item.detail) }}</p>
                 </div>
               </div>
             </div>

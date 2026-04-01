@@ -186,14 +186,10 @@ const graphCanvasLinks = computed(() =>
       const source = graphCanvasNodes.value.find((node) => node.id === edge.source)
       const target = graphCanvasNodes.value.find((node) => node.id === edge.target)
       if (!source || !target) return null
-      const deltaX = target.x - source.x
-      const deltaY = target.y - source.y
-      const direction = deltaX >= 0 ? 1 : -1
-      const curve = Math.max(3, Math.min(8, Math.abs(deltaX) * 0.05 + 2))
-      const verticalShift = Math.max(-5, Math.min(5, deltaY * 0.1))
+      const midX = source.x + (target.x - source.x) / 2
       return {
         id: `edge-${index}-${edge.source}-${edge.target}`,
-        pathData: `M ${source.x} ${source.y} C ${source.x + curve * direction} ${source.y + verticalShift}, ${target.x - curve * direction} ${target.y - verticalShift}, ${target.x} ${target.y}`,
+        pathData: `M ${source.x} ${source.y} C ${midX} ${source.y}, ${midX} ${target.y}, ${target.x} ${target.y}`,
         isActive: selectedNodeId.value === source.id || selectedNodeId.value === target.id,
       }
     })
@@ -382,6 +378,16 @@ watch(selectedPeriod, async () => { await loadGraph() })
                   <feMergeNode in="SourceGraphic" />
                 </feMerge>
               </filter>
+              <linearGradient id="graph-link-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="rgba(96,165,250,0.16)" />
+                <stop offset="55%" stop-color="rgba(103,232,249,0.24)" />
+                <stop offset="100%" stop-color="rgba(94,234,212,0.18)" />
+              </linearGradient>
+              <linearGradient id="graph-link-gradient-active" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="rgba(125,211,252,0.58)" />
+                <stop offset="50%" stop-color="rgba(110,231,255,0.84)" />
+                <stop offset="100%" stop-color="rgba(167,243,208,0.64)" />
+              </linearGradient>
             </defs>
             <g v-for="link in graphCanvasLinks" :key="link!.id">
               <path :d="link!.pathData" class="graph-link-glow" :class="{ 'is-active': link!.isActive }" />
@@ -767,27 +773,27 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-link-glow {
   stroke: rgba(125, 211, 252, 0);
-  stroke-width: 0.4;
+  stroke-width: 0.34;
   opacity: 0;
   transition: opacity 0.2s ease, stroke 0.2s ease;
 }
 
 .graph-link-glow.is-active {
-  stroke: rgba(94, 234, 212, 0.14);
-  opacity: 0.72;
+  stroke: rgba(110, 231, 255, 0.1);
+  opacity: 0.54;
 }
 
 .graph-link {
-  stroke: rgba(94, 109, 138, 0.22);
-  stroke-width: 0.12;
-  opacity: 0.58;
+  stroke: url(#graph-link-gradient);
+  stroke-width: 0.11;
+  opacity: 0.5;
   transition: opacity 0.2s ease, stroke 0.2s ease, stroke-width 0.2s ease;
 }
 
 .graph-link.is-active {
-  stroke: rgba(148, 255, 225, 0.54);
-  stroke-width: 0.18;
-  opacity: 1;
+  stroke: url(#graph-link-gradient-active);
+  stroke-width: 0.16;
+  opacity: 0.92;
 }
 
 .graph-node {

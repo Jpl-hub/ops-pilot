@@ -4846,6 +4846,31 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(selected)
         self.assertEqual(selected["title"], "2025年三季度报告点评：盈利改善")
 
+    def test_select_research_report_keeps_explicit_title_when_period_is_missing(self) -> None:
+        reports = [
+            {
+                "company_name": "测试公司",
+                "title": "行业景气向上，订单持续放量",
+                "publish_date": "2026-01-10",
+            },
+            {
+                "company_name": "测试公司",
+                "title": "2025年三季度报告点评：盈利改善",
+                "publish_date": "2025-11-04",
+            },
+        ]
+
+        selected = _select_research_report(
+            reports,
+            company_name="测试公司",
+            report_period="2025Q3",
+            report_title="行业景气向上，订单持续放量",
+            available_periods={"2025Q3"},
+        )
+
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected["title"], "行业景气向上，订单持续放量")
+
     def test_infer_report_period_supports_short_report_names(self) -> None:
         self.assertEqual(_infer_report_period_from_text("2025年三季报点评：盈利改善"), "2025Q3")
         self.assertEqual(_infer_report_period_from_text("2025年中报点评：需求修复"), "2025H1")
