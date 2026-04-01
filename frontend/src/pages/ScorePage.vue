@@ -212,10 +212,10 @@ watch(
           <!-- Main Grade Panel -->
           <article class="glass-panel score-hero-panel">
             <div class="hero-top">
-              <div class="eyebrow">当前状态</div>
-              <h2 class="hero-title compact">{{ scoreState.data.value.company_name }}</h2>
+              <div class="eyebrow">当前判断</div>
+              <h2 class="hero-title compact">{{ scoreCommandSurface?.headline || scoreState.data.value.company_name }}</h2>
               <p class="hero-text text-sm muted">
-                {{ scoreState.data.value.report_period }} · {{ scoreState.data.value.subindustry }}
+                {{ scoreState.data.value.company_name }} · {{ scoreState.data.value.report_period }} · {{ scoreState.data.value.subindustry }}
               </p>
             </div>
             
@@ -238,7 +238,7 @@ watch(
 
             <div v-if="scoreCommandSurface" class="hero-summary">
               <div class="hero-summary-head">
-                <strong>{{ scoreCommandSurface.headline }}</strong>
+                <strong>{{ scoreCommandSurface.title || '经营诊断' }}</strong>
                 <span class="hero-summary-badge">{{ scoreCommandSurface.metric }} · {{ scoreCommandSurface.delta_label }}</span>
               </div>
               <p v-if="dominantSignal" class="hero-summary-copy">
@@ -259,7 +259,7 @@ watch(
             <!-- Signal Tape -->
             <div class="signal-tape scroll-area" v-if="scoreSignalTape && scoreSignalTape.length">
               <div
-                v-for="item in scoreSignalTape"
+                v-for="item in scoreSignalTape.slice(0, 3)"
                 :key="`${item.step}-${item.label}`"
                 class="graph-route-band subtle-band"
                 :class="[`tone-${item.tone || 'accent'}`]"
@@ -324,7 +324,7 @@ watch(
               <h3 class="panel-sm-title">最近几个报期</h3>
               <div class="timeline-stack">
                 <div
-                  v-for="item in timelineState.data.value.snapshots.slice(0, 4)"
+                  v-for="item in timelineState.data.value.snapshots.slice(0, 3)"
                   :key="item.report_period"
                   class="timeline-card glass-panel-hover"
                 >
@@ -382,7 +382,7 @@ watch(
   height: 100%;
   overflow: hidden;
   width: 100%;
-  max-width: 1320px;
+  max-width: 1280px;
   margin: 0 auto;
 }
 
@@ -474,7 +474,7 @@ watch(
 /* Main Grid */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 304px 1fr;
+  grid-template-columns: 320px 1fr;
   gap: 16px;
   flex: 1;
   min-height: 0;
@@ -606,7 +606,7 @@ watch(
 
 .watch-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
@@ -676,7 +676,7 @@ watch(
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
-  flex: 0 0 260px;
+  flex: 0 0 236px;
 }
 
 .chart-container {

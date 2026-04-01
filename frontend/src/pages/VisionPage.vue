@@ -74,14 +74,6 @@ function displayJobStatus(status?: string) {
   return map[status || ''] || status || '-'
 }
 
-function displayArtifactSource(source?: string) {
-  const map: Record<string, string> = {
-    standard_ocr: '正式结构产物',
-    geometric_fallback: '历史结构产物',
-  }
-  return map[source || ''] || source || '当前阶段产物'
-}
-
 function displayPipelineStage(stage?: string) {
   const map: Record<string, string> = {
     cross_page_merge: '跨页拼接',
@@ -336,7 +328,7 @@ watch(
 
           <!-- Pipeline Jobs -->
           <article class="glass-panel jobs-panel" v-if="pipelineJobs.length">
-            <h3 class="panel-sm-title">本轮进度</h3>
+            <h3 class="panel-sm-title">这次复核到了哪一步</h3>
             <div class="jobs-grid">
               <div
                 v-for="job in pipelineJobs.slice(0, 3)"
@@ -351,10 +343,6 @@ watch(
                 </div>
                 <strong class="job-company">{{ job.company_name }}</strong>
                 <p class="job-summary muted">{{ job.artifact_summary || '等待摘要' }}</p>
-                <p class="job-summary muted">
-                  {{ displayArtifactSource(job.artifact_source) }}
-                  <template v-if="job.contract_status"> · 质检 {{ displayJobStatus(job.contract_status) }}</template>
-                </p>
               </div>
             </div>
           </article>
@@ -371,16 +359,8 @@ watch(
                 <strong>{{ activeJob.report_id }}</strong>
               </div>
               <div class="artifact-kv">
-                <span class="muted">来源链</span>
-                <strong>{{ displayArtifactSource(activeJob.artifact_source) }}</strong>
-              </div>
-              <div class="artifact-kv">
                 <span class="muted">状态</span>
                 <strong>{{ displayJobStatus(activeJob.status) }}</strong>
-              </div>
-              <div v-if="activeJob.contract_status" class="artifact-kv">
-                <span class="muted">质检</span>
-                <strong>{{ displayJobStatus(activeJob.contract_status) }}</strong>
               </div>
             </div>
             <p class="job-summary muted">{{ activeJob.artifact_summary || '当前产物尚无结构摘要。' }}</p>
@@ -388,7 +368,7 @@ watch(
 
           <!-- Analysis Log -->
           <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">处理过程</h3>
+            <h3 class="panel-sm-title">这次提取到了什么</h3>
             <div class="log-list">
               <div
                 v-for="item in visibleAnalysisLog"
@@ -406,7 +386,7 @@ watch(
 
           <!-- Sections from Result -->
           <article class="glass-panel sections-panel scroll-area flex-1" v-else-if="visibleSections.length">
-            <h3 class="panel-sm-title">提取到的内容</h3>
+            <h3 class="panel-sm-title">当前内容</h3>
             <div class="sections-grid">
               <div
                 v-for="section in visibleSections"
@@ -448,7 +428,7 @@ watch(
 
           <!-- Evidence Links -->
           <article class="glass-panel evidence-panel" v-if="selectedResult?.evidence_navigation?.links?.length">
-            <h3 class="panel-sm-title">查看原文</h3>
+            <h3 class="panel-sm-title">回到原文</h3>
             <div class="evidence-links">
               <RouterLink
                 v-for="link in selectedResult.evidence_navigation.links"
@@ -467,7 +447,7 @@ watch(
 </template>
 
 <style scoped>
-.dashboard-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: hidden; width: 100%; max-width: 1320px; margin: 0 auto; }
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: hidden; width: 100%; max-width: 1280px; margin: 0 auto; }
 
 .control-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 16px; flex-shrink: 0; }
 .control-left { display: flex; align-items: center; gap: 16px; }
@@ -487,7 +467,7 @@ watch(
 .state-container { flex: 1; }
 
 /* Grid */
-.dashboard-grid { display: grid; grid-template-columns: 304px 1fr; gap: 16px; flex: 1; min-height: 0; }
+.dashboard-grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; flex: 1; min-height: 0; }
 .dashboard-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
 .left-col { overflow-y: auto; }
 .left-col::-webkit-scrollbar { width: 4px; }
@@ -558,7 +538,7 @@ watch(
 
 /* Jobs Grid */
 .jobs-panel { padding: 20px; border-radius: 20px; flex-shrink: 0; }
-.jobs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.jobs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 .job-card { padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
 .job-card.is-active { border-color: rgba(168,85,247,0.35); background: rgba(168,85,247,0.08); }
 .job-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }

@@ -29,8 +29,8 @@ const focusCompanies = computed(() => attentionMatrix.value.slice(0, 4))
 const riskCompanies = computed(() => topRiskCompanies.value.slice(0, 3))
 const radarCards = computed(() => radarEvents.value.slice(0, 3))
 const signalCards = computed(() => signalFeed.value.slice(0, 4))
-const pulseSteps = computed(() => brainSignalTape.value.slice(0, 4))
-const tapeItems = computed(() => marketTape.value.slice(0, 6))
+const pulseSteps = computed(() => brainSignalTape.value.slice(0, 3))
+const tapeItems = computed(() => marketTape.value.slice(0, 3))
 const leadMetric = computed(() => marketTape.value[0] || null)
 const supportMetrics = computed(() => marketTape.value.slice(1, 3))
 
@@ -145,18 +145,6 @@ onBeforeUnmount(() => {
       </div>
 
       <template v-else-if="payload">
-        <section class="brain-ribbon">
-          <span class="brain-ribbon-label">最新变化</span>
-          <div class="brain-ribbon-track">
-            <span v-for="item in tapeItems" :key="item.label" :class="['brain-ribbon-item', `is-${item.tone || 'default'}`]">
-              {{ item.label }} · {{ item.value }} · {{ item.delta }}
-            </span>
-            <span v-for="item in tapeItems" :key="`${item.label}-dup`" :class="['brain-ribbon-item', `is-${item.tone || 'default'}`]">
-              {{ item.label }} · {{ item.value }} · {{ item.delta }}
-            </span>
-          </div>
-        </section>
-
         <section class="brain-hero">
           <div class="brain-hero-copy">
             <div class="brain-kicker-row">
@@ -184,6 +172,17 @@ onBeforeUnmount(() => {
               }}
             </p>
 
+            <div v-if="tapeItems.length" class="brain-quickline">
+              <span
+                v-for="item in tapeItems"
+                :key="`${item.label}-${item.value}`"
+                class="brain-quick-chip"
+                :class="`is-${item.tone || 'default'}`"
+              >
+                {{ item.label }} · {{ item.value }}
+              </span>
+            </div>
+
             <div class="brain-metrics">
               <div v-if="leadMetric" class="brain-metric brain-metric-lead" :class="`is-${leadMetric.tone || 'default'}`">
                 <span>{{ leadMetric.label }}</span>
@@ -204,7 +203,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="brain-sector-strip">
-            <div v-for="tag in topSectorTags.slice(0, 3)" :key="tag.label" class="brain-sector-pill">
+            <div v-for="tag in topSectorTags.slice(0, 2)" :key="tag.label" class="brain-sector-pill">
               <span>{{ tag.label }}</span>
               <strong>{{ tag.count }}</strong>
             </div>
@@ -215,7 +214,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface brain-canvas">
             <div class="brain-section-head">
               <div>
-                <h2>主线走势</h2>
+                <h2>先看主线</h2>
               </div>
             </div>
 
@@ -244,7 +243,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface brain-stream">
             <div class="brain-section-head">
               <div>
-                <h2>先看这些变化</h2>
+                <h2>今天最值得看</h2>
               </div>
               <span class="brain-section-meta">{{ externalSignalStream?.signal_count || 0 }} 条</span>
             </div>
@@ -307,7 +306,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <h2>继续看这些企业</h2>
+                <h2>继续跟这些企业</h2>
               </div>
               <span class="brain-section-meta">{{ focusCompanies.length }} 家</span>
             </div>
@@ -359,7 +358,7 @@ onBeforeUnmount(() => {
         <section class="brain-surface brain-radar">
           <div class="brain-section-head">
             <div>
-                <h2>最近变化</h2>
+                <h2>政策与技术变化</h2>
             </div>
           </div>
 
@@ -395,7 +394,7 @@ onBeforeUnmount(() => {
   gap: 16px;
   min-height: 100%;
   width: 100%;
-  max-width: 1320px;
+  max-width: 1280px;
   margin: 0 auto;
   color: #edf2f7;
 }
@@ -441,50 +440,6 @@ onBeforeUnmount(() => {
   background: rgba(16, 185, 129, 0.14);
   color: #84f4ca;
   cursor: pointer;
-}
-
-.brain-ribbon {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 42px;
-  padding: 0 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(52, 211, 153, 0.16);
-  background: rgba(9, 28, 22, 0.66);
-  overflow: hidden;
-}
-
-.brain-ribbon-label {
-  flex: 0 0 auto;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(116, 247, 198, 0.88);
-}
-
-.brain-ribbon-track {
-  display: flex;
-  gap: 20px;
-  white-space: nowrap;
-  min-width: 0;
-  animation: brain-marquee 28s linear infinite;
-}
-
-.brain-ribbon-item {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: rgba(230, 238, 249, 0.88);
-}
-
-.brain-ribbon-item.is-risk {
-  color: #fda4af;
-}
-
-.brain-ribbon-item.is-success,
-.brain-ribbon-item.is-accent {
-  color: #86efac;
 }
 
 .brain-hero {
@@ -556,6 +511,36 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.65;
   color: rgba(200, 211, 228, 0.84);
+}
+
+.brain-quickline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.brain-quick-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(221, 229, 240, 0.82);
+}
+
+.brain-quick-chip.is-risk {
+  border-color: rgba(251, 113, 133, 0.2);
+  color: #fda4af;
+}
+
+.brain-quick-chip.is-success,
+.brain-quick-chip.is-accent {
+  border-color: rgba(52, 211, 153, 0.18);
+  color: #9fe8c9;
 }
 
 .brain-metrics {
@@ -862,11 +847,6 @@ onBeforeUnmount(() => {
   color: rgba(152, 167, 187, 0.72);
   text-align: center;
   font-size: 13px;
-}
-
-@keyframes brain-marquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
 }
 
 @media (max-width: 1260px) {
