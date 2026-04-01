@@ -26,11 +26,10 @@ const reportStatusMessage = ref('')
 const reportCatalogReady = ref(false)
 const verifyWatchItems = computed(() => verifyCommandSurface.value?.watch_items?.slice(0, 4) || [])
 const verifyDominantSignal = computed(() => verifyCommandSurface.value?.dominant_signal || null)
-const verifyPrimaryClaims = computed(() => state.data.value?.claim_cards?.slice(0, 4) || [])
+const verifyPrimaryClaims = computed(() => state.data.value?.claim_cards?.slice(0, 3) || [])
 const verifyPrimaryInsights = computed(() => state.data.value?.research_compare?.insights?.slice(0, 4) || [])
 const verifyCompareRows = computed(() => state.data.value?.research_compare?.rows?.slice(0, 3) || [])
-const verifyCharts = computed(() => state.data.value?.charts?.slice(0, 1) || [])
-const verifyCompareCharts = computed(() => state.data.value?.research_compare?.charts?.slice(0, 1) || [])
+const verifyCharts = computed(() => state.data.value?.charts?.slice(0, 1) || state.data.value?.research_compare?.charts?.slice(0, 1) || [])
 const verifyDeltaItems = computed(() => verifyDeltaTape.value.slice(0, 4))
 
 async function loadCompanies() {
@@ -291,7 +290,7 @@ watch(
           </article>
           
           <article class="glass-panel support-panel scroll-area mt-4">
-            <h3 class="panel-sm-title">关键分歧</h3>
+            <h3 class="panel-sm-title">主要分歧</h3>
             <div class="tag-row compact-tags">
               <TagPill
                 v-for="insight in verifyPrimaryInsights"
@@ -325,18 +324,15 @@ watch(
         <div class="dashboard-col right-col">
           
           <!-- Top Row: Charts -->
-          <div class="charts-row mb-4">
+          <div v-if="verifyCharts.length" class="charts-row mb-4">
             <div v-for="chart in verifyCharts" :key="chart.title" class="glass-panel chart-container">
-              <ChartPanel :title="chart.title" :options="chart.options" />
-            </div>
-            <div v-for="chart in verifyCompareCharts" :key="`compare-${chart.title}`" class="glass-panel chart-container">
               <ChartPanel :title="chart.title" :options="chart.options" />
             </div>
           </div>
 
           <!-- Bottom Row: Claim Cards List -->
           <div class="glass-panel details-panel scroll-area flex-1">
-            <h3 class="panel-sm-title mb-4">逐条核验</h3>
+            <h3 class="panel-sm-title mb-4">逐条对照</h3>
             
             <div class="claims-grid">
               <div
@@ -384,7 +380,7 @@ watch(
 </template>
 
 <style scoped>
-.dashboard-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: hidden; width: 100%; max-width: 1380px; margin: 0 auto; }
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: hidden; width: 100%; max-width: 1320px; margin: 0 auto; }
 .control-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 14px; flex-shrink: 0; }
 .control-left { display: flex; align-items: center; gap: 16px; }
 .glow-icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); color: #3b82f6; display: grid; place-items: center; font-weight: bold; font-size: 18px; box-shadow: 0 0 15px rgba(59, 130, 246, 0.2); }
@@ -401,7 +397,7 @@ watch(
 .empty-content { text-align: center; }
 
 /* Dashboard Grid */
-.dashboard-grid { display: grid; grid-template-columns: 292px 1fr; gap: 16px; flex: 1; min-height: 0; }
+.dashboard-grid { display: grid; grid-template-columns: 304px 1fr; gap: 16px; flex: 1; min-height: 0; }
 .dashboard-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .dashboard-col::-webkit-scrollbar { width: 4px; }
 .dashboard-col::-webkit-scrollbar-track { background: transparent; }
@@ -409,7 +405,7 @@ watch(
 .scroll-area { overflow-y: auto; }
 
 /* Score Hero (Left) */
-.score-hero-panel { padding: 18px; border-radius: 18px; display: flex; flex-direction: column; gap: 16px; }
+.score-hero-panel { padding: 16px; border-radius: 18px; display: flex; flex-direction: column; gap: 14px; }
 .grade-display { display: flex; align-items: center; gap: 18px; padding: 14px; background: rgba(0,0,0,0.2); border-radius: 14px; border: 1px solid rgba(255,255,255,0.05); }
 .grade-circle { width: 68px; height: 68px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 2px solid #3b82f6; box-shadow: 0 0 20px rgba(59, 130, 246, 0.2); }
 .grade-score { font-size: 18px; font-weight: 700; line-height: 1; }
@@ -431,7 +427,7 @@ watch(
 
 /* Support Panel */
 .panel-sm-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-.support-panel { padding: 18px; border-radius: 18px; }
+.support-panel { padding: 16px; border-radius: 18px; }
 .compare-list { display: flex; flex-direction: column; gap: 10px; }
 .compare-item { padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
 .ci-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px; }
@@ -440,14 +436,14 @@ watch(
 .ci-metrics { display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8; }
 
 /* Charts & Details  */
-.charts-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; flex: 0 0 260px; flex-shrink: 0; }
+.charts-row { display: grid; grid-template-columns: 1fr; gap: 16px; flex: 0 0 244px; flex-shrink: 0; }
 .chart-container { border-radius: 18px; padding: 14px; display: flex; flex-direction: column; min-height: 0; }
 :deep(.chart-panel) { padding: 0; flex: 1; display: flex; flex-direction: column; background: transparent !important; border: none !important; min-height: 0; }
 :deep(.chart-root) { flex: 1; min-height: 200px !important; }
 
-.details-panel { padding: 18px; border-radius: 18px; }
-.claims-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-.claim-card { padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; }
+.details-panel { padding: 16px; border-radius: 18px; }
+.claims-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.claim-card { padding: 13px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; }
 .cc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .cc-code { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted); background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; }
 .cc-title { margin: 0 0 12px; font-size: 15px; font-weight: 500; color: #f8fafc; }

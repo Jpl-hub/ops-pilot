@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
@@ -38,14 +38,11 @@ const stressWavefront = computed(() => stressState.data.value?.stress_wavefront 
 const stressCommandSurface = computed(() => stressState.data.value?.stress_command_surface || null)
 const affectedDimensions = computed(() => stressState.data.value?.affected_dimensions || [])
 const recoverySequence = computed(() => stressState.data.value?.stress_recovery_sequence || [])
-const relatedRoutes = computed(() => stressState.data.value?.related_routes || [])
-const evidenceLinks = computed(() => stressState.data.value?.evidence_navigation?.links || [])
 const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 3))
 const compactSimulationLog = computed(() => simulationLog.value.slice(0, 4))
 const activeWavefront = computed(() => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null)
 const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.value] || null)
 const canRunStress = computed(() => !!selectedCompany.value && !!scenarioDraft.value.trim())
-const stressLinks = computed(() => [...relatedRoutes.value, ...evidenceLinks.value].slice(0, 4))
 
 function displaySeverityLevel(level?: string) {
   const map: Record<string, string> = {
@@ -108,7 +105,7 @@ function selectPreset(item: string) {
         <div class="control-left">
           <div class="glow-icon">压</div>
           <div class="control-copy">
-            <span class="control-kicker">产业链压力测试</span>
+            <span class="control-kicker">压力推演</span>
             <h3 class="company-name text-gradient">压力推演</h3>
             <p class="control-meta">{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
@@ -153,7 +150,7 @@ function selectPreset(item: string) {
 
       <!-- Preset Pills -->
       <div class="preset-row">
-        <button v-for="item in presetScenarios" :key="item" class="preset-pill" :disabled="!selectedCompany" @click="selectPreset(item)">
+        <button v-for="item in presetScenarios.slice(0, 2)" :key="item" class="preset-pill" :disabled="!selectedCompany" @click="selectPreset(item)">
           {{ item }}
         </button>
       </div>
@@ -198,14 +195,13 @@ function selectPreset(item: string) {
             <p class="overview-note">{{ stressCommandSurface.log_headline }}</p>
           </article>
 
-          <article class="glass-panel recovery-panel" v-if="recoverySequence.length || stressLinks.length">
+          <article class="glass-panel recovery-panel" v-if="recoverySequence.length">
             <div class="section-head">
-              <h3 class="panel-title">恢复动作</h3>
-              <span class="section-note">{{ recoverySequence.length }} 项优先动作</span>
+              <h3 class="panel-title">先做什么</h3>
             </div>
             <div class="recovery-list">
               <article
-                v-for="item in recoverySequence.slice(0, 3)"
+                v-for="item in recoverySequence.slice(0, 2)"
                 :key="item.step"
                 class="recovery-card"
                 :class="`tone-${item.tone || 'accent'}`"
@@ -216,16 +212,6 @@ function selectPreset(item: string) {
                   <p class="muted">{{ item.detail }}</p>
                 </div>
               </article>
-            </div>
-            <div v-if="stressLinks.length" class="link-row">
-              <RouterLink
-                v-for="link in stressLinks"
-                :key="`${link.path}-${link.label}`"
-                class="stress-link"
-                :to="{ path: link.path, query: link.query || {} }"
-              >
-                {{ link.label }}
-              </RouterLink>
             </div>
           </article>
 
@@ -258,7 +244,7 @@ function selectPreset(item: string) {
           <!-- Chart Panel -->
           <article class="glass-panel chart-panel" v-if="stressState.data.value?.chart">
             <ChartPanel
-              title="冲击传导强度"
+              title="影响走势"
               :options="stressState.data.value.chart.options"
             />
           </article>
@@ -289,7 +275,7 @@ function selectPreset(item: string) {
         <!-- Right: Simulation Stream -->
         <div class="right-col">
           <article class="glass-panel stream-panel">
-            <h3 class="panel-title">推演依据</h3>
+            <h3 class="panel-title">为什么会这样</h3>
 
             <!-- Active Wavefront -->
             <div class="wavefront-card">
@@ -333,7 +319,7 @@ function selectPreset(item: string) {
           </article>
 
           <article class="glass-panel recent-panel" v-if="recentRuns.length">
-            <h3 class="panel-title">最近推演</h3>
+            <h3 class="panel-title">最近场景</h3>
             <div class="recent-run-list">
               <div
                 v-for="item in recentRuns"
@@ -358,7 +344,7 @@ function selectPreset(item: string) {
 </template>
 
 <style scoped>
-.dashboard-wrapper { display: flex; flex-direction: column; gap: 14px; height: 100%; overflow: hidden; width: 100%; max-width: 1380px; margin: 0 auto; }
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 14px; height: 100%; overflow: hidden; width: 100%; max-width: 1320px; margin: 0 auto; }
 
 /* Control Bar */
 .control-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 14px; flex-shrink: 0; }
@@ -376,7 +362,7 @@ function selectPreset(item: string) {
 .glass-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); min-height: 36px; padding: 0 12px; border-radius: 8px; color: #fff; width: 100px; outline: none; }
 
 /* Scenario Bar */
-.scenario-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 12px; flex-shrink: 0; }
+.scenario-bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; flex-shrink: 0; }
 .scenario-icon { width: 36px; height: 36px; border-radius: 50%; background: rgba(244,63,94,0.1); border: 1px solid rgba(244,63,94,0.2); display: flex; align-items: center; justify-content: center; color: #f43f5e; flex-shrink: 0; }
 .scenario-input { flex: 1; background: transparent; border: none; font-size: 14px; color: #fff; outline: none; font-weight: 500; }
 .scenario-input::placeholder { color: var(--muted); }
@@ -395,7 +381,7 @@ function selectPreset(item: string) {
 .state-container { flex: 1; }
 
 /* Content Grid */
-.content-grid { display: grid; grid-template-columns: 1fr 284px; gap: 14px; flex: 1; min-height: 0; }
+.content-grid { display: grid; grid-template-columns: 1fr 308px; gap: 14px; flex: 1; min-height: 0; }
 .left-col { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; }
 .left-col::-webkit-scrollbar { width: 4px; }
 .left-col::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
@@ -406,7 +392,7 @@ function selectPreset(item: string) {
 
 /* Overview */
 .overview-panel,
-.recovery-panel { padding: 18px; border-radius: 14px; flex-shrink: 0; }
+.recovery-panel { padding: 16px; border-radius: 14px; flex-shrink: 0; }
 .overview-head,
 .section-head {
   display: flex;
@@ -440,7 +426,7 @@ function selectPreset(item: string) {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  margin-top: 16px;
+  margin-top: 14px;
 }
 .overview-stat {
   display: flex;
@@ -457,7 +443,7 @@ function selectPreset(item: string) {
   font-size: 11px;
 }
 .overview-stat strong {
-  font-size: 18px;
+  font-size: 16px;
   color: #fff;
 }
 .overview-note {
@@ -472,11 +458,7 @@ function selectPreset(item: string) {
   font-size: 11px;
   color: var(--muted);
 }
-.recovery-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
+.recovery-list { display: flex; flex-direction: column; gap: 10px; }
 .recovery-card {
   display: flex;
   gap: 12px;
@@ -512,12 +494,6 @@ function selectPreset(item: string) {
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-}
-.link-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
 }
 .stress-link {
   padding: 8px 12px;
