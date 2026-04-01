@@ -2639,6 +2639,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertIn("vision_run_id", pipeline_result)
             self.assertTrue(pipeline_result["executed"])
             self.assertTrue(pipeline_result["runtime"]["vision"]["sections"])
+            self.assertTrue(any(item["status"] == "blocked" for item in pipeline_result["executed"]))
 
             runtime_after = service.company_vision_runtime(
                 "测试公司",
@@ -2648,12 +2649,14 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             stage_status = {item["stage"]: item["status"] for item in runtime_after["stages"]}
             self.assertEqual(stage_status["cross_page_merge"], "completed")
             self.assertEqual(stage_status["title_hierarchy"], "completed")
-            self.assertEqual(stage_status["cell_trace"], "completed")
+            self.assertEqual(stage_status["cell_trace"], "blocked")
             cell_trace_stage = next(item for item in runtime_after["stages"] if item["stage"] == "cell_trace")
             self.assertEqual(cell_trace_stage["contract_status"], "missing")
-            self.assertEqual(runtime_after["runtime"]["next_action"], "补齐标准 OCR 结构契约后重新运行单元格溯源")
-            self.assertEqual(runtime_after["vision"]["quality_summary"]["artifact_source"], "geometric_fallback")
-            self.assertEqual(runtime_after["vision"]["quality_summary"]["contract_status"], "missing")
+            self.assertEqual(runtime_after["runtime"]["next_action"], "接通正式 OCR 运行时后再执行财报扫描")
+            self.assertEqual(runtime_after["vision"]["quality_summary"]["status"], "blocked")
+            self.assertTrue(
+                any("标准 OCR" in item["title"] for item in runtime_after["vision"]["quality_summary"]["blockers"])
+            )
 
     def test_company_workspace_and_graph_aggregate_core_system_state(self) -> None:
         class StubRepository:
@@ -2911,8 +2914,9 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(detail_item["route"]["path"], "/admin")
             self.assertEqual(detail_item["route"]["query"]["stage"], "title_hierarchy")
             self.assertEqual(detail_item["artifact_preview"]["headings"][0]["text"], "第一节")
-            self.assertGreaterEqual(detail_item["evidence_navigation"]["count"], 1)
-            self.assertTrue(detail_item["evidence_navigation"]["primary_route"]["path"].startswith("/"))
+            self.assertEqual(detail_item["evidence_navigation"]["count"], 0)
+            self.assertEqual(detail_item["evidence_navigation"]["status"], "blocked")
+            self.assertIsNone(detail_item["evidence_navigation"]["primary_route"])
             self.assertTrue(workspace["tasks"]["items"])
             self.assertTrue(workspace["alerts"]["items"])
             self.assertGreaterEqual(workspace["execution_stream"]["total"], 3)
@@ -3613,14 +3617,13 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             payload = service.run_document_pipeline_stage("cell_trace", 1)
 
             self.assertEqual(payload["processed"], 1)
-            artifact_path = Path(payload["results"][0]["artifact_path"])
-            self.assertTrue(artifact_path.exists())
-            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
-            self.assertEqual(artifact_payload["company_name"], "测试公司")
-            self.assertTrue(artifact_payload["tables"])
-            self.assertTrue(artifact_payload["cells"])
-            self.assertEqual(artifact_payload["source"], "geometric_fallback")
-            self.assertGreaterEqual(artifact_payload["tables"][0]["column_count"], 2)
+            self.assertEqual(payload["results"][0]["status"], "blocked")
+            self.assertEqual(payload["results"][0]["artifact_path"], "")
+            self.assertIsNone(payload["results"][0]["source"])
+            detail = service.document_pipeline_result_detail("cell_trace", "demo-table")
+            self.assertEqual(detail["job"]["status"], "blocked")
+            self.assertEqual(detail["artifact"]["tables"], [])
+            self.assertIn("标准 OCR", detail["remediation"][0]["title"])
 
     def test_document_pipeline_cell_trace_prefers_standard_ocr_artifact(self) -> None:
         class StubRepository:
@@ -3807,11 +3810,13 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
 
             payload = service.run_document_pipeline_stage("cell_trace", 1)
 
-            artifact_path = Path(payload["results"][0]["artifact_path"])
-            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
-            self.assertEqual(artifact_payload["source"], "geometric_fallback")
+            self.assertEqual(payload["processed"], 1)
+            self.assertEqual(payload["results"][0]["status"], "blocked")
+            self.assertEqual(payload["results"][0]["artifact_path"], "")
+            self.assertIsNone(payload["results"][0]["source"])
             detail = service.document_pipeline_result_detail("cell_trace", "demo-invalid-ocr")
-            self.assertEqual(detail["job"]["artifact_source"], "geometric_fallback")
+            self.assertEqual(detail["job"]["status"], "blocked")
+            self.assertIsNone(detail["job"]["artifact_source"])
             self.assertIn("补齐标准 OCR", detail["remediation"][0]["title"])
 
     def test_admin_overview_reports_company_coverage_gaps(self) -> None:
@@ -4204,7 +4209,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             service = OpsPilotService(StubRepository(), StubSettings(root))
 
             initial = service.run_document_pipeline_stage("cell_trace", 1)
-            self.assertEqual(initial["results"][0]["source"], "geometric_fallback")
+            self.assertEqual(initial["results"][0]["status"], "blocked")
+            self.assertIsNone(initial["results"][0]["source"])
 
             rerun = service.run_document_pipeline_stage(
                 "cell_trace",
@@ -4216,9 +4222,9 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(rerun["execution_feedback"]["processed"], 1)
             self.assertIn("修复", rerun["execution_feedback"]["headline"])
             self.assertTrue(rerun["run_id"])
-            artifact_path = Path(rerun["results"][0]["artifact_path"])
-            artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
-            self.assertEqual(artifact_payload["source"], "geometric_fallback")
+            self.assertEqual(rerun["results"][0]["status"], "blocked")
+            self.assertEqual(rerun["results"][0]["artifact_path"], "")
+            self.assertIsNone(rerun["results"][0]["source"])
             self.assertEqual(rerun["execution_feedback"]["remaining_count"], 1)
             run_detail = service.document_pipeline_run_detail(rerun["run_id"])
             self.assertEqual(run_detail["execution_feedback"]["processed"], 1)

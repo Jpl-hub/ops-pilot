@@ -126,6 +126,10 @@ SUBINDUSTRY_SIGNAL_TOPICS = {
 }
 
 
+class DocumentPipelineBlockedError(RuntimeError):
+    pass
+
+
 class OpsPilotService:
     def __init__(self, repository: Any, settings: Settings) -> None:
         self.repository = repository
@@ -2723,17 +2727,38 @@ class OpsPilotService:
             if not pending_jobs:
                 continue
             for job in pending_jobs[:1]:
-                artifact_payload, artifact_path = _run_document_pipeline_job(stage, job, self.settings)
+                try:
+                    artifact_payload, artifact_path = _run_document_pipeline_job(stage, job, self.settings)
+                except DocumentPipelineBlockedError as exc:
+                    job["status"] = "blocked"
+                    job["artifact_path"] = ""
+                    job["completed_at"] = _utcnow_iso()
+                    job["artifact_summary"] = str(exc)
+                    job["artifact_source"] = None
+                    executed.append(
+                        {
+                            "stage": stage,
+                            "report_id": job.get("report_id"),
+                            "summary": str(exc),
+                            "artifact_path": "",
+                            "status": "blocked",
+                            "source": None,
+                        }
+                    )
+                    continue
                 job["status"] = "completed"
                 job["artifact_path"] = str(artifact_path)
                 job["completed_at"] = _utcnow_iso()
                 job["artifact_summary"] = artifact_payload.get("summary")
+                job["artifact_source"] = artifact_payload.get("source")
                 executed.append(
                     {
                         "stage": stage,
                         "report_id": job.get("report_id"),
                         "summary": artifact_payload.get("summary"),
                         "artifact_path": str(artifact_path),
+                        "status": "completed",
+                        "source": artifact_payload.get("source"),
                     }
                 )
         if executed:
@@ -3101,21 +3126,38 @@ class OpsPilotService:
         )
         if job is None:
             raise ValueError(f"未找到解析结果：{stage}/{report_id}")
-        artifact_path = Path(job["artifact_path"])
-        if not artifact_path.exists():
-            raise ValueError(f"未找到解析产物：{artifact_path}")
-        try:
-            with artifact_path.open("r", encoding="utf-8") as file:
-                artifact = json.load(file)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"解析产物损坏：{artifact_path}") from exc
-        evidence_navigation = _build_document_evidence_navigation(
-            repository=self.repository,
-            company_name=job["company_name"],
-            report_period=job.get("report_period"),
-            artifact=artifact,
-        )
-        artifact_source = job.get("artifact_source") or artifact.get("source")
+        artifact_path_value = str(job.get("artifact_path") or "").strip()
+        artifact_path = Path(artifact_path_value) if artifact_path_value else None
+        if artifact_path is not None and artifact_path.exists():
+            try:
+                with artifact_path.open("r", encoding="utf-8") as file:
+                    artifact = json.load(file)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"解析产物损坏：{artifact_path}") from exc
+            evidence_navigation = _build_document_evidence_navigation(
+                repository=self.repository,
+                company_name=job["company_name"],
+                report_period=job.get("report_period"),
+                artifact=artifact,
+            )
+            artifact_source = job.get("artifact_source") or artifact.get("source")
+        elif job.get("status") == "blocked":
+            artifact = {
+                "report_id": job["report_id"],
+                "company_name": job["company_name"],
+                "summary": job.get("artifact_summary") or "当前工序已阻断，未生成可交付解析产物。",
+                "tables": [],
+                "cells": [],
+                "headings": [],
+                "merge_candidates": [],
+            }
+            evidence_navigation = _build_document_navigation_unavailable(
+                artifact,
+                message="当前工序已阻断，未形成可跳转的正式证据入口。",
+            )
+            artifact_source = job.get("artifact_source")
+        else:
+            raise ValueError(f"未找到解析产物：{artifact_path_value or '<missing>'}")
         return {
             "job": {
                 "stage": job["stage"],
@@ -3133,7 +3175,9 @@ class OpsPilotService:
                 "artifact_source": artifact_source,
             },
             "artifact": artifact,
-            "artifact_locations": _build_document_artifact_locations(job, artifact),
+            "artifact_locations": _build_document_artifact_locations(job, artifact)
+            if artifact_path is not None and artifact_path.exists()
+            else [],
             "remediation": _build_document_artifact_remediation(
                 stage=job["stage"],
                 artifact_source=artifact_source,
@@ -3176,7 +3220,25 @@ class OpsPilotService:
         pending_jobs = candidate_jobs[:limit]
         results: list[dict[str, Any]] = []
         for job in pending_jobs:
-            artifact_payload, artifact_path = _run_document_pipeline_job(stage, job, self.settings)
+            try:
+                artifact_payload, artifact_path = _run_document_pipeline_job(stage, job, self.settings)
+            except DocumentPipelineBlockedError as exc:
+                job["status"] = "blocked"
+                job["artifact_path"] = ""
+                job["completed_at"] = _utcnow_iso()
+                job["artifact_summary"] = str(exc)
+                job["artifact_source"] = None
+                results.append(
+                    {
+                        "report_id": job["report_id"],
+                        "company_name": job["company_name"],
+                        "artifact_path": "",
+                        "summary": str(exc),
+                        "source": None,
+                        "status": "blocked",
+                    }
+                )
+                continue
             job["status"] = "completed"
             job["artifact_path"] = str(artifact_path)
             job["completed_at"] = _utcnow_iso()
@@ -3189,6 +3251,7 @@ class OpsPilotService:
                     "artifact_path": str(artifact_path),
                     "summary": artifact_payload.get("summary"),
                     "source": artifact_payload.get("source"),
+                    "status": "completed",
                 }
             )
         _write_document_pipeline_job_manifest(self.settings, jobs_manifest)
@@ -5275,7 +5338,7 @@ def _build_vision_quality_summary(
     if not ocr_runtime.get("runtime_enabled"):
         add_blocker(
             "标准 OCR 引擎未启用",
-            "当前环境未开启正式 OCR 运行时，只能依赖现有产物或几何恢复链，无法形成稳定交付链。",
+            "当前环境未开启正式 OCR 运行时，无法形成稳定的标准 OCR 交付链。",
         )
     if contract_status == "missing":
         add_blocker(
@@ -5287,10 +5350,10 @@ def _build_vision_quality_summary(
             "标准 OCR 结构契约不合格",
             "tables/cells 字段校验未通过，当前产物不能作为正式交付结果。",
         )
-    if artifact_source == "geometric_fallback":
+    if stage == "cell_trace" and artifact_source != "standard_ocr":
         add_blocker(
-            "仍在使用几何恢复链",
-            "当前表格结果来自几何恢复，不是正式 OCR 标准产物，适合排查不适合直接交付。",
+            "标准 OCR 结果未就绪",
+            "当前单元格阶段还没有形成正式 OCR 标准产物，不能直接作为交付结果。",
         )
     if not evidence_links:
         add_blocker(
@@ -5370,7 +5433,7 @@ def _build_vision_quality_summary(
 def _artifact_source_label(source: str | None) -> str:
     return {
         "standard_ocr": "标准 OCR",
-        "geometric_fallback": "几何恢复链",
+        "geometric_fallback": "旧几何恢复产物",
     }.get(source or "", source or "来源未识别")
 
 
@@ -6397,7 +6460,7 @@ def _build_document_consumable_sections(artifact: dict[str, Any]) -> list[dict[s
                 "count": 1,
                 "items": [
                     {
-                        "text": "标准 OCR 结构产物" if source == "standard_ocr" else "几何恢复链",
+                        "text": "标准 OCR 结构产物" if source == "standard_ocr" else "旧非标准产物",
                         "source": source,
                         "path": artifact.get("ocr_artifact_path"),
                     }
@@ -6515,7 +6578,7 @@ def _build_document_artifact_remediation(
     return [
         {
             "title": "补齐标准 OCR 结构产物",
-            "detail": "当前仍在使用几何恢复链。应在 ocr_cell_trace contract 目录写入合法 tables/cells JSON，再重新运行 cell_trace。",
+            "detail": "当前尚未形成合法的标准 OCR tables/cells 产物。应先接通正式 OCR 运行时并写入 ocr_cell_trace contract，再重新运行 cell_trace。",
         }
     ]
 
@@ -6529,10 +6592,16 @@ def _build_document_evidence_navigation(
 ) -> dict[str, Any] | None:
     get_company = getattr(repository, "get_company", None)
     if get_company is None:
-        return _build_document_navigation_fallback(artifact)
+        return _build_document_navigation_unavailable(
+            artifact,
+            message="当前仓库未提供证据解析能力，暂时不能生成文档证据跳转。",
+        )
     company = get_company(company_name, report_period) if report_period else get_company(company_name)
     if company is None:
-        return _build_document_navigation_fallback(artifact)
+        return _build_document_navigation_unavailable(
+            artifact,
+            message="未找到对应公司证据索引，当前无法生成文档证据跳转。",
+        )
 
     candidate_pages = _collect_document_artifact_pages(artifact)
     candidate_chunk_ids = _collect_company_evidence_refs(company)
@@ -6565,7 +6634,10 @@ def _build_document_evidence_navigation(
             paged_items = []
         selected_items = paged_items or evidence_items[:1]
     if not selected_items:
-        return _build_document_navigation_fallback(artifact)
+        return _build_document_navigation_unavailable(
+            artifact,
+            message="当前文档结果尚未挂接到正式证据索引，暂时不能直接回看原文。",
+        )
 
     anchor_terms = _collect_document_artifact_anchor_terms(artifact)
     links = [
@@ -6591,24 +6663,19 @@ def _build_document_evidence_navigation(
     }
 
 
-def _build_document_navigation_fallback(artifact: dict[str, Any]) -> dict[str, Any]:
+def _build_document_navigation_unavailable(
+    artifact: dict[str, Any], *, message: str
+) -> dict[str, Any]:
     anchor_terms = _collect_document_artifact_anchor_terms(artifact)
     pages = _collect_document_artifact_pages(artifact)
-    route = {
-        "label": "查看解析结果",
-        "path": "/admin",
-        "query": {
-            "context": "文档升级结果",
-            "anchors": "|".join(anchor_terms[:6]),
-        },
-        "page": pages[0] if pages else None,
-    }
     return {
-        "count": 1,
+        "count": 0,
+        "status": "blocked",
+        "message": message,
         "anchor_terms": anchor_terms[:6],
         "pages": pages,
-        "links": [route],
-        "primary_route": route,
+        "links": [],
+        "primary_route": None,
     }
 
 
@@ -9890,7 +9957,7 @@ def _build_document_pipeline_overview(
             "enabled": True,
             "status": f"completed {cell_completed}",
             "completed": cell_completed,
-            "summary": "统一文档理解链路：页块几何恢复 + 标准 OCR 引擎，产出表格片段与单元格证据链。",
+            "summary": "统一文档理解链路：标准 OCR 引擎产出表格片段与单元格证据链。",
             "contract_audit": contract_audit,
         },
         "coverage": [
@@ -10384,8 +10451,12 @@ def _load_document_pipeline_job_manifest(settings: Settings) -> dict[str, Any]:
     for key, desired in desired_jobs.items():
         existing = existing_records.get(key, {})
         merged = {**desired, **existing}
-        if desired["status"] != "completed":
-            merged["status"] = desired["status"]
+        if desired["status"] == "completed":
+            merged["status"] = "completed"
+        elif existing.get("status") == "blocked":
+            merged["status"] = "blocked"
+        else:
+            merged["status"] = "pending"
         merged_records.append(merged)
 
     merged_records.sort(
@@ -10794,46 +10865,7 @@ def _build_cell_trace_artifact(
         return ocr_payload
     if ocr_payload := _materialize_standard_ocr_cell_trace(job, settings):
         return ocr_payload
-
-    tables: list[dict[str, Any]] = []
-    cells: list[dict[str, Any]] = []
-    for page in page_payload.get("pages", []):
-        for index, table in enumerate(_extract_page_table_traces(page), start=1):
-            table_id = f"{job['report_id']}-p{page.get('page', 0)}-t{index:02d}"
-            tables.append(
-                {
-                    "table_id": table_id,
-                    "page": page.get("page"),
-                    "title": table["title"],
-                    "continued": table["continued"],
-                    "row_count": len(table["rows"]),
-                    "column_count": table["column_count"],
-                    "bbox": table["bbox"],
-                    "header_rows": table["header_rows"],
-                }
-            )
-            for row in table["rows"]:
-                for cell in row["cells"]:
-                    cells.append(
-                        {
-                            "table_id": table_id,
-                            "page": page.get("page"),
-                            "row_index": row["row_index"],
-                            "column_index": cell["column_index"],
-                            "text": cell["text"],
-                            "bbox": cell["bbox"],
-                            "kind": cell["kind"],
-                            "source_block_indexes": cell["source_block_indexes"],
-                        }
-                    )
-    return {
-        "report_id": job["report_id"],
-        "company_name": job["company_name"],
-        "source": "geometric_fallback",
-        "summary": f"恢复出 {len(tables)} 个表格片段、{len(cells)} 个单元格。",
-        "tables": tables,
-        "cells": cells,
-    }
+    raise DocumentPipelineBlockedError("标准 OCR 结果未接通，cell_trace 已阻断。")
 
 
 def _document_pipeline_artifact_path(settings: Settings, stage: str, record: dict[str, Any]) -> Path:
