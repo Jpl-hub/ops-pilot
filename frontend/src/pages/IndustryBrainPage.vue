@@ -34,6 +34,13 @@ const pulseSteps = computed(() => brainSignalTape.value.slice(0, 4))
 const tapeItems = computed(() => marketTape.value.slice(0, 6))
 const leadMetric = computed(() => marketTape.value[0] || null)
 const supportMetrics = computed(() => marketTape.value.slice(1, 3))
+const hotspotItems = computed(() =>
+  topSectorTags.value.map((item: any) => ({
+    label: item.label,
+    count: item.count,
+    summary: `${item.label} 相关变化正在进入这一轮判断链。`,
+  })),
+)
 
 const signalFreshnessTone = computed(() => {
   const status = externalSignalStream.value?.status
@@ -245,7 +252,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface brain-stream">
             <div class="brain-section-head">
               <div>
-                <h2>最新线索</h2>
+                <h2>先看这些变化</h2>
               </div>
               <span class="brain-section-meta">{{ externalSignalStream?.signal_count || 0 }} 条</span>
             </div>
@@ -275,16 +282,23 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <h2>热度分布</h2>
+                <h2>市场热区</h2>
               </div>
             </div>
-            <ChartPanel
-              v-if="heatChart"
-              :title="heatChart.title || '子行业热度迁移'"
-              :options="heatChart.options"
-              class="brain-chart-panel"
-            />
-            <div v-else class="brain-empty-state">热度迁移图暂不可用。</div>
+            <div v-if="hotspotItems.length" class="brain-hotspot-list">
+              <div
+                v-for="item in hotspotItems"
+                :key="item.label"
+                class="brain-hotspot-card"
+              >
+                <div class="brain-hotspot-head">
+                  <strong>{{ item.label }}</strong>
+                  <span>{{ item.count }}</span>
+                </div>
+                <p>{{ item.summary }}</p>
+              </div>
+            </div>
+            <div v-else class="brain-empty-state">当前没有足够的热区信号。</div>
           </article>
 
           <article class="brain-surface">
@@ -323,7 +337,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <h2>重点企业</h2>
+                <h2>继续看这些企业</h2>
               </div>
               <span class="brain-section-meta">{{ focusCompanies.length }} 家</span>
             </div>
@@ -348,7 +362,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <h2>先处理这些</h2>
+                <h2>先处理这些企业</h2>
               </div>
               <span class="brain-section-meta">{{ riskCompanies.length }} 家</span>
             </div>
@@ -375,7 +389,7 @@ onBeforeUnmount(() => {
         <section class="brain-surface brain-radar">
           <div class="brain-section-head">
             <div>
-                <h2>最近政策与技术变化</h2>
+                <h2>最近变化</h2>
             </div>
           </div>
 
@@ -753,6 +767,7 @@ onBeforeUnmount(() => {
 }
 
 .brain-stream-list,
+.brain-hotspot-list,
 .brain-company-list,
 .brain-risk-list,
 .brain-anomaly-list {
@@ -760,6 +775,7 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.brain-hotspot-card,
 .brain-stream-item,
 .brain-company-row,
 .brain-risk-card,
@@ -775,6 +791,7 @@ onBeforeUnmount(() => {
   transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
 
+.brain-hotspot-card:hover,
 .brain-stream-item:hover,
 .brain-company-row:hover,
 .brain-risk-card:hover,
@@ -785,6 +802,7 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.045);
 }
 
+.brain-hotspot-head,
 .brain-stream-top,
 .brain-risk-top,
 .brain-anomaly-top,
@@ -795,6 +813,7 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.brain-hotspot-head strong,
 .brain-stream-top strong,
 .brain-company-row strong,
 .brain-risk-top strong,
@@ -803,6 +822,7 @@ onBeforeUnmount(() => {
   color: #f8fafc;
 }
 
+.brain-hotspot-head span,
 .brain-stream-top span,
 .brain-risk-top span,
 .brain-anomaly-top span,
@@ -813,6 +833,7 @@ onBeforeUnmount(() => {
   color: rgba(165, 179, 198, 0.8);
 }
 
+.brain-hotspot-card p,
 .brain-stream-item p,
 .brain-company-row p,
 .brain-risk-card p,

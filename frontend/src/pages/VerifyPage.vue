@@ -26,7 +26,7 @@ const reportStatusMessage = ref('')
 const reportCatalogReady = ref(false)
 const verifyWatchItems = computed(() => verifyCommandSurface.value?.watch_items?.slice(0, 4) || [])
 const verifyDominantSignal = computed(() => verifyCommandSurface.value?.dominant_signal || null)
-const verifyPrimaryClaims = computed(() => state.data.value?.claim_cards?.slice(0, 6) || [])
+const verifyPrimaryClaims = computed(() => state.data.value?.claim_cards?.slice(0, 4) || [])
 const verifyPrimaryInsights = computed(() => state.data.value?.research_compare?.insights?.slice(0, 4) || [])
 const verifyCompareRows = computed(() => state.data.value?.research_compare?.rows?.slice(0, 3) || [])
 const verifyCharts = computed(() => state.data.value?.charts?.slice(0, 1) || [])
@@ -225,7 +225,7 @@ watch(
         <div class="dashboard-col left-col">
           <article class="glass-panel score-hero-panel">
             <div class="hero-top">
-              <div class="eyebrow">研报溯源与核卡</div>
+              <div class="eyebrow">当前研报</div>
               <h2 class="hero-title compact">{{ state.data.value.report_meta.title }}</h2>
               <p class="hero-text text-sm muted">
                 {{ state.data.value.report_meta.publish_date }} · {{ state.data.value.report_meta.source_name }}
@@ -291,7 +291,7 @@ watch(
           </article>
           
           <article class="glass-panel support-panel scroll-area mt-4">
-            <h3 class="panel-sm-title">机构分歧速览</h3>
+            <h3 class="panel-sm-title">关键分歧</h3>
             <div class="tag-row compact-tags">
               <TagPill
                 v-for="insight in verifyPrimaryInsights"

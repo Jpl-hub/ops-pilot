@@ -315,14 +315,13 @@ watch(selectedPeriod, async () => { await loadGraph() })
             <div class="query-strip-icon">图</div>
             <div>
               <h2>{{ graphIntent }}</h2>
-              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '先看这一轮真正相关的关键链路，再决定要不要继续追原文。' }}</p>
+              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '先看关键链路，再决定往哪条证据继续追。' }}</p>
             </div>
           </div>
 
         <div class="query-strip-meta">
+          <span>{{ selectedCompany || '未选择公司' }}</span>
           <span>节点 {{ graphSummary.node_count ?? 0 }}</span>
-          <span>连边 {{ graphSummary.edge_count ?? 0 }}</span>
-          <span>{{ graphCommandSurface?.watch_items?.[0]?.value || '等待时序信号' }}</span>
         </div>
       </section>
 
@@ -349,7 +348,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
           <div class="stage-summary">
             <span>当前聚焦</span>
             <strong>{{ currentFrame?.headline || graphCommandSurface?.title || '关键证据链路' }}</strong>
-            <p>{{ graphCommandSurface?.headline || '只保留这一轮真正相关的节点和路径，先看清，再决定是否继续追原文。' }}</p>
+            <p>{{ graphCommandSurface?.headline || '只保留这一轮真正相关的节点和路径。' }}</p>
           </div>
 
           <div class="stage-signal-row">
@@ -401,8 +400,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
         <section class="path-dock">
           <div class="path-dock-head">
-            <span>推理链</span>
-            <strong>{{ inferencePath.length }} 步</strong>
+            <span>关键链路</span>
+            <strong>{{ inferencePath.length }} 段</strong>
           </div>
 
           <div class="path-track">
@@ -423,12 +422,12 @@ watch(selectedPeriod, async () => { await loadGraph() })
         <section class="graph-bottom">
           <div class="bottom-panel">
             <div class="bottom-head">
-              <span>原文入口</span>
-              <strong>{{ evidenceNavigation.length }} 条</strong>
+              <span>回到原文</span>
+              <strong>证据入口</strong>
             </div>
             <div class="bottom-links">
               <RouterLink
-                v-for="item in evidenceNavigation.slice(0, 4)"
+                v-for="item in evidenceNavigation.slice(0, 3)"
                 :key="`${item.label}-${item.path}`"
                 :to="{ path: item.path, query: item.query || {} }"
                 class="bottom-link"
@@ -445,7 +444,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
           <div class="bottom-panel">
             <div class="bottom-head">
               <span>下一步</span>
-              <strong>{{ relatedRoutes.length + executionStream.length }}</strong>
+              <strong>继续追</strong>
             </div>
             <div class="bottom-links">
               <RouterLink
@@ -593,7 +592,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 18px;
+  padding: 14px 16px;
 }
 
 .query-strip-main {
@@ -604,13 +603,13 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .query-strip-main h2 {
-  font-size: clamp(18px, 1.9vw, 22px);
+  font-size: clamp(17px, 1.8vw, 20px);
   line-height: 1.05;
 }
 
 .query-strip-icon {
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   border-radius: 12px;
   display: grid;
   place-items: center;
@@ -639,14 +638,14 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-intent-dock {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px;
+  grid-template-columns: minmax(0, 1fr) 136px;
   gap: 12px;
-  padding: 10px;
+  padding: 8px 10px;
 }
 
 .intent-textarea {
   width: 100%;
-  min-height: 74px;
+  min-height: 60px;
   resize: none;
   border: none;
   background: transparent;
@@ -684,7 +683,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-stage {
   position: relative;
-  min-height: 560px;
+  min-height: 520px;
   overflow: hidden;
   background:
     radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.1), transparent 24%),
@@ -702,17 +701,17 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .stage-summary {
   left: 18px;
   top: 18px;
-  max-width: 320px;
+  max-width: 286px;
   display: grid;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: 16px;
   background: rgba(7, 10, 16, 0.86);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .stage-summary strong {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.06;
 }
 
@@ -723,7 +722,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  max-width: 360px;
+  max-width: 280px;
 }
 
 .stage-signal {
@@ -759,10 +758,10 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .selected-node-panel {
   left: 18px;
   bottom: 18px;
-  max-width: 320px;
+  max-width: 280px;
   display: grid;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: 16px;
   background: rgba(7, 10, 16, 0.88);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -795,20 +794,20 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-link-label {
   fill: rgba(226, 232, 240, 0.86);
-  font-size: 1.85px;
+  font-size: 1.55px;
   text-anchor: middle;
 }
 
 .graph-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  min-width: 96px;
-  max-width: 136px;
+  min-width: 86px;
+  max-width: 120px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
-  padding: 7px 9px;
+  gap: 2px;
+  padding: 6px 8px;
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   cursor: grab;
@@ -868,13 +867,13 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .node-name {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   line-height: 1.35;
 }
 
 .node-type {
-  font-size: 10px;
+  font-size: 9px;
   opacity: 0.72;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -915,8 +914,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .path-step {
-  min-width: 200px;
-  padding: 12px;
+  min-width: 172px;
+  padding: 10px 12px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
@@ -951,7 +950,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 11px 12px;
+  padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.025);

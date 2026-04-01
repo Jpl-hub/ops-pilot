@@ -202,7 +202,7 @@ watch(
         <div class="control-left">
           <div class="glow-icon">文</div>
           <div class="control-copy">
-            <span class="control-kicker">财报文档复核</span>
+            <span class="control-kicker">文档复核</span>
             <h3 class="company-name text-gradient">文档复核</h3>
             <p class="control-meta">{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
@@ -280,7 +280,7 @@ watch(
 
           <article class="glass-panel quality-panel" v-if="qualitySummary">
             <div class="panel-head-compact">
-              <h3 class="panel-sm-title">解析质量总览</h3>
+            <h3 class="panel-sm-title">当前质量</h3>
               <TagPill :label="displayQualityStatus(qualitySummary.status)" :tone="qualityTone(qualitySummary.status)" />
             </div>
             <div class="quality-summary-copy">
@@ -326,7 +326,7 @@ watch(
 
           <!-- Extraction Stream -->
           <article class="glass-panel stream-panel" v-if="extractionStream.length">
-            <h3 class="panel-sm-title">结构抽取信号</h3>
+            <h3 class="panel-sm-title">提取摘要</h3>
             <div class="stream-chips">
               <div
                 v-for="item in compactExtractionStream"
@@ -342,7 +342,7 @@ watch(
 
           <!-- History Runs -->
           <article class="glass-panel runs-panel" v-if="recentRuns.length">
-            <h3 class="panel-sm-title">历史解析记录</h3>
+            <h3 class="panel-sm-title">最近几次处理</h3>
             <div class="runs-list">
               <div
                 v-for="item in recentRuns"
@@ -365,7 +365,7 @@ watch(
 
           <!-- Pipeline Jobs -->
           <article class="glass-panel jobs-panel" v-if="pipelineJobs.length">
-            <h3 class="panel-sm-title">当前工序</h3>
+            <h3 class="panel-sm-title">正在处理哪一步</h3>
             <div class="jobs-grid">
               <div
                 v-for="job in pipelineJobs"
@@ -389,7 +389,7 @@ watch(
           </article>
 
           <article class="glass-panel artifact-panel" v-if="activeJob">
-            <h3 class="panel-sm-title">当前产物</h3>
+            <h3 class="panel-sm-title">当前结果</h3>
             <div class="artifact-grid">
               <div class="artifact-kv">
                 <span class="muted">工序</span>
@@ -417,7 +417,7 @@ watch(
 
           <!-- Analysis Log -->
           <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">当前进展</h3>
+            <h3 class="panel-sm-title">处理记录</h3>
             <div class="log-list">
               <div
                 v-for="item in visibleAnalysisLog"
@@ -435,7 +435,7 @@ watch(
 
           <!-- Sections from Result -->
           <article class="glass-panel sections-panel scroll-area flex-1" v-else-if="visibleSections.length">
-            <h3 class="panel-sm-title">当前抽取结果</h3>
+            <h3 class="panel-sm-title">提取到的内容</h3>
             <div class="sections-grid">
               <div
                 v-for="section in visibleSections"
@@ -458,7 +458,7 @@ watch(
 
           <!-- Result Items -->
           <article class="glass-panel items-panel scroll-area flex-1" v-else-if="visibleResultItems.length">
-            <h3 class="panel-sm-title">解析条目清单</h3>
+            <h3 class="panel-sm-title">提取条目</h3>
             <div class="items-list">
               <div v-for="item in visibleResultItems" :key="`${item.kind}-${item.title}`" class="item-row glass-panel-hover">
                 <strong>{{ item.title }}</strong>
@@ -470,14 +470,14 @@ watch(
           <!-- Empty -->
           <article v-else class="glass-panel empty-panel">
             <div class="empty-content">
-              <h3 class="text-gradient mb-2">等待解析结果</h3>
+            <h3 class="text-gradient mb-2">等待文档结果</h3>
               <p class="muted">选择公司后点击「刷新文档链」，回看当前页块、表格与证据链。</p>
             </div>
           </article>
 
           <!-- Evidence Links -->
           <article class="glass-panel evidence-panel" v-if="selectedResult?.evidence_navigation?.links?.length">
-            <h3 class="panel-sm-title">证据入口</h3>
+            <h3 class="panel-sm-title">回到原文</h3>
             <div class="evidence-links">
               <RouterLink
                 v-for="link in selectedResult.evidence_navigation.links"

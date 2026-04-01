@@ -428,28 +428,14 @@ watch(selectedCompany, async (company, previous) => {
                 </div>
               </section>
 
-              <div class="canvas-columns">
-                <div class="canvas-copy">
-                  <section v-for="block in answerBlocks" :key="block.title" class="analysis-block">
-                    <h3>{{ block.title }}</h3>
-                    <p v-for="line in block.paragraphs" :key="line">{{ line }}</p>
-                    <ul v-if="block.bullets.length">
-                      <li v-for="line in block.bullets" :key="line">{{ line }}</li>
-                    </ul>
-                  </section>
-                </div>
-
-                <div v-if="latestEvidenceGroups.length" class="canvas-evidence">
-                  <article v-for="group in latestEvidenceGroups" :key="group.title || group.code" class="evidence-card">
-                    <strong>{{ group.title || group.group_type || '证据组' }}</strong>
-                    <p>{{ group.subtitle || '真实证据已挂接到当前判断。' }}</p>
-                    <ul v-if="group.items?.length">
-                      <li v-for="item in group.items.slice(0, 2)" :key="item.chunk_id || item.source_title">
-                        {{ item.source_title }} · 第{{ item.page }}页
-                      </li>
-                    </ul>
-                  </article>
-                </div>
+              <div class="canvas-copy">
+                <section v-for="block in answerBlocks" :key="block.title" class="analysis-block">
+                  <h3>{{ block.title }}</h3>
+                  <p v-for="line in block.paragraphs" :key="line">{{ line }}</p>
+                  <ul v-if="block.bullets.length">
+                    <li v-for="line in block.bullets" :key="line">{{ line }}</li>
+                  </ul>
+                </section>
               </div>
             </div>
 
@@ -501,6 +487,19 @@ watch(selectedCompany, async (company, previous) => {
                   <em>{{ item.priority || '动作' }}</em>
                   <strong>{{ item.title }}</strong>
                   <p>{{ item.action || item.reason }}</p>
+                </article>
+              </section>
+
+              <section v-if="latestEvidenceGroups.length" class="rail-section">
+                <span class="rail-label">这轮证据</span>
+                <article v-for="group in latestEvidenceGroups" :key="group.title || group.code" class="evidence-row">
+                  <strong>{{ group.title || group.group_type || '证据组' }}</strong>
+                  <p>{{ group.subtitle || '真实证据已挂接到当前判断。' }}</p>
+                  <ul v-if="group.items?.length">
+                    <li v-for="item in group.items.slice(0, 2)" :key="item.chunk_id || item.source_title">
+                      {{ item.source_title }} · 第{{ item.page }}页
+                    </li>
+                  </ul>
                 </article>
               </section>
 
@@ -724,7 +723,7 @@ watch(selectedCompany, async (company, previous) => {
 .flow-card {
   display: grid;
   gap: 8px;
-  min-height: 108px;
+  min-height: 96px;
   padding: 12px 12px 10px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -771,7 +770,7 @@ watch(selectedCompany, async (company, previous) => {
 .board-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 324px;
+  grid-template-columns: minmax(0, 1fr) 388px;
 }
 
 .board-canvas {
@@ -940,14 +939,7 @@ watch(selectedCompany, async (company, previous) => {
   letter-spacing: -0.04em;
 }
 
-.canvas-columns {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: minmax(0, 1.16fr) minmax(220px, 0.56fr);
-}
-
-.canvas-copy,
-.canvas-evidence {
+.canvas-copy {
   display: grid;
   gap: 14px;
 }
@@ -955,9 +947,13 @@ watch(selectedCompany, async (company, previous) => {
 .analysis-block {
   display: grid;
   gap: 10px;
-  padding: 14px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.02);
+  padding: 0 0 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.analysis-block:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .analysis-block h3 {
@@ -971,14 +967,6 @@ watch(selectedCompany, async (company, previous) => {
   padding-left: 18px;
   display: grid;
   gap: 6px;
-}
-
-.evidence-card {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.025);
 }
 
 .result-rail {
@@ -1032,7 +1020,8 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .metric-row,
-.action-row {
+.action-row,
+.evidence-row {
   display: grid;
   gap: 6px;
 }
@@ -1054,6 +1043,14 @@ watch(selectedCompany, async (company, previous) => {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: #73f0c7;
+}
+
+.evidence-row ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: rgba(221, 228, 238, 0.88);
 }
 
 .evidence-link strong {
@@ -1098,15 +1095,15 @@ watch(selectedCompany, async (company, previous) => {
 .board-composer {
   padding: 10px 16px 16px;
   display: grid;
-  gap: 10px;
+  gap: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .composer-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 118px;
+  grid-template-columns: minmax(0, 1fr) 108px;
   gap: 12px;
-  padding: 7px 8px;
+  padding: 6px 8px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
@@ -1120,8 +1117,8 @@ watch(selectedCompany, async (company, previous) => {
   color: #eef2f7;
   font: inherit;
   line-height: 1.55;
-  min-height: 42px;
-  padding-top: 8px;
+  min-height: 36px;
+  padding-top: 6px;
   outline: none;
 }
 

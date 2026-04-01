@@ -25,6 +25,8 @@ const scoreSignalTape = computed(() => scoreState.data.value?.score_signal_tape 
 const scoreWatchItems = computed(() => scoreCommandSurface.value?.watch_items || [])
 const dominantSignal = computed(() => scoreCommandSurface.value?.dominant_signal || null)
 const scorePrimaryActions = computed(() => scoreState.data.value?.action_cards?.slice(0, 3) || [])
+const scorePrimaryCharts = computed(() => scoreState.data.value?.charts?.slice(0, 1) || [])
+const scoreMetricCards = computed(() => scoreState.data.value?.label_cards?.slice(0, 3) || [])
 const scoreTagGroups = computed(() => ({
   risks: scoreState.data.value?.scorecard?.risk_labels?.slice(0, 4) || [],
   opportunities: scoreState.data.value?.scorecard?.opportunity_labels?.slice(0, 3) || [],
@@ -210,7 +212,7 @@ watch(
           <!-- Main Grade Panel -->
           <article class="glass-panel score-hero-panel">
             <div class="hero-top">
-              <div class="eyebrow">当前结论</div>
+              <div class="eyebrow">当前状态</div>
               <h2 class="hero-title compact">{{ scoreState.data.value.company_name }}</h2>
               <p class="hero-text text-sm muted">
                 {{ scoreState.data.value.report_period }} · {{ scoreState.data.value.subindustry }}
@@ -273,7 +275,7 @@ watch(
 
           <!-- Tags & Actions -->
           <article class="glass-panel support-panel scroll-area">
-            <h3 class="panel-sm-title">优先动作与标签</h3>
+            <h3 class="panel-sm-title">先做什么</h3>
             <div class="tag-row compact-tags">
               <TagPill
                 v-for="label in scoreTagGroups.risks"
@@ -310,7 +312,7 @@ watch(
         <div class="dashboard-col right-col">
           <!-- Top Row: Charts -->
           <div class="charts-row">
-            <div v-for="chart in scoreState.data.value.charts" :key="chart.title" class="glass-panel chart-container">
+            <div v-for="chart in scorePrimaryCharts" :key="chart.title" class="glass-panel chart-container">
               <ChartPanel :title="chart.title" :options="chart.options" />
             </div>
           </div>
@@ -319,7 +321,7 @@ watch(
           <div class="details-row">
             <!-- Timeline Snapshots -->
             <article class="glass-panel details-panel scroll-area" v-if="timelineState.data.value">
-              <h3 class="panel-sm-title">阶段轨迹</h3>
+              <h3 class="panel-sm-title">最近几个报期</h3>
               <div class="timeline-stack">
                 <div
                   v-for="item in timelineState.data.value.snapshots.slice(0, 4)"
@@ -340,10 +342,10 @@ watch(
 
             <!-- Key Metrics Highlights -->
             <article class="glass-panel details-panel scroll-area flex-2">
-              <h3 class="panel-sm-title">重点指标探测</h3>
+              <h3 class="panel-sm-title">需要追溯的指标</h3>
               <div class="metrics-grid-compact">
                 <div
-                  v-for="card in scoreState.data.value.label_cards.slice(0, 4)"
+                  v-for="card in scoreMetricCards"
                   :key="card.code"
                   class="metric-glance glass-panel-hover"
                 >
@@ -473,7 +475,7 @@ watch(
 /* Main Grid */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 284px 1fr;
   gap: 16px;
   flex: 1;
   min-height: 0;
@@ -673,7 +675,7 @@ watch(
 /* Right Col Layout */
 .charts-row {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr;
   gap: 16px;
   flex: 0 0 260px;
 }
@@ -715,6 +717,7 @@ watch(
 
 @media (max-width: 1100px) {
   .watch-grid { grid-template-columns: 1fr; }
+  .metrics-grid-compact { grid-template-columns: 1fr; }
 }
 .details-panel::-webkit-scrollbar-track { background: transparent; }
 .details-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
@@ -733,7 +736,7 @@ watch(
 
 .metrics-grid-compact {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 
