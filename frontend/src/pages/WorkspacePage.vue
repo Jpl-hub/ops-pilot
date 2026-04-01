@@ -74,9 +74,7 @@ const insightNumbers = computed<any[]>(() => (latestAnswer.value?.insight_cards 
 const latestActionCards = computed<any[]>(() => (latestAnswer.value?.action_cards || []).slice(0, 3))
 const latestEvidenceGroups = computed<any[]>(() => (latestAnswer.value?.evidence_groups || []).slice(0, 2))
 
-const companySummary = computed(() => companyWorkspace.value?.score_summary ?? null)
 const companyTopRisks = computed(() => companyWorkspace.value?.top_risks ?? [])
-const timelineSnapshot = computed(() => companyWorkspace.value?.timeline?.snapshots?.[0] ?? null)
 
 const answerBlocks = computed<AnswerBlock[]>(() =>
   parseAnswerMarkdown(latestAnswer.value?.answer_markdown || '', latestAnswer.value?.answer_sections || []),
@@ -98,35 +96,6 @@ const resultLinks = computed(() => {
     })
   }
   return links.slice(0, 2)
-})
-
-const companySignals = computed(() => {
-  const snapshotLabel = timelineSnapshot.value?.score_delta === undefined
-    ? '等待刷新'
-    : timelineSnapshot.value.score_delta > 0
-      ? `较上期 +${timelineSnapshot.value.score_delta}`
-      : timelineSnapshot.value.score_delta < 0
-        ? `较上期 ${timelineSnapshot.value.score_delta}`
-        : '较上期持平'
-
-  return [
-    {
-      label: '当前评级',
-      value: companySummary.value ? `${companySummary.value.total_score} / ${companySummary.value.grade}` : '--',
-    },
-    {
-      label: '重点风险',
-      value: companyTopRisks.value[0] || '等待识别',
-    },
-    {
-      label: '报期状态',
-      value: snapshotLabel,
-    },
-    {
-      label: '数据状态',
-      value: companyWorkspace.value?.timeline?.snapshots?.length ? '已接入' : '待补齐',
-    },
-  ]
 })
 
 const workspaceStatus = computed(() => [
@@ -157,9 +126,9 @@ const consoleSyncLabel = computed(() => {
 
 const analysisStages = computed(() => {
   const sourceLine = controlPlane.value?.data_sources?.length
-    ? controlPlane.value.data_sources.join('、')
-    : '评分、图谱、压力、核验等真实服务'
-  const riskLine = companyTopRisks.value[0] || '回放证据与风险标签'
+    ? controlPlane.value.data_sources.slice(0, 2).join('、')
+    : '评分、图谱等真实服务'
+  const riskLine = companyTopRisks.value[0] || '风险与证据'
   return [
     {
       index: '01',
@@ -167,7 +136,7 @@ const analysisStages = computed(() => {
       title: '识别问题类型',
       detail: latestUserMessage.value
         ? `锁定 ${selectedCompany.value || '目标企业'} 的判断问题`
-        : '锁定问题意图、公司主体和目标报期',
+        : '锁定问题和对象',
       status: latestUserMessage.value ? 'completed' : 'pending',
     },
     {
@@ -182,8 +151,8 @@ const analysisStages = computed(() => {
       meta: '证据核验',
       title: '校验证据与风险',
       detail: latestEvidenceGroups.value.length
-        ? `已挂接 ${latestEvidenceGroups.value.length} 组证据，重点围绕 ${riskLine}`
-        : `围绕 ${riskLine} 回放证据与风险`,
+        ? `已挂接 ${latestEvidenceGroups.value.length} 组证据`
+        : `围绕 ${riskLine} 回放原文`,
       status: latestEvidenceGroups.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
     },
     {
@@ -191,7 +160,7 @@ const analysisStages = computed(() => {
       meta: '策略生成',
       title: '生成角色动作',
       detail: latestActionCards.value.length
-        ? `输出 ${roleLabel.value} 视角下的下一步动作`
+        ? `输出 ${roleLabel.value} 的下一步动作`
         : `按 ${roleLabel.value} 视角生成动作`,
       status: latestActionCards.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
     },
@@ -443,14 +412,7 @@ watch(selectedCompany, async (company, previous) => {
               <div class="empty-flag">↓</div>
               <div class="empty-copy">
                 <strong>当前还没有可分析内容</strong>
-                <p>先完成正式公司池和页级指标接入，再发起协同分析。</p>
-
-                <div class="empty-signal-row">
-                  <span v-for="item in companySignals" :key="item.label" class="signal-chip">
-                    <em>{{ item.label }}</em>
-                    <strong>{{ item.value }}</strong>
-                  </span>
-                </div>
+                <p>先选公司，再围绕一个明确问题发起这一轮判断。</p>
               </div>
             </div>
           </div>
@@ -721,7 +683,7 @@ watch(selectedCompany, async (company, previous) => {
 .flow-card {
   display: grid;
   gap: 6px;
-  min-height: 84px;
+  min-height: 76px;
   padding: 10px 11px 9px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -761,8 +723,8 @@ watch(selectedCompany, async (company, previous) => {
 .flow-card p {
   margin: 0;
   color: rgba(161, 174, 193, 0.88);
-  line-height: 1.5;
-  font-size: 12px;
+  line-height: 1.45;
+  font-size: 11px;
 }
 
 .board-body {
@@ -901,27 +863,6 @@ watch(selectedCompany, async (company, previous) => {
   background: rgba(18, 62, 45, 0.16);
 }
 
-.empty-signal-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 4px;
-}
-
-.signal-chip {
-  display: grid;
-  gap: 6px;
-  min-width: 108px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.signal-chip strong {
-  font-size: 13px;
-}
-
 .canvas-content {
   min-height: 0;
   overflow-y: auto;
@@ -994,7 +935,7 @@ watch(selectedCompany, async (company, previous) => {
   overflow-y: auto;
   padding: 14px;
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .rail-section {
@@ -1127,10 +1068,10 @@ watch(selectedCompany, async (company, previous) => {
 
 .composer-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px;
+  grid-template-columns: minmax(0, 1fr) 88px;
   gap: 10px;
-  width: min(100%, 700px);
-  padding: 4px 8px;
+  width: min(100%, 620px);
+  padding: 4px 6px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
@@ -1144,8 +1085,8 @@ watch(selectedCompany, async (company, previous) => {
   color: #eef2f7;
   font: inherit;
   line-height: 1.5;
-  min-height: 30px;
-  padding-top: 4px;
+  min-height: 24px;
+  padding: 5px 4px 0;
   outline: none;
 }
 

@@ -40,8 +40,12 @@ const compactSimulationLog = computed(() => simulationLog.value.slice(0, 3))
 const activeWavefront = computed(() => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null)
 const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.value] || null)
 const canRunStress = computed(() => !!selectedCompany.value && !!scenarioDraft.value.trim())
-const visibleAffectedDimensions = computed(() => affectedDimensions.value.slice(0, 3))
+const visibleAffectedDimensions = computed(() => affectedDimensions.value.slice(0, 2))
 const focusedTransmissionMatrix = computed(() => transmissionMatrix.value.slice(0, 3))
+const primaryScenarioLabel = computed(() => selectedCompany.value || '选择公司后开始推演')
+const scenarioStatusLine = computed(() =>
+  selectedPeriod.value ? `${selectedPeriod} · 从一个明确冲击假设开始` : '默认主周期 · 从一个明确冲击假设开始',
+)
 
 function displaySeverityLevel(level?: string) {
   const map: Record<string, string> = {
@@ -112,9 +116,9 @@ function selectPreset(item: string) {
         <div class="control-left">
           <div class="glow-icon">压</div>
           <div class="control-copy">
-            <span class="control-kicker">压力推演</span>
-            <h3 class="company-name text-gradient">压力推演</h3>
-            <p class="control-meta">{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+            <span class="control-kicker">冲击推演</span>
+            <h3 class="company-name text-gradient">{{ primaryScenarioLabel }}</h3>
+            <p class="control-meta">{{ scenarioStatusLine }}</p>
           </div>
         </div>
         <div class="inline-context">
@@ -155,7 +159,7 @@ function selectPreset(item: string) {
           {{ displaySeverityBadge(stressState.data.value.severity) }}
         </div>
         <button class="button-primary scenario-btn" :disabled="stressState.loading.value || !canRunStress" @click="runStress">
-          {{ stressState.loading.value ? '推演中…' : '启动推演' }}
+          {{ stressState.loading.value ? '推演中…' : '开始推演' }}
         </button>
       </section>
 
@@ -184,7 +188,7 @@ function selectPreset(item: string) {
           <article class="glass-panel overview-panel" v-if="stressCommandSurface">
             <div class="overview-head">
               <div>
-                <span class="overview-eyebrow">本轮冲击结论</span>
+                <span class="overview-eyebrow">本轮结论</span>
                 <h3 class="overview-title">{{ stressCommandSurface.headline }}</h3>
                 <p class="overview-desc muted">{{ scenario }}</p>
               </div>
@@ -211,7 +215,7 @@ function selectPreset(item: string) {
 
           <article class="glass-panel recovery-panel" v-if="recoverySequence.length">
             <div class="section-head">
-              <h3 class="panel-title">先做什么</h3>
+              <h3 class="panel-title">优先动作</h3>
             </div>
             <div class="recovery-list">
               <article
@@ -231,7 +235,7 @@ function selectPreset(item: string) {
 
           <!-- Transmission Matrix -->
           <article class="glass-panel matrix-panel" v-if="focusedTransmissionMatrix.length">
-            <h3 class="panel-title">重点传导环节</h3>
+            <h3 class="panel-title">冲击先传到这里</h3>
             <div class="matrix-grid">
               <div
                 v-for="(item, index) in focusedTransmissionMatrix"
@@ -246,13 +250,9 @@ function selectPreset(item: string) {
                 <div class="node-header">
                   <div class="node-dot"></div>
                   <span class="node-stage">{{ item.stage }}</span>
-                  <div v-if="index < transmissionMatrix.length - 1" class="node-arrow">→</div>
                 </div>
                 <div class="node-headline">{{ item.headline }}</div>
-                <div class="node-label-row">
-                  <span class="node-label muted">{{ item.impact_label }}</span>
-                  <strong class="node-score">{{ item.impact_score }}</strong>
-                </div>
+                <span class="node-label muted">{{ item.impact_label }}</span>
               </div>
             </div>
           </article>
@@ -341,7 +341,7 @@ function selectPreset(item: string) {
 .control-kicker { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
 .control-meta { margin: 0; font-size: 12px; color: var(--muted); }
 .glow-icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(244,63,94,0.15); border: 1px solid rgba(244,63,94,0.4); color: #f43f5e; display: grid; place-items: center; font-weight: bold; font-size: 18px; box-shadow: 0 0 15px rgba(244,63,94,0.2); }
-.company-name { margin: 0; font-size: 18px; font-weight: 600; }
+.company-name { margin: 0; font-size: 20px; font-weight: 600; }
 .text-gradient { background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(to right, #f43f5e, #fb923c); }
 .inline-context { display: flex; align-items: center; gap: 16px; }
 .inline-field { display: flex; align-items: center; gap: 8px; }
@@ -369,7 +369,7 @@ function selectPreset(item: string) {
 .state-container { flex: 1; }
 
 /* Content Grid */
-.content-grid { display: grid; grid-template-columns: minmax(0, 1fr) 292px; gap: 14px; flex: 1; min-height: 0; }
+.content-grid { display: grid; grid-template-columns: minmax(0, 1fr) 276px; gap: 14px; flex: 1; min-height: 0; }
 .left-col { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; }
 .left-col::-webkit-scrollbar { width: 4px; }
 .left-col::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
@@ -412,7 +412,7 @@ function selectPreset(item: string) {
 }
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
@@ -502,17 +502,14 @@ function selectPreset(item: string) {
 /* Matrix */
 .matrix-panel { padding: 18px; border-radius: 14px; flex-shrink: 0; }
 .matrix-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.matrix-node { position: relative; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; transition: all 0.3s; }
+.matrix-node { position: relative; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; transition: all 0.3s; min-height: 148px; }
 .matrix-node:hover { transform: translateY(-2px); }
 .matrix-node.is-active { background: rgba(127,29,29,0.12); border-color: rgba(244,63,94,0.22); box-shadow: 0 0 18px rgba(244,63,94,0.08); }
 .node-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .node-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.3); flex-shrink: 0; }
 .is-active .node-dot { background: #f43f5e; box-shadow: 0 0 6px #f43f5e; }
 .node-stage { font-size: 11px; letter-spacing: 0.08em; color: var(--muted); }
-.node-arrow { margin-left: auto; color: rgba(255,255,255,0.15); font-size: 14px; }
 .node-headline { font-size: 13px; font-weight: 600; color: #f3f4f6; line-height: 1.4; }
-.node-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.node-score { font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #fda4af; }
 .node-label { font-size: 12px; }
 
 /* Propagation Chain */

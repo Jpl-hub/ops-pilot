@@ -11,6 +11,7 @@ type ScenarioCard = {
   title: string
   prompt: string
   cue: string
+  detail: string
 }
 
 const session = useSession()
@@ -46,6 +47,7 @@ const scenarioCards: ScenarioCard[] = [
     title: '看风险和分歧',
     prompt: '这家公司当前最值得警惕的风险是什么？',
     cue: '先看风险，再决定是否继续跟',
+    detail: '围绕企业、财报和证据链快速形成一轮投资判断。',
   },
   {
     role: 'management',
@@ -53,6 +55,7 @@ const scenarioCards: ScenarioCard[] = [
     title: '做经营诊断',
     prompt: '给我一份当前经营体检和整改优先级。',
     cue: '直接形成一轮经营判断',
+    detail: '把经营问题、优先动作和证据线索收进同一个工作面。',
   },
   {
     role: 'regulator',
@@ -60,7 +63,18 @@ const scenarioCards: ScenarioCard[] = [
     title: '做持续巡检',
     prompt: '当前主周期哪些公司风险抬升最快？',
     cue: '盯变化，不盯花哨指标',
+    detail: '沿着行业异动、风险标签和原文证据持续巡检。',
   },
+]
+
+const productSurfaces = [
+  '产业大脑',
+  '协同分析',
+  '图谱检索',
+  '压力推演',
+  '经营诊断',
+  '观点核验',
+  '文档复核',
 ]
 </script>
 
@@ -69,41 +83,49 @@ const scenarioCards: ScenarioCard[] = [
     <div class="landing">
       <section class="landing-hero">
         <div class="landing-copy">
-          <span class="landing-kicker">新能源产业决策系统</span>
+          <span class="landing-kicker">新能源企业决策工作台</span>
           <h1>OpsPilot-X</h1>
-          <p>看企业，做判断。</p>
+          <p>把行业变化、企业判断和原文证据收进同一个工作面。</p>
 
           <div class="landing-actions">
             <RouterLink class="button-primary landing-primary" :to="entryAction.to">
               {{ entryAction.label }}
             </RouterLink>
+            <RouterLink class="button-secondary landing-secondary" to="/brain">
+              先看产业大脑
+            </RouterLink>
+          </div>
+
+          <div class="landing-surface-rail">
+            <span v-for="item in productSurfaces" :key="item">{{ item }}</span>
           </div>
         </div>
 
         <div class="landing-stage" aria-hidden="true">
-          <div class="stage-core">
-            <span>Agent</span>
-            <strong>决策中枢</strong>
+          <div class="stage-column">
+            <div class="stage-frame stage-frame-lead">
+              <span>行业变化</span>
+              <strong>先抓真正值得追的主线</strong>
+              <p>实时信号、公司异动、政策变化先在这里收束。</p>
+            </div>
+
+            <div class="stage-frame">
+              <span>企业判断</span>
+              <strong>再把结论和动作压成一页</strong>
+              <p>不是聊天记录，而是一轮可以直接执行的判断。</p>
+            </div>
+
+            <div class="stage-frame">
+              <span>原文证据</span>
+              <strong>最后回到财报、研报和图谱</strong>
+              <p>所有关键判断都能继续追到页码、链路和原文。</p>
+            </div>
           </div>
 
-          <div class="stage-node stage-node-investor">
-            <span>{{ scenarioCards[0].roleLabel }}</span>
-            <strong>{{ scenarioCards[0].title }}</strong>
-          </div>
-          <div class="stage-node stage-node-management">
-            <span>{{ scenarioCards[1].roleLabel }}</span>
-            <strong>{{ scenarioCards[1].title }}</strong>
-          </div>
-          <div class="stage-node stage-node-regulator">
-            <span>{{ scenarioCards[2].roleLabel }}</span>
-            <strong>{{ scenarioCards[2].title }}</strong>
-          </div>
-
-          <div class="stage-footnote">
-            <span>实时监测</span>
-            <span>图谱溯源</span>
-            <span>压力推演</span>
-            <span>文档核验</span>
+          <div class="stage-tail">
+            <span>正式数据</span>
+            <span>协同判断</span>
+            <span>证据回放</span>
           </div>
         </div>
       </section>
@@ -119,7 +141,7 @@ const scenarioCards: ScenarioCard[] = [
           <div class="dock-copy">
             <span>{{ item.roleLabel }}</span>
             <strong>{{ item.title }}</strong>
-            <small>{{ item.cue }}</small>
+            <small>{{ item.detail }}</small>
           </div>
           <em>进入</em>
         </RouterLink>
@@ -137,13 +159,13 @@ const scenarioCards: ScenarioCard[] = [
   grid-template-rows: minmax(0, 1fr) auto;
   background:
     radial-gradient(circle at top left, rgba(16, 185, 129, 0.08), transparent 28%),
-    radial-gradient(circle at right, rgba(59, 130, 246, 0.08), transparent 24%),
+    radial-gradient(circle at 85% 18%, rgba(59, 130, 246, 0.1), transparent 24%),
     linear-gradient(180deg, rgba(7, 10, 18, 0.98), rgba(7, 10, 18, 0.94));
 }
 
 .landing-hero {
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
+  grid-template-columns: minmax(0, 0.92fr) minmax(460px, 1.08fr);
   align-items: center;
   min-height: 0;
 }
@@ -156,8 +178,8 @@ const scenarioCards: ScenarioCard[] = [
 .landing-copy {
   display: grid;
   align-content: center;
-  gap: 18px;
-  padding: 48px 54px;
+  gap: 20px;
+  padding: 54px 56px;
 }
 
 .landing-kicker,
@@ -181,8 +203,8 @@ const scenarioCards: ScenarioCard[] = [
 }
 
 .landing-copy h1 {
-  font-size: clamp(40px, 5vw, 68px);
-  line-height: 0.96;
+  font-size: clamp(42px, 5vw, 72px);
+  line-height: 0.94;
   max-width: 520px;
 }
 
@@ -190,7 +212,8 @@ const scenarioCards: ScenarioCard[] = [
   margin: 0;
   color: rgba(203, 213, 225, 0.78);
   font-size: 16px;
-  max-width: 240px;
+  line-height: 1.7;
+  max-width: 320px;
 }
 
 .landing-actions {
@@ -201,6 +224,30 @@ const scenarioCards: ScenarioCard[] = [
 
 .landing-primary {
   min-width: 156px;
+}
+
+.landing-secondary {
+  min-width: 156px;
+}
+
+.landing-surface-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.landing-surface-rail span,
+.stage-tail span {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(203, 213, 225, 0.86);
+  font-size: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .landing-stage {
@@ -215,105 +262,73 @@ const scenarioCards: ScenarioCard[] = [
 .landing-stage::after {
   content: '';
   position: absolute;
-  border-radius: 999px;
-  inset: 50%;
-  transform: translate(-50%, -50%);
+  inset: auto;
 }
 
 .landing-stage::before {
-  width: min(52vw, 640px);
-  height: min(52vw, 640px);
-  border: 1px solid rgba(52, 211, 153, 0.12);
-  box-shadow:
-    0 0 0 90px rgba(52, 211, 153, 0.03),
-    0 0 0 180px rgba(52, 211, 153, 0.02);
+  inset: 14% 11% 18% 18%;
+  border-radius: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(12, 16, 24, 0.98), rgba(8, 12, 18, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .landing-stage::after {
-  width: min(26vw, 320px);
-  height: min(26vw, 320px);
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.18), transparent 68%);
+  inset: 22% 18% 22% 24%;
+  border-radius: 30px;
+  background: radial-gradient(circle at 16% 14%, rgba(16, 185, 129, 0.16), transparent 28%);
+  opacity: 0.84;
 }
 
-.stage-core,
-.stage-node {
-  position: absolute;
+.stage-column,
+.stage-tail {
+  position: relative;
   z-index: 1;
 }
 
-.stage-core {
+.stage-column {
+  width: min(78%, 520px);
+  display: grid;
+  gap: 14px;
+}
+
+.stage-frame {
   display: grid;
   gap: 8px;
-  padding: 34px;
-  width: 220px;
-  height: 220px;
-  border-radius: 999px;
-  place-content: center;
-  text-align: center;
-  background:
-    radial-gradient(circle, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05)),
-    rgba(8, 12, 18, 0.72);
-  border: 1px solid rgba(52, 211, 153, 0.18);
-}
-
-.stage-core strong {
-  font-size: 28px;
-  line-height: 1.02;
-}
-
-.stage-node {
-  display: grid;
-  gap: 6px;
-  width: 190px;
-  padding: 16px 18px;
+  padding: 18px 20px;
   border-radius: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(8, 12, 18, 0.76);
-  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(12, 16, 24, 0.82);
+  backdrop-filter: blur(14px);
 }
 
-.stage-node strong {
-  font-size: 18px;
-  line-height: 1.1;
+.stage-frame-lead {
+  background:
+    linear-gradient(180deg, rgba(10, 33, 27, 0.92), rgba(12, 16, 24, 0.86));
+  border-color: rgba(52, 211, 153, 0.16);
 }
 
-.stage-node-investor {
-  top: 16%;
-  right: 16%;
+.stage-frame strong {
+  font-size: 21px;
+  line-height: 1.08;
 }
 
-.stage-node-management {
-  bottom: 18%;
-  right: 10%;
+.stage-frame p {
+  margin: 0;
+  color: rgba(203, 213, 225, 0.78);
+  line-height: 1.7;
+  font-size: 13px;
 }
 
-.stage-node-regulator {
-  bottom: 20%;
-  left: 10%;
-}
-
-.stage-footnote {
+.stage-tail {
   position: absolute;
-  left: 50%;
-  bottom: 8%;
-  transform: translateX(-50%);
+  left: 18%;
+  right: 14%;
+  bottom: 14%;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  justify-content: center;
-}
-
-.stage-footnote span {
-  min-height: 34px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.025);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(203, 213, 225, 0.84);
-  font-size: 12px;
 }
 
 .landing-dock {
@@ -333,7 +348,7 @@ const scenarioCards: ScenarioCard[] = [
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 92px;
+  min-height: 102px;
   padding: 0 20px;
   border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -348,6 +363,7 @@ const scenarioCards: ScenarioCard[] = [
 .dock-copy small {
   color: rgba(148, 163, 184, 0.84);
   font-size: 13px;
+  line-height: 1.65;
 }
 
 .dock-strip.is-investor {
@@ -379,7 +395,7 @@ const scenarioCards: ScenarioCard[] = [
   }
 
   .landing-stage {
-    min-height: 420px;
+    min-height: 460px;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
   }
 
@@ -398,41 +414,17 @@ const scenarioCards: ScenarioCard[] = [
   }
 
   .landing-stage {
-    min-height: 360px;
+    min-height: 400px;
   }
 
-  .stage-core {
-    width: 180px;
-    height: 180px;
+  .stage-column {
+    width: calc(100% - 36px);
   }
 
-  .stage-node {
-    width: 148px;
-    padding: 12px 14px;
-  }
-
-  .stage-node strong {
-    font-size: 15px;
-  }
-
-  .stage-node-investor {
-    top: 10%;
-    right: 4%;
-  }
-
-  .stage-node-management {
-    bottom: 10%;
-    right: 2%;
-  }
-
-  .stage-node-regulator {
-    bottom: 12%;
-    left: 2%;
-  }
-
-  .stage-footnote {
-    bottom: 4%;
-    width: calc(100% - 32px);
+  .stage-tail {
+    left: 18px;
+    right: 18px;
+    bottom: 18px;
   }
 
   .landing-dock {
