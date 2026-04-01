@@ -14,7 +14,6 @@ const router = createRouter({
     { path: '/stress', component: () => import('@/pages/StressPage.vue'), meta: { requiresAuth: true } },
     { path: '/vision', component: () => import('@/pages/VisionPage.vue'), meta: { requiresAuth: true } },
     { path: '/score', component: () => import('@/pages/ScorePage.vue'), meta: { requiresAuth: true } },
-    { path: '/risk', component: () => import('@/pages/RiskPage.vue'), meta: { requiresAuth: true } },
     { path: '/verify', component: () => import('@/pages/VerifyPage.vue'), meta: { requiresAuth: true } },
     { path: '/profile', component: () => import('@/pages/ProfilePage.vue'), meta: { requiresAuth: true } },
     { path: '/admin', component: () => import('@/pages/AdminPage.vue'), meta: { requiresAuth: true } },

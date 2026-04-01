@@ -22,13 +22,13 @@ const roleOptions: Array<{ value: UserRole; label: string }> = [
 ]
 
 const sidebarItems = [
-  { to: '/brain', label: '新能源产业大脑', detail: '实时行业监测', auth: true },
-  { to: '/workspace', label: '多智能体协同', detail: '协同分析台', auth: true },
-  { to: '/graph', label: '图谱增强检索', detail: '证据路径追踪', auth: true },
-  { to: '/stress', label: '产业链压力测试', detail: '冲击传导推演', auth: true },
-  { to: '/score', label: '企业运营体检', detail: '经营健康诊断', auth: true },
-  { to: '/verify', label: '研报观点核验', detail: '观点事实核卡', auth: true },
-  { to: '/vision', label: '财报文档复核', detail: '页块 / 表格 / 证据', auth: true },
+  { to: '/brain', label: '产业大脑', detail: '实时行业变化', auth: true },
+  { to: '/workspace', label: '协同分析', detail: '综合判断台', auth: true },
+  { to: '/graph', label: '图谱检索', detail: '沿证据链追溯', auth: true },
+  { to: '/stress', label: '压力推演', detail: '看冲击如何传导', auth: true },
+  { to: '/score', label: '经营诊断', detail: '企业体质与问题', auth: true },
+  { to: '/verify', label: '观点核验', detail: '研报与财报对照', auth: true },
+  { to: '/vision', label: '文档复核', detail: '财报页块与表格', auth: true },
 ]
 
 const visibleSidebarItems = computed(() =>
@@ -41,13 +41,13 @@ const activeNavLabel = computed(
 
 const routeContext = computed(() => {
   const mapping: Record<string, { title: string; cues: string[] }> = {
-    '/brain': { title: '先看行业主线', cues: ['信号', '热点', '异动'] },
-    '/workspace': { title: '直接做判断', cues: ['研判', '证据', '动作'] },
-    '/graph': { title: '沿证据链追下去', cues: ['节点', '链路', '原文'] },
-    '/stress': { title: '看冲击怎么传导', cues: ['假设', '路径', '影响'] },
-    '/score': { title: '先诊断企业体质', cues: ['经营', '风险', '对标'] },
-    '/verify': { title: '核对观点是否站得住', cues: ['研报', '财报', '偏差'] },
-    '/vision': { title: '回看财报结构与证据', cues: ['页块', '表格', '证据'] },
+    '/brain': { title: '先看行业变化', cues: ['变化', '热点', '异动'] },
+    '/workspace': { title: '围绕问题直接判断', cues: ['问题', '证据', '动作'] },
+    '/graph': { title: '顺着证据继续追', cues: ['节点', '链路', '原文'] },
+    '/stress': { title: '看冲击会传到哪', cues: ['假设', '路径', '影响'] },
+    '/score': { title: '先看企业体质', cues: ['经营', '风险', '对标'] },
+    '/verify': { title: '核对观点靠不靠谱', cues: ['研报', '财报', '偏差'] },
+    '/vision': { title: '回看财报原文结构', cues: ['页块', '表格', '证据'] },
   }
   return mapping[route.path] || { title: activeNavLabel.value, cues: ['判断', '证据', '路径'] }
 })
