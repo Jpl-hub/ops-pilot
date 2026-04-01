@@ -2,9 +2,7 @@
 
 智能体赋能的新能源企业运营分析与决策支持系统。
 
-OpsPilot-X 不是一个把聊天框套在数据上面的演示壳，而是一个围绕“看行业变化、看企业状态、做一轮判断、回到原文证据”组织起来的新能源决策工作台。它把正式财报、研报、公司快照、图谱链路、压力推演和文档复核收进同一个产品里，面向投资者、管理层和监管/风控三类角色提供不同视角下的真实判断能力。
-
-![OpsPilot-X 首页](docs/screenshots/home-landing.png)
+OpsPilot-X 围绕“看行业变化、看企业状态、做一轮判断、回到原文证据”组织产品结构，把正式财报、研报、公司快照、图谱链路、压力推演和文档复核收进同一个工作台。
 
 ## 这套系统能做什么
 
@@ -19,16 +17,6 @@ OpsPilot-X 当前围绕 7 个工作面组织：
 | 经营诊断 | 企业当前体质如何，问题先改什么 | 五维评分、风险信号、对标与时间线 |
 | 观点核验 | 研报说法和财报原文是否一致 | Claim verify、财报/研报对照、证据回页 |
 | 文档复核 | 财报页块、表格和 OCR 产物是否可靠 | 标准 OCR contract、文档产物治理、原文结构回放 |
-
-## 产品界面
-
-### 产业大脑
-
-![产业大脑](docs/screenshots/industry-brain-connected.png)
-
-### 协同分析
-
-![协同分析](docs/screenshots/workspace-company-ready.png)
 
 ## 为什么它不是“假页面”
 
@@ -154,7 +142,7 @@ frontend/                    Vue 前端
 src/opspilot/                FastAPI、应用服务、数据访问、编排逻辑
 data/                        正式数据、原始文档、bronze/silver 产物
 streaming/                   Flink SQL、流式链路与 connector
-docs/                        运行手册、交付文档、截图
+docs/                        运行手册、交付文档
 scripts/                     本地启动、停止、清理脚本
 tests/                       回归测试
 ```
