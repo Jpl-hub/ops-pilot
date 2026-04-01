@@ -36,7 +36,7 @@ const availablePeriods = computed(() => overviewState.data.value?.available_peri
 const hasCompanies = computed(() => companies.value.length > 0)
 const canSubmitIntent = computed(() => !!selectedCompany.value && !!graphIntentDraft.value.trim())
 const focalNodes = computed<GraphFocalNode[]>(() => graphState.data.value?.focal_nodes || [])
-const inferencePath = computed<GraphInferenceStep[]>(() => graphState.data.value?.inference_path || [])
+const inferencePath = computed<GraphInferenceStep[]>(() => (graphState.data.value?.inference_path || []).slice(0, 3))
 const activePathId = computed(() => inferencePath.value[activePathStep.value]?.step ?? null)
 const rawGraphNodes = computed<GraphNode[]>(() => graphState.data.value?.graph?.nodes || [])
 const rawGraphEdges = computed<GraphEdge[]>(() => graphState.data.value?.graph?.edges || [])
@@ -336,10 +336,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
             </div>
           </div>
 
-        <div class="query-strip-meta">
-          <span>{{ selectedCompany || '未选择公司' }}</span>
-          <span v-if="selectedPeriod">{{ selectedPeriod }}</span>
-        </div>
       </section>
 
       <section class="graph-intent-dock">
@@ -368,9 +364,9 @@ watch(selectedPeriod, async () => { await loadGraph() })
             <p>{{ graphCommandSurface?.headline || '只保留这一轮真正相关的节点和主链。' }}</p>
           </div>
 
-          <div class="stage-signal-row">
+          <div v-if="signalStream.length" class="stage-signal-row">
             <span
-              v-for="item in signalStream.slice(0, 2)"
+              v-for="item in signalStream.slice(0, 1)"
               :key="`${item.label}-${item.value}`"
               class="stage-signal"
               :class="toneClass(item.tone)"
@@ -437,8 +433,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
         <section class="path-dock">
           <div class="path-dock-head">
-            <span>关键链路</span>
-            <strong>推理主链</strong>
+            <strong>这条主链最值得继续追</strong>
           </div>
 
           <div class="path-track">
@@ -488,9 +483,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-kicker,
 .graph-select span,
-.query-strip-meta span,
 .stage-summary span,
-.path-dock-head span,
 .bottom-head span,
 .selected-node-panel span,
 .path-step em {
@@ -599,27 +592,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
   border: 1px solid rgba(96, 165, 250, 0.26);
   background: rgba(27, 43, 108, 0.48);
   font-weight: 700;
-}
-
-.query-strip-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.query-strip-meta span {
-  min-height: 34px;
-  padding: 0 12px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.03);
-  color: rgba(203, 213, 225, 0.82);
-}
-
-.query-strip-meta span:last-child {
-  display: none;
 }
 
 .graph-intent-dock {
@@ -950,7 +922,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .bottom-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -958,6 +930,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .path-dock-head strong,
 .bottom-head strong {
   color: #f8fafc;
+  font-size: 14px;
+  letter-spacing: -0.02em;
 }
 
 .path-track {

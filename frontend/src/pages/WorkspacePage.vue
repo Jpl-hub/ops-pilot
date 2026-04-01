@@ -70,9 +70,9 @@ const latestUserMessage = computed(() => {
 const workflowSteps = computed<any[]>(() => workspace.agentFlow || [])
 const controlPlane = computed<any>(() => workspace.controlPlane || latestAnswer.value?.control_plane || null)
 const aiAssurance = computed<any>(() => latestAnswer.value?.ai_assurance || null)
-const insightNumbers = computed<any[]>(() => (latestAnswer.value?.insight_cards || []).slice(0, 4))
+const insightNumbers = computed<any[]>(() => (latestAnswer.value?.insight_cards || []).slice(0, 3))
 const latestActionCards = computed<any[]>(() => (latestAnswer.value?.action_cards || []).slice(0, 3))
-const latestEvidenceGroups = computed<any[]>(() => (latestAnswer.value?.evidence_groups || []).slice(0, 3))
+const latestEvidenceGroups = computed<any[]>(() => (latestAnswer.value?.evidence_groups || []).slice(0, 2))
 
 const companySummary = computed(() => companyWorkspace.value?.score_summary ?? null)
 const companyTopRisks = computed(() => companyWorkspace.value?.top_risks ?? [])
@@ -97,7 +97,7 @@ const resultLinks = computed(() => {
       query: route.query || {},
     })
   }
-  return links.slice(0, 4)
+  return links.slice(0, 2)
 })
 
 const companySignals = computed(() => {
@@ -458,7 +458,6 @@ watch(selectedCompany, async (company, previous) => {
           <aside class="result-rail">
             <header class="rail-head">
               <strong>判断结果</strong>
-              <span>{{ roleLabel }}</span>
             </header>
 
             <div v-if="latestAnswer" class="rail-body">
@@ -494,9 +493,8 @@ watch(selectedCompany, async (company, previous) => {
                 <span class="rail-label">判断依据</span>
                 <article v-for="group in latestEvidenceGroups" :key="group.title || group.code" class="evidence-row">
                   <strong>{{ group.title || group.group_type || '证据组' }}</strong>
-                  <p>{{ group.subtitle || '真实证据已挂接到当前判断。' }}</p>
                   <ul v-if="group.items?.length">
-                    <li v-for="item in group.items.slice(0, 2)" :key="item.chunk_id || item.source_title">
+                    <li v-for="item in group.items.slice(0, 1)" :key="item.chunk_id || item.source_title">
                       {{ item.source_title }} · 第{{ item.page }}页
                     </li>
                   </ul>
@@ -982,19 +980,13 @@ watch(selectedCompany, async (company, previous) => {
 .rail-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
   padding: 16px 14px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .rail-head strong {
   font-size: 17px;
-}
-
-.rail-head span {
-  color: rgba(120, 143, 172, 0.86);
-  font-size: 12px;
 }
 
 .rail-body {
@@ -1041,7 +1033,7 @@ watch(selectedCompany, async (company, previous) => {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
