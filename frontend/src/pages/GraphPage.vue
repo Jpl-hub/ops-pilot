@@ -42,13 +42,13 @@ const rawGraphNodes = computed<GraphNode[]>(() => graphState.data.value?.graph?.
 const rawGraphEdges = computed<GraphEdge[]>(() => graphState.data.value?.graph?.edges || [])
 const signalStream = computed<GraphSignal[]>(() => graphState.data.value?.signal_stream || [])
 const evidenceNavigation = computed(() => graphState.data.value?.evidence_navigation?.links || [])
-const relatedRoutes = computed(() => graphState.data.value?.related_routes || [])
 const executionStream = computed(() => graphState.data.value?.execution_stream || [])
 const summary = computed(() => graphState.data.value?.summary || {})
 const graphSummary = computed(() => graphState.data.value?.graph?.summary || {})
 const graphCommandSurface = computed(() => graphState.data.value?.graph_command_surface || null)
 const graphLiveFrames = computed(() => graphState.data.value?.graph_live_frames || [])
 const currentFrame = computed(() => graphLiveFrames.value[activePathStep.value] || null)
+const pathEvidenceLinks = computed(() => evidenceNavigation.value.slice(0, 3))
 const visibleNodeIds = computed(() => {
   const nodes = rawGraphNodes.value
   const edges = rawGraphEdges.value
@@ -439,59 +439,29 @@ watch(selectedPeriod, async () => { await loadGraph() })
           </div>
         </section>
 
-        <section class="graph-bottom">
-          <div class="bottom-panel">
-            <div class="bottom-head">
-              <span>回到原文</span>
-              <strong>证据入口</strong>
-            </div>
-            <div class="bottom-links">
-              <RouterLink
-                v-for="item in evidenceNavigation.slice(0, 3)"
-                :key="`${item.label}-${item.path}`"
-                :to="{ path: item.path, query: item.query || {} }"
-                class="bottom-link"
-              >
-                <div>
-                  <strong>{{ item.label }}</strong>
-                  <p>{{ item.source_title }} · 第{{ item.page }}页</p>
-                </div>
-                <span>进入</span>
-              </RouterLink>
-            </div>
+        <section v-if="pathEvidenceLinks.length || executionStream.length" class="path-dock path-dock-links">
+          <div class="path-dock-head">
+            <span>原文入口</span>
+            <strong>沿证据继续看</strong>
           </div>
 
-          <div class="bottom-panel">
-            <div class="bottom-head">
-              <span>下一步</span>
-              <strong>继续追</strong>
-            </div>
-            <div class="bottom-links">
-              <RouterLink
-                v-for="item in relatedRoutes"
-                :key="`${item.label}-${item.path}`"
-                :to="{ path: item.path, query: item.query || {} }"
-                class="bottom-link"
-              >
-                <div>
-                  <strong>{{ item.label }}</strong>
-                  <p>继续沿当前检索链路深挖。</p>
-                </div>
-                <span>进入</span>
-              </RouterLink>
+          <div class="path-link-row">
+            <RouterLink
+              v-for="item in pathEvidenceLinks"
+              :key="`${item.label}-${item.path}`"
+              :to="{ path: item.path, query: item.query || {} }"
+              class="path-link-pill"
+            >
+              {{ item.label }} · 第{{ item.page }}页
+            </RouterLink>
 
-              <div
-                v-for="item in executionStream.slice(0, 3)"
-                :key="item.id"
-                class="bottom-link is-static"
-              >
-                <div>
-                  <strong>{{ item.title }}</strong>
-                  <p>{{ item.meta?.scenario || item.meta?.intent || item.status }}</p>
-                </div>
-                <span>{{ item.status }}</span>
-              </div>
-            </div>
+            <span
+              v-for="item in executionStream.slice(0, 2)"
+              :key="item.id"
+              class="path-link-pill is-muted"
+            >
+              {{ item.title }}
+            </span>
           </div>
         </section>
       </template>
@@ -938,8 +908,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   color: rgba(148, 163, 184, 0.88);
 }
 
-.path-dock,
-.bottom-panel {
+.path-dock {
   padding: 14px 16px;
 }
 
@@ -985,49 +954,34 @@ watch(selectedPeriod, async () => { await loadGraph() })
   background: rgba(18, 62, 45, 0.84);
 }
 
-.graph-bottom {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+.path-dock-links {
+  padding-top: 12px;
 }
 
-.bottom-links {
-  display: grid;
+.path-link-row {
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
-.bottom-link {
-  display: flex;
+.path-link-pill {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.025);
-  color: inherit;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #dbe7f3;
   text-decoration: none;
-}
-
-.bottom-link strong {
-  color: #f8fafc;
-}
-
-.bottom-link span {
-  color: #73f0c7;
   font-size: 12px;
-  white-space: nowrap;
 }
 
-.bottom-link.is-static span {
-  color: rgba(203, 213, 225, 0.86);
+.path-link-pill.is-muted {
+  color: rgba(148, 163, 184, 0.86);
 }
 
 @media (max-width: 1100px) {
-  .graph-bottom {
-    grid-template-columns: 1fr;
-  }
-
   .selected-node-panel {
     max-width: calc(100% - 36px);
   }
