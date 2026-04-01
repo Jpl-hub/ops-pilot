@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
-import ChartPanel from '@/components/ChartPanel.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
@@ -11,7 +10,6 @@ import { get, post } from '@/lib/api'
 
 const overviewState = useAsyncState<any>()
 const stressState = useAsyncState<any>()
-const runsState = useAsyncState<any>()
 const route = useRoute()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
@@ -38,20 +36,33 @@ const stressWavefront = computed(() => stressState.data.value?.stress_wavefront 
 const stressCommandSurface = computed(() => stressState.data.value?.stress_command_surface || null)
 const affectedDimensions = computed(() => stressState.data.value?.affected_dimensions || [])
 const recoverySequence = computed(() => stressState.data.value?.stress_recovery_sequence || [])
-const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 3))
-const compactSimulationLog = computed(() => simulationLog.value.slice(0, 4))
+const compactSimulationLog = computed(() => simulationLog.value.slice(0, 3))
 const activeWavefront = computed(() => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null)
 const activeSimulationLog = computed(() => simulationLog.value[activeStressStep.value] || null)
 const canRunStress = computed(() => !!selectedCompany.value && !!scenarioDraft.value.trim())
+const visibleAffectedDimensions = computed(() => affectedDimensions.value.slice(0, 3))
+const focusedTransmissionMatrix = computed(() => transmissionMatrix.value.slice(0, 3))
 
 function displaySeverityLevel(level?: string) {
   const map: Record<string, string> = {
     CRITICAL: '极高',
     HIGH: '高',
     MODERATE: '中',
+    MEDIUM: '中',
     LOW: '低',
   }
   return map[(level || '').toUpperCase()] || '待定'
+}
+
+function displaySeverityBadge(severity?: { label?: string; level?: string }) {
+  return severity?.label || displaySeverityLevel(severity?.level)
+}
+
+function displayToneClass(color?: string) {
+  if (color === 'risk') return 'tone-risk'
+  if (color === 'warning') return 'tone-warning'
+  if (color === 'success' || color === 'safe') return 'tone-safe'
+  return 'tone-warning'
 }
 
 async function runStress() {
@@ -65,10 +76,6 @@ async function runStress() {
       scenario: scenario.value,
     }),
   )
-  const params = new URLSearchParams({ company_name: selectedCompany.value })
-  if (selectedPeriod.value) params.set('report_period', selectedPeriod.value)
-  params.set('user_role', 'management')
-  await runsState.execute(() => get(`/stress-test/runs?${params.toString()}&limit=6`))
   activeStressStep.value = 0
 }
 
@@ -140,8 +147,12 @@ function selectPreset(item: string) {
           :disabled="stressState.loading.value || !selectedCompany"
           @keydown.enter="runStress"
         />
-        <div v-if="stressState.data.value?.severity" class="severity-badge" :class="`tone-${stressState.data.value.severity.color || 'warning'}`">
-          {{ displaySeverityLevel(stressState.data.value.severity.level) }} · {{ stressState.data.value.severity.label }}
+        <div
+          v-if="stressState.data.value?.severity"
+          class="severity-badge"
+          :class="displayToneClass(stressState.data.value.severity.color)"
+        >
+          {{ displaySeverityBadge(stressState.data.value.severity) }}
         </div>
         <button class="button-primary scenario-btn" :disabled="stressState.loading.value || !canRunStress" @click="runStress">
           {{ stressState.loading.value ? '推演中…' : '启动推演' }}
@@ -177,13 +188,16 @@ function selectPreset(item: string) {
                 <h3 class="overview-title">{{ stressCommandSurface.headline }}</h3>
                 <p class="overview-desc muted">{{ scenario }}</p>
               </div>
-              <div class="severity-badge" :class="`tone-${stressState.data.value?.severity?.color || 'warning'}`">
-                {{ displaySeverityLevel(stressState.data.value?.severity?.level) }} · {{ stressState.data.value?.severity?.label || '待确认' }}
+              <div
+                class="severity-badge"
+                :class="displayToneClass(stressState.data.value?.severity?.color)"
+              >
+                {{ displaySeverityBadge(stressState.data.value?.severity) }}
               </div>
             </div>
             <div class="overview-grid">
               <div
-                v-for="item in affectedDimensions"
+                v-for="item in visibleAffectedDimensions"
                 :key="item.label"
                 class="overview-stat"
               >
@@ -216,11 +230,11 @@ function selectPreset(item: string) {
           </article>
 
           <!-- Transmission Matrix -->
-          <article class="glass-panel matrix-panel" v-if="transmissionMatrix.length">
+          <article class="glass-panel matrix-panel" v-if="focusedTransmissionMatrix.length">
             <h3 class="panel-title">重点传导环节</h3>
             <div class="matrix-grid">
               <div
-                v-for="(item, index) in transmissionMatrix"
+                v-for="(item, index) in focusedTransmissionMatrix"
                 :key="item.stage"
                 class="matrix-node"
                 :class="[`node-${item.tone || 'warning'}`, {
@@ -235,18 +249,12 @@ function selectPreset(item: string) {
                   <div v-if="index < transmissionMatrix.length - 1" class="node-arrow">→</div>
                 </div>
                 <div class="node-headline">{{ item.headline }}</div>
-                <div class="node-score">{{ item.impact_score }}</div>
-                <div class="node-label muted">{{ item.impact_label }}</div>
+                <div class="node-label-row">
+                  <span class="node-label muted">{{ item.impact_label }}</span>
+                  <strong class="node-score">{{ item.impact_score }}</strong>
+                </div>
               </div>
             </div>
-          </article>
-
-          <!-- Chart Panel -->
-          <article class="glass-panel chart-panel" v-if="stressState.data.value?.chart">
-            <ChartPanel
-              title="影响走势"
-              :options="stressState.data.value.chart.options"
-            />
           </article>
 
           <!-- Propagation Chain -->
@@ -317,26 +325,6 @@ function selectPreset(item: string) {
               推演完成后将显示仿真日志
             </div>
           </article>
-
-          <article class="glass-panel recent-panel" v-if="recentRuns.length">
-            <h3 class="panel-title">最近场景</h3>
-            <div class="recent-run-list">
-              <div
-                v-for="item in recentRuns"
-                :key="item.run_id"
-                class="recent-run-card"
-              >
-                <div class="recent-run-head">
-                  <strong>{{ item.company_name }}</strong>
-                  <span class="recent-run-badge" :class="`tone-${item.severity?.color || 'warning'}`">
-                    {{ item.severity?.label || item.severity?.level || '已记录' }}
-                  </span>
-                </div>
-                <p class="recent-run-scenario muted">{{ item.scenario }}</p>
-                <span class="recent-run-time">{{ item.created_at || '-' }}</span>
-              </div>
-            </div>
-          </article>
         </div>
       </div>
     </div>
@@ -344,7 +332,7 @@ function selectPreset(item: string) {
 </template>
 
 <style scoped>
-.dashboard-wrapper { display: flex; flex-direction: column; gap: 14px; height: 100%; overflow: hidden; width: 100%; max-width: 1320px; margin: 0 auto; }
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 14px; height: 100%; overflow: hidden; width: 100%; max-width: 1280px; margin: 0 auto; }
 
 /* Control Bar */
 .control-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 14px; flex-shrink: 0; }
@@ -381,7 +369,7 @@ function selectPreset(item: string) {
 .state-container { flex: 1; }
 
 /* Content Grid */
-.content-grid { display: grid; grid-template-columns: 1fr 308px; gap: 14px; flex: 1; min-height: 0; }
+.content-grid { display: grid; grid-template-columns: minmax(0, 1fr) 292px; gap: 14px; flex: 1; min-height: 0; }
 .left-col { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; }
 .left-col::-webkit-scrollbar { width: 4px; }
 .left-col::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
@@ -424,7 +412,7 @@ function selectPreset(item: string) {
 }
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
@@ -514,21 +502,18 @@ function selectPreset(item: string) {
 /* Matrix */
 .matrix-panel { padding: 18px; border-radius: 14px; flex-shrink: 0; }
 .matrix-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.matrix-node { position: relative; background: rgba(39,39,42,0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; transition: all 0.3s; }
-.matrix-node:hover { transform: translateY(-3px); }
-.matrix-node.is-active { background: rgba(127,29,29,0.2); border-color: rgba(244,63,94,0.3); box-shadow: 0 0 24px rgba(244,63,94,0.12); }
+.matrix-node { position: relative; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; transition: all 0.3s; }
+.matrix-node:hover { transform: translateY(-2px); }
+.matrix-node.is-active { background: rgba(127,29,29,0.12); border-color: rgba(244,63,94,0.22); box-shadow: 0 0 18px rgba(244,63,94,0.08); }
 .node-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .node-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.3); flex-shrink: 0; }
 .is-active .node-dot { background: #f43f5e; box-shadow: 0 0 6px #f43f5e; }
-.node-stage { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.node-stage { font-size: 11px; letter-spacing: 0.08em; color: var(--muted); }
 .node-arrow { margin-left: auto; color: rgba(255,255,255,0.15); font-size: 14px; }
 .node-headline { font-size: 13px; font-weight: 600; color: #f3f4f6; line-height: 1.4; }
-.node-score { font-size: 22px; font-family: 'JetBrains Mono', monospace; font-weight: 300; color: #fb7185; }
+.node-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.node-score { font-size: 14px; font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #fda4af; }
 .node-label { font-size: 12px; }
-
-/* Chart */
-.chart-panel { padding: 14px; border-radius: 14px; flex-shrink: 0; min-height: 220px; display: flex; flex-direction: column; }
-:deep(.chart-panel-inner) { flex: 1; min-height: 0; }
 
 /* Propagation Chain */
 .chain-panel { padding: 18px; border-radius: 14px; flex-shrink: 0; }
@@ -547,9 +532,7 @@ function selectPreset(item: string) {
 
 /* Simulation Stream */
 .stream-panel { flex: 1; padding: 18px; border-radius: 14px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
-.recent-panel { margin-top: 14px; padding: 18px; border-radius: 14px; flex-shrink: 0; }
-
-.wavefront-card { background: linear-gradient(135deg, rgba(244,63,94,0.08), rgba(0,0,0,0.3)); border: 1px solid rgba(244,63,94,0.2); border-radius: 12px; padding: 14px; flex-shrink: 0; }
+.wavefront-card { background: linear-gradient(135deg, rgba(244,63,94,0.06), rgba(255,255,255,0.02)); border: 1px solid rgba(244,63,94,0.16); border-radius: 12px; padding: 14px; flex-shrink: 0; }
 .wavefront-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .wavefront-lbl { font-size: 11px; color: #fb7185; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
 .wavefront-badge { font-size: 10px; background: rgba(244,63,94,0.15); color: #fda4af; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(244,63,94,0.25); }
@@ -572,48 +555,10 @@ function selectPreset(item: string) {
 .log-desc { font-size: 12px; margin: 0; line-height: 1.5; }
 
 .empty-stream { text-align: center; padding: 32px; font-size: 13px; }
-.recent-run-list { display: flex; flex-direction: column; gap: 10px; }
-.recent-run-card {
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.06);
-  background: rgba(255,255,255,0.03);
-}
-.recent-run-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.recent-run-head strong {
-  color: #fff;
-  font-size: 14px;
-}
-.recent-run-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  border: 1px solid rgba(255,255,255,0.08);
-}
-.recent-run-badge.tone-risk { color: #fb7185; border-color: rgba(244,63,94,0.28); background: rgba(244,63,94,0.08); }
-.recent-run-badge.tone-warning { color: #fbbf24; border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.08); }
-.recent-run-badge.tone-safe { color: #34d399; border-color: rgba(16,185,129,0.28); background: rgba(16,185,129,0.08); }
-.recent-run-scenario {
-  margin: 10px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-}
-.recent-run-time {
-  display: inline-block;
-  margin-top: 8px;
-  font-size: 11px;
-  color: #94a3b8;
-}
 
 @media (max-width: 1180px) {
-  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-grid,
+  .matrix-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 900px) {

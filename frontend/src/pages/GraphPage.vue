@@ -189,15 +189,14 @@ const graphCanvasLinks = computed(() =>
       const source = graphCanvasNodes.value.find((node) => node.id === edge.source)
       const target = graphCanvasNodes.value.find((node) => node.id === edge.target)
       if (!source || !target) return null
-      const midX = (source.x + target.x) / 2
-      const midY = (source.y + target.y) / 2
-      const curve = Math.max(10, Math.abs(target.x - source.x) * 0.16)
+      const deltaX = target.x - source.x
+      const deltaY = target.y - source.y
+      const direction = deltaX >= 0 ? 1 : -1
+      const curve = Math.max(6, Math.min(14, Math.abs(deltaX) * 0.1 + 3))
+      const verticalShift = Math.max(-8, Math.min(8, deltaY * 0.16))
       return {
         id: `edge-${index}-${edge.source}-${edge.target}`,
-        pathData: `M ${source.x} ${source.y} C ${source.x + curve} ${source.y}, ${target.x - curve} ${target.y}, ${target.x} ${target.y}`,
-        label: edge.label,
-        midX,
-        midY,
+        pathData: `M ${source.x} ${source.y} C ${source.x + curve * direction} ${source.y + verticalShift}, ${target.x - curve * direction} ${target.y - verticalShift}, ${target.x} ${target.y}`,
         isActive: selectedNodeId.value === source.id || selectedNodeId.value === target.id,
       }
     })
@@ -383,13 +382,22 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
           <svg class="graph-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
             <defs>
-              <marker id="graph-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(148,163,184,0.72)" />
-              </marker>
+              <filter id="graph-link-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="0.45" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
             </defs>
             <g v-for="link in graphCanvasLinks" :key="link!.id">
-              <path :d="link!.pathData" class="graph-link" :class="{ 'is-active': link!.isActive }" marker-end="url(#graph-arrow)" />
-              <text :x="link!.midX" :y="link!.midY" class="graph-link-label">{{ link!.label }}</text>
+              <path :d="link!.pathData" class="graph-link-glow" :class="{ 'is-active': link!.isActive }" />
+              <path
+                :d="link!.pathData"
+                class="graph-link"
+                :class="{ 'is-active': link!.isActive }"
+                :filter="link!.isActive ? 'url(#graph-link-glow)' : undefined"
+              />
             </g>
           </svg>
 
@@ -786,22 +794,36 @@ watch(selectedPeriod, async () => { await loadGraph() })
   height: 100%;
 }
 
+.graph-link-glow,
 .graph-link {
   fill: none;
-  stroke: rgba(71, 85, 105, 0.46);
-  stroke-width: 0.24;
-  opacity: 0.62;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.graph-link-glow {
+  stroke: rgba(125, 211, 252, 0);
+  stroke-width: 0.54;
+  opacity: 0;
+  transition: opacity 0.2s ease, stroke 0.2s ease;
+}
+
+.graph-link-glow.is-active {
+  stroke: rgba(94, 234, 212, 0.18);
+  opacity: 0.88;
+}
+
+.graph-link {
+  stroke: rgba(148, 163, 184, 0.16);
+  stroke-width: 0.18;
+  opacity: 0.7;
+  transition: opacity 0.2s ease, stroke 0.2s ease, stroke-width 0.2s ease;
 }
 
 .graph-link.is-active {
-  stroke: rgba(94, 234, 212, 0.96);
+  stroke: rgba(148, 255, 225, 0.62);
+  stroke-width: 0.24;
   opacity: 1;
-}
-
-.graph-link-label {
-  fill: rgba(148, 163, 184, 0.84);
-  font-size: 1.35px;
-  text-anchor: middle;
 }
 
 .graph-node {
