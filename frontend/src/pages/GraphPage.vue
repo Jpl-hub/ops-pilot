@@ -42,8 +42,6 @@ const rawGraphNodes = computed<GraphNode[]>(() => graphState.data.value?.graph?.
 const rawGraphEdges = computed<GraphEdge[]>(() => graphState.data.value?.graph?.edges || [])
 const signalStream = computed<GraphSignal[]>(() => graphState.data.value?.signal_stream || [])
 const evidenceNavigation = computed(() => graphState.data.value?.evidence_navigation?.links || [])
-const summary = computed(() => graphState.data.value?.summary || {})
-const graphSummary = computed(() => graphState.data.value?.graph?.summary || {})
 const graphCommandSurface = computed(() => graphState.data.value?.graph_command_surface || null)
 const graphLiveFrames = computed(() => graphState.data.value?.graph_live_frames || [])
 const currentFrame = computed(() => graphLiveFrames.value[activePathStep.value] || null)
@@ -191,8 +189,8 @@ const graphCanvasLinks = computed(() =>
       const deltaX = target.x - source.x
       const deltaY = target.y - source.y
       const direction = deltaX >= 0 ? 1 : -1
-      const curve = Math.max(6, Math.min(14, Math.abs(deltaX) * 0.1 + 3))
-      const verticalShift = Math.max(-8, Math.min(8, deltaY * 0.16))
+      const curve = Math.max(3, Math.min(8, Math.abs(deltaX) * 0.05 + 2))
+      const verticalShift = Math.max(-5, Math.min(5, deltaY * 0.1))
       return {
         id: `edge-${index}-${edge.source}-${edge.target}`,
         pathData: `M ${source.x} ${source.y} C ${source.x + curve * direction} ${source.y + verticalShift}, ${target.x - curve * direction} ${target.y - verticalShift}, ${target.x} ${target.y}`,
@@ -304,9 +302,9 @@ watch(selectedPeriod, async () => { await loadGraph() })
     <div class="graph-console">
       <section class="graph-header">
         <div class="graph-heading">
-          <span class="graph-kicker">证据链图谱工作台</span>
+          <span class="graph-kicker">证据链图谱</span>
           <h1>图谱检索</h1>
-          <p>{{ selectedCompany || '选择公司' }} · {{ graphCommandSurface?.focus_label || '沿证据、风险与执行链路继续追下去' }}</p>
+          <p>{{ selectedCompany || '选择公司' }} · {{ graphCommandSurface?.focus_label || '沿证据和风险链继续追下去' }}</p>
         </div>
 
         <div class="graph-controls">
@@ -328,11 +326,11 @@ watch(selectedPeriod, async () => { await loadGraph() })
       </section>
 
       <section class="graph-query-strip">
-        <div class="query-strip-main">
+          <div class="query-strip-main">
             <div class="query-strip-icon">图</div>
             <div>
               <h2>{{ graphIntent }}</h2>
-              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '先看主链，再决定沿哪条证据继续追。' }}</p>
+              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '先看主链，再决定沿哪一处证据继续追。' }}</p>
             </div>
           </div>
 
@@ -407,11 +405,10 @@ watch(selectedPeriod, async () => { await loadGraph() })
           >
             <span class="node-pill" :class="`kind-${node.kind}`"></span>
             <span class="node-name">{{ node.label }}</span>
-            <span class="node-type">{{ displayNodeType(node.type) }}</span>
           </button>
 
           <div v-if="selectedNode" class="selected-node-panel">
-            <span>当前节点</span>
+            <span>{{ displayNodeType(selectedNode.type) }}</span>
             <strong>{{ selectedNode.label }}</strong>
             <p>{{ selectedNode.detail }}</p>
             <div v-if="pathEvidenceLinks.length" class="selected-node-links">
@@ -514,8 +511,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .query-strip-main p,
 .stage-summary p,
 .selected-node-panel p,
-.path-step p,
-.bottom-link p {
+.path-step p {
   margin: 0;
   color: rgba(148, 163, 184, 0.9);
   line-height: 1.7;
@@ -644,8 +640,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
   min-height: 500px;
   overflow: hidden;
   background:
-    radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.08), transparent 24%),
-    radial-gradient(circle at 82% 18%, rgba(96, 165, 250, 0.08), transparent 26%),
+    radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.06), transparent 24%),
+    radial-gradient(circle at 82% 18%, rgba(96, 165, 250, 0.06), transparent 26%),
     linear-gradient(180deg, rgba(7, 9, 13, 0.98), rgba(5, 7, 10, 0.98));
 }
 
@@ -659,10 +655,10 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .stage-summary {
   left: 18px;
   top: 18px;
-  max-width: 262px;
+  max-width: 248px;
   display: grid;
-  gap: 8px;
-  padding: 11px 13px;
+  gap: 7px;
+  padding: 10px 12px;
   border-radius: 16px;
   background: rgba(9, 11, 16, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -716,7 +712,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .selected-node-panel {
   right: 18px;
   bottom: 18px;
-  max-width: 260px;
+  max-width: 248px;
   display: grid;
   gap: 8px;
   padding: 11px 13px;
@@ -771,39 +767,39 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-link-glow {
   stroke: rgba(125, 211, 252, 0);
-  stroke-width: 0.54;
+  stroke-width: 0.4;
   opacity: 0;
   transition: opacity 0.2s ease, stroke 0.2s ease;
 }
 
 .graph-link-glow.is-active {
-  stroke: rgba(94, 234, 212, 0.18);
-  opacity: 0.88;
+  stroke: rgba(94, 234, 212, 0.14);
+  opacity: 0.72;
 }
 
 .graph-link {
-  stroke: rgba(148, 163, 184, 0.16);
-  stroke-width: 0.18;
-  opacity: 0.7;
+  stroke: rgba(94, 109, 138, 0.22);
+  stroke-width: 0.12;
+  opacity: 0.58;
   transition: opacity 0.2s ease, stroke 0.2s ease, stroke-width 0.2s ease;
 }
 
 .graph-link.is-active {
-  stroke: rgba(148, 255, 225, 0.62);
-  stroke-width: 0.24;
+  stroke: rgba(148, 255, 225, 0.54);
+  stroke-width: 0.18;
   opacity: 1;
 }
 
 .graph-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  min-width: 86px;
-  max-width: 120px;
+  min-width: 82px;
+  max-width: 112px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  padding: 7px 8px 7px 10px;
+  gap: 3px;
+  padding: 8px 9px 8px 10px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(9, 11, 16, 0.92);
@@ -893,17 +889,10 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .node-name {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 1.35;
+  line-height: 1.3;
   color: #f8fafc;
-}
-
-.node-type {
-  font-size: 9px;
-  color: rgba(148, 163, 184, 0.86);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 .stage-empty {

@@ -40,16 +40,16 @@ const activeNavLabel = computed(
 )
 
 const routeContext = computed(() => {
-  const mapping: Record<string, { title: string; cues: string[] }> = {
-    '/brain': { title: '先看行业变化', cues: ['变化', '热点', '异动'] },
-    '/workspace': { title: '围绕问题直接判断', cues: ['问题', '证据', '动作'] },
-    '/graph': { title: '顺着证据继续追', cues: ['节点', '链路', '原文'] },
-    '/stress': { title: '看冲击会传到哪', cues: ['假设', '路径', '影响'] },
-    '/score': { title: '先看企业体质', cues: ['经营', '风险', '对标'] },
-    '/verify': { title: '核对观点靠不靠谱', cues: ['研报', '财报', '偏差'] },
-    '/vision': { title: '回看财报原文结构', cues: ['页块', '表格', '证据'] },
+  const mapping: Record<string, { title: string; note: string }> = {
+    '/brain': { title: '先看行业变化', note: '今天真正值得继续盯的变化会先收在这里。' },
+    '/workspace': { title: '围绕问题直接判断', note: '从一个问题出发，把结论、动作和证据压成一页。' },
+    '/graph': { title: '顺着证据继续追', note: '沿节点、链路和原文继续追这条判断为什么成立。' },
+    '/stress': { title: '看冲击会传到哪', note: '先看冲击会先打到哪，再决定先处理什么。' },
+    '/score': { title: '先看企业体质', note: '把经营问题、优先动作和对标关系先看清。' },
+    '/verify': { title: '核对观点靠不靠谱', note: '把研报说法和财报原文放到一起核对。' },
+    '/vision': { title: '回看财报原文结构', note: '回到页块、表格和原文，不靠口头描述。' },
   }
-  return mapping[route.path] || { title: activeNavLabel.value, cues: ['判断', '证据', '路径'] }
+  return mapping[route.path] || { title: activeNavLabel.value, note: '先看当前工作面，再决定下一步往哪追。' }
 })
 
 async function logout() {
@@ -98,9 +98,7 @@ async function logout() {
         <div class="app-context-card">
           <span class="app-muted-label">{{ activeNavLabel }}</span>
           <strong>{{ routeContext.title }}</strong>
-          <div class="app-context-cues">
-            <span v-for="cue in routeContext.cues" :key="cue">{{ cue }}</span>
-          </div>
+          <p>{{ routeContext.note }}</p>
         </div>
 
         <div v-if="session.isAuthenticated.value" class="app-role-box">
@@ -120,7 +118,7 @@ async function logout() {
             <RouterLink to="/profile" class="app-footer-link">
               {{ session.currentUser.value?.display_name || '个人档案' }}
             </RouterLink>
-            <RouterLink to="/admin" class="app-footer-link">运行保障</RouterLink>
+            <RouterLink to="/admin" class="app-footer-link">保障台</RouterLink>
             <button type="button" class="app-footer-link is-button" @click="logout">退出</button>
           </template>
           <template v-else>
@@ -268,22 +266,11 @@ async function logout() {
   color: #eef2f7;
 }
 
-.app-context-cues {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.app-context-cues span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 26px;
-  padding: 0 9px;
-  border-radius: 999px;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(52, 211, 153, 0.14);
-  color: rgba(143, 239, 200, 0.86);
-  font-size: 11px;
+.app-context-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(187, 200, 217, 0.82);
 }
 
 .app-muted-label {

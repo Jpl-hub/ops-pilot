@@ -25,14 +25,14 @@ const topSectorTags = computed(() => (payload.value?.sector_tags || []).slice(0,
 const signalFeed = computed(() => externalSignalStream.value?.signals || payload.value?.live_events || [])
 const trendChart = computed(() => payload.value?.charts?.[0] || null)
 const anomalyItems = computed(() => (streamingAnomalies.value?.items || []).slice(0, 4))
-const focusCompanies = computed(() => attentionMatrix.value.slice(0, 4))
+const focusCompanies = computed(() => attentionMatrix.value.slice(0, 3))
 const riskCompanies = computed(() => topRiskCompanies.value.slice(0, 3))
-const radarCards = computed(() => radarEvents.value.slice(0, 3))
-const signalCards = computed(() => signalFeed.value.slice(0, 4))
+const radarCards = computed(() => radarEvents.value.slice(0, 2))
+const signalCards = computed(() => signalFeed.value.slice(0, 3))
 const pulseSteps = computed(() => brainSignalTape.value.slice(0, 3))
 const tapeItems = computed(() => marketTape.value.slice(0, 3))
 const leadMetric = computed(() => marketTape.value[0] || null)
-const supportMetrics = computed(() => marketTape.value.slice(1, 3))
+const supportMetrics = computed(() => marketTape.value.slice(1, 2))
 
 const signalFreshnessTone = computed(() => {
   const status = externalSignalStream.value?.status
@@ -245,7 +245,7 @@ onBeforeUnmount(() => {
               <div>
                 <h2>今天最值得看</h2>
               </div>
-              <span class="brain-section-meta">{{ externalSignalStream?.signal_count || 0 }} 条</span>
+              <span class="brain-section-meta">先看这 {{ signalCards.length }} 条</span>
             </div>
 
             <div v-if="signalCards.length" class="brain-stream-list">
@@ -308,7 +308,7 @@ onBeforeUnmount(() => {
               <div>
                 <h2>继续跟这些企业</h2>
               </div>
-              <span class="brain-section-meta">{{ focusCompanies.length }} 家</span>
+              <span class="brain-section-meta">先跟这 {{ focusCompanies.length }} 家</span>
             </div>
 
             <div v-if="focusCompanies.length" class="brain-company-list">
@@ -333,7 +333,7 @@ onBeforeUnmount(() => {
               <div>
                 <h2>先处理这些企业</h2>
               </div>
-              <span class="brain-section-meta">{{ riskCompanies.length }} 家</span>
+              <span class="brain-section-meta">优先处理 {{ riskCompanies.length }} 家</span>
             </div>
 
             <div v-if="riskCompanies.length" class="brain-risk-list">
@@ -508,7 +508,7 @@ onBeforeUnmount(() => {
 .brain-summary {
   margin: 0;
   max-width: 660px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.65;
   color: rgba(200, 211, 228, 0.84);
 }
@@ -545,7 +545,7 @@ onBeforeUnmount(() => {
 
 .brain-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -572,6 +572,10 @@ onBeforeUnmount(() => {
 
 .brain-metric-lead strong {
   font-size: 20px;
+}
+
+.brain-metric-lead {
+  grid-column: 1 / -1;
 }
 
 .brain-metric.is-risk {
@@ -819,7 +823,7 @@ onBeforeUnmount(() => {
 
 .brain-radar-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
