@@ -571,7 +571,7 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   gap: 16px;
   width: 100%;
-  max-width: 1320px;
+  max-width: 1280px;
   margin: 0 auto;
 }
 
@@ -770,7 +770,7 @@ watch(selectedCompany, async (company, previous) => {
 .board-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 432px;
+  grid-template-columns: minmax(0, 1fr) 416px;
 }
 
 .board-canvas {
@@ -814,6 +814,10 @@ watch(selectedCompany, async (company, previous) => {
   background: rgba(255, 255, 255, 0.04);
   color: rgba(203, 213, 225, 0.84);
   font-size: 12px;
+}
+
+.canvas-head-meta span:last-child {
+  display: none;
 }
 
 .canvas-loading,
@@ -1133,7 +1137,7 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 96px;
   gap: 10px;
-  width: min(100%, 760px);
+  width: min(100%, 700px);
   padding: 4px 8px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);

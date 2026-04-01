@@ -42,13 +42,12 @@ const rawGraphNodes = computed<GraphNode[]>(() => graphState.data.value?.graph?.
 const rawGraphEdges = computed<GraphEdge[]>(() => graphState.data.value?.graph?.edges || [])
 const signalStream = computed<GraphSignal[]>(() => graphState.data.value?.signal_stream || [])
 const evidenceNavigation = computed(() => graphState.data.value?.evidence_navigation?.links || [])
-const executionStream = computed(() => graphState.data.value?.execution_stream || [])
 const summary = computed(() => graphState.data.value?.summary || {})
 const graphSummary = computed(() => graphState.data.value?.graph?.summary || {})
 const graphCommandSurface = computed(() => graphState.data.value?.graph_command_surface || null)
 const graphLiveFrames = computed(() => graphState.data.value?.graph_live_frames || [])
 const currentFrame = computed(() => graphLiveFrames.value[activePathStep.value] || null)
-const pathEvidenceLinks = computed(() => evidenceNavigation.value.slice(0, 2))
+const pathEvidenceLinks = computed(() => evidenceNavigation.value.slice(0, 1))
 const visibleNodeIds = computed(() => {
   const nodes = rawGraphNodes.value
   const edges = rawGraphEdges.value
@@ -419,7 +418,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
             <span>当前节点</span>
             <strong>{{ selectedNode.label }}</strong>
             <p>{{ selectedNode.detail }}</p>
-            <div v-if="pathEvidenceLinks.length || executionStream.length" class="selected-node-links">
+            <div v-if="pathEvidenceLinks.length" class="selected-node-links">
               <RouterLink
                 v-for="item in pathEvidenceLinks"
                 :key="`${item.label}-${item.path}`"
@@ -428,13 +427,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
               >
                 {{ item.label }}
               </RouterLink>
-              <span
-                v-for="item in executionStream.slice(0, 1)"
-                :key="item.id"
-                class="selected-node-link is-muted"
-              >
-                {{ item.title }}
-              </span>
             </div>
           </div>
 
@@ -476,7 +468,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 16px;
   width: 100%;
-  max-width: 1320px;
+  max-width: 1280px;
   margin: 0 auto;
 }
 
@@ -626,6 +618,10 @@ watch(selectedPeriod, async () => { await loadGraph() })
   color: rgba(203, 213, 225, 0.82);
 }
 
+.query-strip-meta span:last-child {
+  display: none;
+}
+
 .graph-intent-dock {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 118px;
@@ -712,7 +708,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  max-width: 280px;
+  max-width: 180px;
 }
 
 .stage-signal {
@@ -748,7 +744,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .selected-node-panel {
   right: 18px;
   bottom: 18px;
-  max-width: 300px;
+  max-width: 260px;
   display: grid;
   gap: 8px;
   padding: 11px 13px;
@@ -972,7 +968,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .path-step {
-  min-width: 154px;
+  min-width: 148px;
   padding: 10px 11px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
