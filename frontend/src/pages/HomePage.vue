@@ -80,17 +80,14 @@ const scenarioCards: ScenarioCard[] = [
         <div class="landing-stage" aria-hidden="true">
           <div class="stage-column">
             <div class="stage-frame stage-frame-lead">
-              <span>行业变化</span>
               <strong>先看主线</strong>
             </div>
 
             <div class="stage-frame">
-              <span>企业判断</span>
               <strong>再做判断</strong>
             </div>
 
             <div class="stage-frame">
-              <span>原文证据</span>
               <strong>最后回到原文</strong>
             </div>
           </div>
@@ -109,7 +106,6 @@ const scenarioCards: ScenarioCard[] = [
             <span>{{ item.roleLabel }}</span>
             <strong>{{ item.title }}</strong>
           </div>
-          <em>进入</em>
         </RouterLink>
       </section>
     </div>
@@ -224,7 +220,6 @@ const scenarioCards: ScenarioCard[] = [
   border-color: rgba(52, 211, 153, 0.16);
 }
 
-.stage-frame span,
 .dock-strip span {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
@@ -248,7 +243,6 @@ const scenarioCards: ScenarioCard[] = [
 .dock-strip {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
   min-height: 92px;
   padding: 0 20px;
@@ -273,17 +267,6 @@ const scenarioCards: ScenarioCard[] = [
 
 .dock-strip.is-regulator {
   background: rgba(245, 158, 11, 0.06);
-}
-
-.dock-strip em {
-  min-width: 54px;
-  min-height: 54px;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  font-style: normal;
-  color: #f8fafc;
-  background: rgba(255, 255, 255, 0.06);
 }
 
 @media (max-width: 1260px) {

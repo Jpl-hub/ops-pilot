@@ -120,7 +120,8 @@ const consoleSyncLabel = computed(() => {
   if (loadingOverview.value) return '协同面同步中'
   if (loadingCompanyWorkspace.value) return '企业状态刷新中'
   if (pageLoadError.value) return '数据载入异常'
-  if (selectedCompany.value) return `${selectedCompany.value} · ${roleLabel.value}`
+  if (selectedCompany.value && controlPlane.value?.report_period) return `${roleLabel.value} · ${controlPlane.value.report_period}`
+  if (selectedCompany.value) return roleLabel.value
   return roleLabel.value
 })
 
@@ -221,12 +222,6 @@ function displayFlowStatus(status?: string) {
 function displayMetricValue(item: any) {
   if (item?.unit) return `${item.value}${item.unit}`
   return `${item?.value ?? '--'}`
-}
-
-function formatExecutionMs(value?: number) {
-  if (!value) return ''
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}s`
-  return `${Math.round(value)}ms`
 }
 
 function renderInlineMarkdown(value: string) {
@@ -402,8 +397,6 @@ watch(selectedCompany, async (company, previous) => {
                 <h2>{{ latestAnswer.summary || '已生成当前轮次研判' }}</h2>
                 <div class="analysis-meta">
                   <span v-for="item in workspaceStatus" :key="item">{{ item }}</span>
-                  <span v-if="controlPlane?.steps_completed">流程 {{ controlPlane.steps_completed }}/{{ controlPlane.step_total }}</span>
-                  <span v-if="controlPlane?.execution_ms">耗时 {{ formatExecutionMs(controlPlane.execution_ms) }}</span>
                 </div>
               </section>
 

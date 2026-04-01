@@ -22,13 +22,13 @@ const roleOptions: Array<{ value: UserRole; label: string }> = [
 ]
 
 const sidebarItems = [
-  { to: '/brain', label: '产业大脑', detail: '实时行业变化', auth: true },
-  { to: '/workspace', label: '协同分析', detail: '综合判断台', auth: true },
-  { to: '/graph', label: '图谱检索', detail: '沿证据链追溯', auth: true },
-  { to: '/stress', label: '压力推演', detail: '看冲击如何传导', auth: true },
-  { to: '/score', label: '经营诊断', detail: '企业体质与问题', auth: true },
-  { to: '/verify', label: '观点核验', detail: '研报与财报对照', auth: true },
-  { to: '/vision', label: '文档复核', detail: '财报页块与表格', auth: true },
+  { to: '/brain', label: '产业大脑', detail: '行业变化', auth: true },
+  { to: '/workspace', label: '协同分析', detail: '直接判断', auth: true },
+  { to: '/graph', label: '图谱检索', detail: '证据追溯', auth: true },
+  { to: '/stress', label: '压力推演', detail: '冲击传导', auth: true },
+  { to: '/score', label: '经营诊断', detail: '经营体检', auth: true },
+  { to: '/verify', label: '观点核验', detail: '研报对照', auth: true },
+  { to: '/vision', label: '文档复核', detail: '财报原文', auth: true },
 ]
 
 const visibleSidebarItems = computed(() =>
@@ -98,7 +98,6 @@ async function logout() {
         <div class="app-context-card">
           <span class="app-muted-label">{{ activeNavLabel }}</span>
           <strong>{{ routeContext.title }}</strong>
-          <p>{{ routeContext.note }}</p>
         </div>
 
         <div v-if="session.isAuthenticated.value" class="app-role-box">
