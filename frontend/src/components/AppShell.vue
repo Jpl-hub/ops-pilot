@@ -41,9 +41,9 @@ const activeNavLabel = computed(
 
 const routeContext = computed(() => {
   const mapping: Record<string, { title: string; cues: string[] }> = {
-    '/brain': { title: '先看行业脉冲', cues: ['信号', '热点', '异动'] },
-    '/workspace': { title: '直接发起判断', cues: ['研判', '证据', '动作'] },
-    '/graph': { title: '沿证据路径追溯', cues: ['节点', '链路', '原文'] },
+    '/brain': { title: '先看行业主线', cues: ['信号', '热点', '异动'] },
+    '/workspace': { title: '直接做判断', cues: ['研判', '证据', '动作'] },
+    '/graph': { title: '沿证据链追下去', cues: ['节点', '链路', '原文'] },
     '/stress': { title: '看冲击怎么传导', cues: ['假设', '路径', '影响'] },
     '/score': { title: '先诊断企业体质', cues: ['经营', '风险', '对标'] },
     '/verify': { title: '核对观点是否站得住', cues: ['研报', '财报', '偏差'] },
@@ -153,7 +153,7 @@ async function logout() {
 }
 
 .app-sidebar {
-  width: 304px;
+  width: 288px;
   padding: 22px 16px 18px;
   gap: 18px;
   background:
@@ -208,7 +208,7 @@ async function logout() {
   display: grid;
   gap: 6px;
   width: 100%;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid transparent;
   background: transparent;
@@ -255,8 +255,8 @@ async function logout() {
 
 .app-context-card {
   display: grid;
-  gap: 10px;
-  padding: 14px 14px 12px;
+  gap: 8px;
+  padding: 12px 12px 10px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.025);
@@ -369,7 +369,7 @@ async function logout() {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 18px 22px 22px;
+  padding: 16px 18px 20px;
   overflow-y: auto;
 }
 

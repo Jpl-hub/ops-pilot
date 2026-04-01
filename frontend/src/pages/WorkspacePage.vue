@@ -601,7 +601,7 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   gap: 16px;
   width: 100%;
-  max-width: 1460px;
+  max-width: 1380px;
   margin: 0 auto;
 }
 
@@ -656,7 +656,7 @@ watch(selectedCompany, async (company, previous) => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 18px 12px;
+  padding: 14px 16px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -694,13 +694,13 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .board-title strong {
-  font-size: 28px;
+  font-size: 24px;
   letter-spacing: -0.04em;
 }
 
 .board-subtitle {
   color: rgba(120, 143, 172, 0.88);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .board-topbar-meta {
@@ -747,16 +747,16 @@ watch(selectedCompany, async (company, previous) => {
 .board-flow {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px 18px 14px;
+  gap: 8px;
+  padding: 10px 16px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .flow-card {
   display: grid;
   gap: 8px;
-  min-height: 120px;
-  padding: 14px 14px 12px;
+  min-height: 108px;
+  padding: 12px 12px 10px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
@@ -802,7 +802,7 @@ watch(selectedCompany, async (company, previous) => {
 .board-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 296px;
+  grid-template-columns: minmax(0, 1fr) 280px;
 }
 
 .board-canvas {
@@ -817,7 +817,7 @@ watch(selectedCompany, async (company, previous) => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 18px 12px;
+  padding: 14px 16px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -955,9 +955,9 @@ watch(selectedCompany, async (company, previous) => {
 .canvas-content {
   min-height: 0;
   overflow-y: auto;
-  padding: 18px;
+  padding: 16px;
   display: grid;
-  gap: 16px;
+  gap: 14px;
 }
 
 .canvas-summary {
@@ -966,7 +966,7 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .canvas-summary h2 {
-  font-size: clamp(22px, 2.5vw, 30px);
+  font-size: clamp(20px, 2.1vw, 26px);
   line-height: 1.08;
   letter-spacing: -0.04em;
 }
@@ -986,7 +986,7 @@ watch(selectedCompany, async (company, previous) => {
 .analysis-block {
   display: grid;
   gap: 10px;
-  padding: 16px;
+  padding: 14px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.02);
 }
@@ -1007,7 +1007,7 @@ watch(selectedCompany, async (company, previous) => {
 .evidence-card {
   display: grid;
   gap: 8px;
-  padding: 14px;
+  padding: 12px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.025);
 }
@@ -1023,7 +1023,7 @@ watch(selectedCompany, async (company, previous) => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 16px 14px;
+  padding: 16px 14px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -1039,7 +1039,7 @@ watch(selectedCompany, async (company, previous) => {
 .rail-body {
   min-height: 0;
   overflow-y: auto;
-  padding: 16px;
+  padding: 14px;
   display: grid;
   gap: 12px;
 }
@@ -1118,7 +1118,7 @@ watch(selectedCompany, async (company, previous) => {
 .rail-footer {
   display: grid;
   gap: 10px;
-  padding: 14px 16px 16px;
+  padding: 12px 14px 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -1145,7 +1145,7 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .board-composer {
-  padding: 12px 18px 18px;
+  padding: 10px 16px 16px;
   display: grid;
   gap: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -1153,7 +1153,7 @@ watch(selectedCompany, async (company, previous) => {
 
 .composer-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 132px;
+  grid-template-columns: minmax(0, 1fr) 118px;
   gap: 12px;
   padding: 8px;
   border-radius: 14px;
@@ -1189,7 +1189,7 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .prompt-chip {
-  min-height: 34px;
+  min-height: 32px;
   padding: 0 14px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.08);

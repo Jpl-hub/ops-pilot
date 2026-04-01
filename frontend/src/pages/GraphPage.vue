@@ -248,9 +248,9 @@ watch(selectedPeriod, async () => { await loadGraph() })
     <div class="graph-console">
       <section class="graph-header">
         <div class="graph-heading">
-          <span class="graph-kicker">New Energy Supply Chain Knowledge Graph</span>
-          <h1>图谱增强检索</h1>
-          <p>{{ selectedCompany || '选择公司' }} · {{ graphCommandSurface?.focus_label || '围绕真实节点与执行流展开检索' }}</p>
+          <span class="graph-kicker">Evidence Graph Workspace</span>
+          <h1>图谱检索</h1>
+          <p>{{ selectedCompany || '选择公司' }} · {{ graphCommandSurface?.focus_label || '沿证据、风险与执行链路继续追下去' }}</p>
         </div>
 
         <div class="graph-controls">
@@ -276,7 +276,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
           <div class="query-strip-icon">图</div>
           <div>
             <h2>{{ graphIntent }}</h2>
-            <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '图谱检索已接入真实关系节点、执行流与证据入口。' }}</p>
+            <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '围绕真实节点、执行流和原文证据继续追问。' }}</p>
           </div>
         </div>
 
@@ -308,9 +308,9 @@ watch(selectedPeriod, async () => { await loadGraph() })
       <template v-else>
         <section class="graph-stage" ref="graphStageRef">
           <div class="stage-summary">
-            <span>{{ currentFrame?.phase || 'Graph Live' }}</span>
-            <strong>{{ currentFrame?.headline || graphCommandSurface?.title || '关系图谱舞台' }}</strong>
-            <p>{{ graphCommandSurface?.metric || graphCommandSurface?.headline || '拖拽节点查看当前链路。' }}</p>
+            <span>当前聚焦</span>
+            <strong>{{ currentFrame?.headline || graphCommandSurface?.title || '关键证据链路' }}</strong>
+            <p>{{ graphCommandSurface?.headline || '拖拽节点查看这一轮的关键链路。' }}</p>
           </div>
 
           <div class="stage-signal-row">
@@ -362,8 +362,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
         <section class="path-dock">
           <div class="path-dock-head">
-            <span>Inference Path</span>
-            <strong>{{ inferencePath.length }} steps</strong>
+            <span>推理链</span>
+            <strong>{{ inferencePath.length }} 步</strong>
           </div>
 
           <div class="path-track">
@@ -384,7 +384,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
         <section class="graph-bottom">
           <div class="bottom-panel">
             <div class="bottom-head">
-              <span>证据入口</span>
+              <span>原文入口</span>
               <strong>{{ evidenceNavigation.length }} 条</strong>
             </div>
             <div class="bottom-links">
@@ -405,7 +405,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
           <div class="bottom-panel">
             <div class="bottom-head">
-              <span>动作与联动</span>
+              <span>下一步</span>
               <strong>{{ relatedRoutes.length + executionStream.length }}</strong>
             </div>
             <div class="bottom-links">
@@ -448,7 +448,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
   gap: 16px;
   width: 100%;
-  max-width: 1480px;
+  max-width: 1380px;
   margin: 0 auto;
 }
 
@@ -493,8 +493,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .graph-heading h1 {
-  font-size: clamp(30px, 3.4vw, 40px);
-  line-height: 0.98;
+  font-size: clamp(26px, 2.8vw, 34px);
+  line-height: 1.02;
 }
 
 .graph-heading p,
@@ -565,7 +565,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .query-strip-main h2 {
-  font-size: clamp(22px, 2.2vw, 26px);
+  font-size: clamp(18px, 1.9vw, 22px);
   line-height: 1.05;
 }
 
@@ -645,7 +645,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-stage {
   position: relative;
-  min-height: 560px;
+  min-height: 520px;
   overflow: hidden;
   background:
     radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.1), transparent 24%),
@@ -663,7 +663,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .stage-summary {
   left: 18px;
   top: 18px;
-  max-width: 380px;
+  max-width: 320px;
   display: grid;
   gap: 8px;
   padding: 14px 16px;
@@ -673,7 +673,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .stage-summary strong {
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.06;
 }
 
@@ -720,7 +720,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .selected-node-panel {
   left: 18px;
   bottom: 18px;
-  max-width: 360px;
+  max-width: 320px;
   display: grid;
   gap: 8px;
   padding: 14px 16px;
@@ -731,7 +731,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .selected-node-panel strong {
   color: #f8fafc;
-  font-size: 17px;
+  font-size: 15px;
   line-height: 1.08;
 }
 
@@ -763,13 +763,13 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .graph-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  min-width: 108px;
-  max-width: 150px;
+  min-width: 96px;
+  max-width: 136px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 3px;
-  padding: 8px 10px;
+  padding: 7px 9px;
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   cursor: grab;
@@ -829,7 +829,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .node-name {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1.35;
 }

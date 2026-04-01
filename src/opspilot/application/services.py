@@ -7691,7 +7691,7 @@ def _build_graph_command_surface(
     latest_phase = phase_track[-1] if phase_track else {}
     dominant_signal = signal_stream[0] if signal_stream else {}
     return {
-        "title": f"{company_name} 图谱检索",
+        "title": "关键证据链路",
         "intent": intent,
         "focus_label": focus.get("label") or "等待焦点节点",
         "focus_type": focus.get("type") or "graph",
@@ -7868,12 +7868,12 @@ def _build_brain_command_surface(
     focus_count = len(attention_matrix)
     dominant_label = str(dominant_market["label"])
     focus_subindustry = str(focus_company.get("subindustry") or "重点板块")
-    summary = f"{focus_subindustry}板块正在抬升，{focus_company['company_name']} 已进入跟踪。"
+    summary = f"{focus_subindustry}板块正在抬升，值得先看进入跟踪的企业与风险链。"
     if focus_count > 1:
-        summary = f"{focus_subindustry}板块正在抬升，{focus_company['company_name']} 等 {focus_count} 家公司同步进入跟踪。"
+        summary = f"{focus_subindustry}板块正在抬升，已有 {focus_count} 家重点企业同步进入跟踪。"
     return {
-        "title": f"{preferred_period} 行业脉冲",
-        "headline": f"{dominant_label}与重点公司异动正在同步刷新",
+        "title": "行业主线",
+        "headline": f"{dominant_label}正在带动重点公司与风险面同步刷新",
         "metric": dominant_market["value"],
         "intensity": 52 + min(36, focus_count * 6),
         "watch_items": [

@@ -33,7 +33,7 @@ const signalCards = computed(() => signalFeed.value.slice(0, 6))
 const pulseSteps = computed(() => brainSignalTape.value.slice(0, 4))
 const tapeItems = computed(() => marketTape.value.slice(0, 6))
 const leadMetric = computed(() => marketTape.value[0] || null)
-const supportMetrics = computed(() => marketTape.value.slice(1, 4))
+const supportMetrics = computed(() => marketTape.value.slice(1, 3))
 
 const signalFreshnessTone = computed(() => {
   const status = externalSignalStream.value?.status
@@ -147,7 +147,7 @@ onBeforeUnmount(() => {
 
       <template v-else-if="payload">
         <section class="brain-ribbon">
-          <span class="brain-ribbon-label">行业脉冲</span>
+          <span class="brain-ribbon-label">最新变化</span>
           <div class="brain-ribbon-track">
             <span v-for="item in tapeItems" :key="item.label" :class="['brain-ribbon-item', `is-${item.tone || 'default'}`]">
               {{ item.label }} · {{ item.value }} · {{ item.delta }}
@@ -161,7 +161,7 @@ onBeforeUnmount(() => {
         <section class="brain-hero">
           <div class="brain-hero-copy">
             <div class="brain-kicker-row">
-              <span class="brain-kicker">新能源产业大脑</span>
+              <span class="brain-kicker">{{ brainCommandSurface?.title || '行业主线' }}</span>
               <span class="brain-live-chip" :class="wsStatus === 'connected' ? 'is-live' : 'is-risk'">
                 {{ displayWsStatus(wsStatus) }}
               </span>
@@ -170,16 +170,18 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <h1 class="brain-title">
-              {{ brainCommandSurface?.title || '行业脉冲' }}
+              {{
+                brainCommandSurface?.headline
+                  || signalCards[0]?.headline
+                  || streamingAnomalies?.summary?.focus_line
+                  || '行业变化会先在这里收束，再进入企业判断链路。'
+              }}
             </h1>
             <p class="brain-summary">
               {{
                 brainCommandSurface?.summary
-                  || brainCommandSurface?.headline
                   || brainCommandSurface?.dominant_signal?.value
-                  || signalCards[0]?.headline
-                  || streamingAnomalies?.summary?.focus_line
-                  || '正式行业信号会先汇聚到这里，再分发到企业判断链路。'
+                  || '把真正值得追的变化先拎出来，再决定下一步去看谁、看什么。'
               }}
             </p>
 
@@ -214,7 +216,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface brain-canvas">
             <div class="brain-section-head">
               <div>
-                <h2>走势</h2>
+                <h2>主线走势</h2>
               </div>
             </div>
 
@@ -243,7 +245,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface brain-stream">
             <div class="brain-section-head">
               <div>
-                <h2>最新动态</h2>
+                <h2>最新线索</h2>
               </div>
               <span class="brain-section-meta">{{ externalSignalStream?.signal_count || 0 }} 条</span>
             </div>
@@ -265,7 +267,7 @@ onBeforeUnmount(() => {
                 <small>{{ displaySignalMeta(item) }}</small>
               </a>
             </div>
-            <div v-else class="brain-empty-state">当前没有可展示的正式外部信号。</div>
+            <div v-else class="brain-empty-state">当前还没有新的正式线索进入这一轮监测。</div>
           </article>
         </section>
 
@@ -273,7 +275,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <h2>子行业热度</h2>
+                <h2>热度分布</h2>
               </div>
             </div>
             <ChartPanel
@@ -288,7 +290,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <h2>异动传导</h2>
+                <h2>正在升温的风险</h2>
               </div>
               <span class="brain-section-meta">
                 {{ streamingAnomalies?.summary?.detected_count || 0 }} 家
@@ -321,7 +323,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <h2>重点公司</h2>
+                <h2>重点企业</h2>
               </div>
               <span class="brain-section-meta">{{ focusCompanies.length }} 家</span>
             </div>
@@ -346,7 +348,7 @@ onBeforeUnmount(() => {
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
-                <h2>优先处理</h2>
+                <h2>先处理这些</h2>
               </div>
               <span class="brain-section-meta">{{ riskCompanies.length }} 家</span>
             </div>
@@ -373,7 +375,7 @@ onBeforeUnmount(() => {
         <section class="brain-surface brain-radar">
           <div class="brain-section-head">
             <div>
-              <h2>政策与技术动态</h2>
+                <h2>最近政策与技术变化</h2>
             </div>
           </div>
 
@@ -395,7 +397,7 @@ onBeforeUnmount(() => {
               <small>{{ displayResearchSource(item) }}</small>
             </a>
           </div>
-          <div v-else class="brain-empty-state">当前没有可展示的技术与政策雷达。</div>
+          <div v-else class="brain-empty-state">当前还没有值得摆上台面的政策或技术变化。</div>
         </section>
       </template>
     </div>
@@ -409,7 +411,7 @@ onBeforeUnmount(() => {
   gap: 16px;
   min-height: 100%;
   width: 100%;
-  max-width: 1480px;
+  max-width: 1380px;
   margin: 0 auto;
   color: #edf2f7;
 }
@@ -504,8 +506,8 @@ onBeforeUnmount(() => {
 .brain-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
-  padding: 20px 22px 18px;
+  gap: 14px;
+  padding: 18px 20px 16px;
   border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background:
@@ -558,15 +560,15 @@ onBeforeUnmount(() => {
 
 .brain-title {
   margin: 0;
-  font-size: clamp(22px, 3.8vw, 34px);
-  line-height: 1.02;
+  font-size: clamp(20px, 2.7vw, 28px);
+  line-height: 1.08;
   letter-spacing: -0.04em;
   color: #f8fafc;
 }
 
 .brain-summary {
   margin: 0;
-  max-width: 720px;
+  max-width: 660px;
   font-size: 13px;
   line-height: 1.65;
   color: rgba(200, 211, 228, 0.84);
@@ -574,7 +576,7 @@ onBeforeUnmount(() => {
 
 .brain-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -618,7 +620,7 @@ onBeforeUnmount(() => {
   align-content: flex-start;
   justify-content: flex-end;
   gap: 8px;
-  max-width: 320px;
+  max-width: 260px;
 }
 
 .brain-sector-pill {
@@ -646,15 +648,15 @@ onBeforeUnmount(() => {
 .brain-stage,
 .brain-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.95fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1.58fr) minmax(292px, 0.92fr);
+  gap: 14px;
 }
 
 .brain-canvas,
 .brain-stream,
 .brain-radar,
 .brain-grid > .brain-surface {
-  padding: 18px;
+  padding: 16px;
 }
 
 .brain-section-head {
@@ -697,7 +699,7 @@ onBeforeUnmount(() => {
 }
 
 .brain-chart-stage {
-  min-height: 320px;
+  min-height: 300px;
 }
 
 :deep(.brain-chart-panel) {

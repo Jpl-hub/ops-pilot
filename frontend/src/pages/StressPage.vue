@@ -90,15 +90,17 @@ function selectPreset(item: string) {
 </script>
 
 <template>
-  <AppShell title="产业链压力测试">
+  <AppShell title="">
     <div class="dashboard-wrapper">
 
       <!-- Control Bar -->
       <section class="glass-panel control-bar">
         <div class="control-left">
           <div class="glow-icon">压</div>
-          <div>
-            <h3 class="company-name text-gradient">{{ selectedCompany || '选择公司' }}</h3>
+          <div class="control-copy">
+            <span class="control-kicker">产业链压力测试</span>
+            <h3 class="company-name text-gradient">压力推演</h3>
+            <p class="control-meta">{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
         </div>
         <div class="inline-context">
@@ -346,13 +348,16 @@ function selectPreset(item: string) {
 </template>
 
 <style scoped>
-.dashboard-wrapper { display: flex; flex-direction: column; gap: 14px; height: 100%; overflow: hidden; width: 100%; max-width: 1480px; margin: 0 auto; }
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 14px; height: 100%; overflow: hidden; width: 100%; max-width: 1380px; margin: 0 auto; }
 
 /* Control Bar */
-.control-bar { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-radius: 14px; flex-shrink: 0; }
+.control-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 14px; flex-shrink: 0; }
 .control-left { display: flex; align-items: center; gap: 16px; }
+.control-copy { display: grid; gap: 4px; }
+.control-kicker { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.control-meta { margin: 0; font-size: 12px; color: var(--muted); }
 .glow-icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(244,63,94,0.15); border: 1px solid rgba(244,63,94,0.4); color: #f43f5e; display: grid; place-items: center; font-weight: bold; font-size: 18px; box-shadow: 0 0 15px rgba(244,63,94,0.2); }
-.company-name { margin: 0; font-size: 20px; font-weight: 600; }
+.company-name { margin: 0; font-size: 18px; font-weight: 600; }
 .text-gradient { background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(to right, #f43f5e, #fb923c); }
 .inline-context { display: flex; align-items: center; gap: 16px; }
 .inline-field { display: flex; align-items: center; gap: 8px; }
@@ -380,7 +385,7 @@ function selectPreset(item: string) {
 .state-container { flex: 1; }
 
 /* Content Grid */
-.content-grid { display: grid; grid-template-columns: 1fr 300px; gap: 14px; flex: 1; min-height: 0; }
+.content-grid { display: grid; grid-template-columns: 1fr 284px; gap: 14px; flex: 1; min-height: 0; }
 .left-col { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; }
 .left-col::-webkit-scrollbar { width: 4px; }
 .left-col::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }

@@ -158,14 +158,16 @@ watch(
 </script>
 
 <template>
-  <AppShell title="企业运营体检">
+  <AppShell title="">
     <div class="dashboard-wrapper">
       <!-- Top Control Bar -->
       <section class="glass-panel control-bar">
         <div class="control-left">
           <div class="mode-query-icon glow-icon">体</div>
           <div class="mode-query-copy">
-            <h3 class="company-name text-gradient">{{ selectedCompany }}</h3>
+            <span class="control-kicker">企业运营体检</span>
+            <h3 class="company-name text-gradient">经营诊断</h3>
+            <p class="control-meta">{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
         </div>
         
@@ -379,7 +381,7 @@ watch(
   height: 100%;
   overflow: hidden;
   width: 100%;
-  max-width: 1480px;
+  max-width: 1380px;
   margin: 0 auto;
 }
 
@@ -388,7 +390,7 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 20px;
+  padding: 12px 16px;
   border-radius: 14px;
   flex-shrink: 0;
 }
@@ -415,9 +417,23 @@ watch(
 
 .company-name {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--accent);
+}
+
+.control-kicker {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.control-meta {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .inline-context {
@@ -457,7 +473,7 @@ watch(
 /* Main Grid */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 332px 1fr;
+  grid-template-columns: 300px 1fr;
   gap: 16px;
   flex: 1;
   min-height: 0;

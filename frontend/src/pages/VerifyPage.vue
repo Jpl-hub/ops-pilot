@@ -164,7 +164,7 @@ watch(
 </script>
 
 <template>
-  <AppShell title="研报观点核验">
+  <AppShell title="">
     <div class="dashboard-wrapper">
       
       <!-- Top Control Bar -->
@@ -172,7 +172,9 @@ watch(
         <div class="control-left">
           <div class="mode-query-icon glow-icon">核</div>
           <div class="mode-query-copy">
-            <h3 class="company-name text-gradient">{{ selectedCompany }}</h3>
+            <span class="control-kicker">研报观点核验</span>
+            <h3 class="company-name text-gradient">观点核验</h3>
+            <p class="control-meta">{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
         </div>
         
@@ -382,11 +384,13 @@ watch(
 </template>
 
 <style scoped>
-.dashboard-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: hidden; width: 100%; max-width: 1480px; margin: 0 auto; }
-.control-bar { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-radius: 14px; flex-shrink: 0; }
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: hidden; width: 100%; max-width: 1380px; margin: 0 auto; }
+.control-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 14px; flex-shrink: 0; }
 .control-left { display: flex; align-items: center; gap: 16px; }
 .glow-icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); color: #3b82f6; display: grid; place-items: center; font-weight: bold; font-size: 18px; box-shadow: 0 0 15px rgba(59, 130, 246, 0.2); }
-.company-name { margin: 0; font-size: 20px; font-weight: 600; color: #60a5fa; }
+.company-name { margin: 0; font-size: 18px; font-weight: 600; color: #60a5fa; }
+.control-kicker { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.control-meta { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
 .text-gradient { background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(to right, #60a5fa, #34d399); }
 .inline-context { display: flex; align-items: center; gap: 16px; }
 .inline-field { display: flex; align-items: center; gap: 8px; min-width: unset; }
@@ -397,7 +401,7 @@ watch(
 .empty-content { text-align: center; }
 
 /* Dashboard Grid */
-.dashboard-grid { display: grid; grid-template-columns: 332px 1fr; gap: 16px; flex: 1; min-height: 0; }
+.dashboard-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; flex: 1; min-height: 0; }
 .dashboard-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .dashboard-col::-webkit-scrollbar { width: 4px; }
 .dashboard-col::-webkit-scrollbar-track { background: transparent; }
