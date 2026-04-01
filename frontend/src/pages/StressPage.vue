@@ -14,6 +14,19 @@ const route = useRoute()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
 const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
+const periodOptions = computed(() =>
+  (availablePeriods.value || [])
+    .map((item: any) => {
+      if (typeof item === 'string') return { value: item, label: item }
+      if (item && typeof item === 'object') {
+        const value = String(item.value || item.period || item.report_period || item.label || '')
+        const label = String(item.label || item.period || item.report_period || item.value || '')
+        return value ? { value, label } : null
+      }
+      return null
+    })
+    .filter(Boolean) as Array<{ value: string; label: string }>,
+)
 const hasCompanies = computed(() => companies.value.length > 0)
 const selectedCompany = ref('')
 const selectedPeriod = ref('')
@@ -39,8 +52,14 @@ const focusedPropagationSteps = computed(() => propagationSteps.value.slice(0, 3
 const primaryRecoveryAction = computed(() => recoverySequence.value[0] || null)
 const activeWavefront = computed(() => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null)
 const primaryScenarioLabel = computed(() => selectedCompany.value || '选择公司后开始推演')
+const selectedPeriodLabel = computed(() => {
+  const match = periodOptions.value.find((item) => item.value === selectedPeriod.value)
+  if (match) return match.label
+  if (typeof selectedPeriod.value === 'string') return selectedPeriod.value
+  return ''
+})
 const scenarioStatusLine = computed(() =>
-  selectedPeriod.value ? `${selectedPeriod} · 从一个明确冲击假设开始` : '默认主周期 · 从一个明确冲击假设开始',
+  selectedPeriodLabel.value ? `${selectedPeriodLabel.value} · 从一个明确冲击假设开始` : '默认主周期 · 从一个明确冲击假设开始',
 )
 const focusExplanation = computed(
   () =>
@@ -123,9 +142,12 @@ onMounted(async () => {
   await overviewState.execute(() => get('/workspace/companies'))
   selectedCompany.value =
     (typeof route.query.company === 'string' ? route.query.company : '') || companies.value[0] || ''
+  const preferredPeriod = overviewState.data.value?.preferred_period
   selectedPeriod.value = typeof route.query.period === 'string' && route.query.period
     ? route.query.period
-    : (overviewState.data.value?.preferred_period || '')
+    : typeof preferredPeriod === 'string'
+      ? preferredPeriod
+      : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
   await runStress()
   stressTicker = window.setInterval(() => {
     if (!focusedPropagationSteps.value.length) return
@@ -168,7 +190,7 @@ function selectPreset(item: string) {
             <span>报期</span>
             <select v-model="selectedPeriod">
               <option value="">默认主周期</option>
-              <option v-for="period in availablePeriods" :key="period" :value="period">{{ period }}</option>
+              <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
             </select>
           </label>
         </div>

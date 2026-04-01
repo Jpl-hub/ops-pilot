@@ -57,13 +57,13 @@ class StressService:
 
         agent_data = await run_stress_agent(company_name, scenario, workspace["report_period"])
 
-        propagation_steps = agent_data.get("propagation_steps", [])
-        severity = agent_data.get(
-            "severity",
-            {"level": "MEDIUM", "label": "Unknown", "color": "warning"},
+        propagation_steps = _normalize_agent_propagation_steps(agent_data.get("propagation_steps", []))
+        severity = _normalize_stress_severity(
+            agent_data.get("severity"),
+            default={"level": "MEDIUM", "label": "可控冲击", "color": "warning"},
         )
-        transmission_matrix = agent_data.get("transmission_matrix", [])
-        simulation_log = agent_data.get("simulation_log", [])
+        transmission_matrix = _normalize_agent_transmission_matrix(agent_data.get("transmission_matrix", []))
+        simulation_log = _normalize_agent_simulation_log(agent_data.get("simulation_log", []))
 
         graph_nodes = graph.get("nodes", [])
         graph_edges = graph.get("edges", [])
@@ -296,6 +296,113 @@ def _build_stress_propagation_steps(
             "tone": "action",
         },
     ]
+
+
+def _contains_long_english_word(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    return re.search(r"[A-Za-z]{4,}", value) is not None
+
+
+def _normalize_stress_severity(raw_value: Any, *, default: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(raw_value, dict):
+        return default
+    level = str(raw_value.get("level") or default["level"]).upper()
+    color = str(raw_value.get("color") or default["color"]).lower()
+    label_map = {
+        "CRITICAL": "极高",
+        "HIGH": "高",
+        "MEDIUM": "中",
+        "LOW": "低",
+    }
+    label = label_map.get(level) or str(raw_value.get("label") or default["label"])
+    return {
+        "level": level if level in label_map else default["level"],
+        "label": label,
+        "color": color if color in {"risk", "warning", "safe", "success"} else default["color"],
+    }
+
+
+def _normalize_agent_propagation_steps(raw_steps: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_steps, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_steps, start=1):
+        if not isinstance(item, dict):
+            return []
+        title = str(item.get("title") or "").strip()
+        detail = str(item.get("detail") or "").strip()
+        if not title or not detail:
+            return []
+        if _contains_long_english_word(title) or _contains_long_english_word(detail):
+            return []
+        normalized.append(
+            {
+                "step": int(item.get("step") or index),
+                "title": title,
+                "detail": detail,
+                "tone": item.get("tone") or "graph",
+            }
+        )
+    return normalized
+
+
+def _normalize_agent_transmission_matrix(raw_items: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_items, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    stage_map = {
+        "upstream": "上游",
+        "midstream": "中游",
+        "downstream": "下游",
+        "上游": "上游",
+        "中游": "中游",
+        "下游": "下游",
+    }
+    for item in raw_items:
+        if not isinstance(item, dict):
+            return []
+        stage = stage_map.get(str(item.get("stage") or "").lower()) or stage_map.get(str(item.get("stage") or ""))
+        headline = str(item.get("headline") or "").strip()
+        impact_label = str(item.get("impact_label") or "").strip()
+        if not stage or not headline or not impact_label:
+            return []
+        if _contains_long_english_word(headline) or _contains_long_english_word(impact_label):
+            return []
+        normalized.append(
+            {
+                "stage": stage,
+                "headline": headline,
+                "detail": str(item.get("detail") or "").strip(),
+                "impact_score": _stress_score_value(item.get("impact_score", 0)),
+                "impact_label": impact_label,
+                "tone": item.get("tone") or "warning",
+            }
+        )
+    return normalized
+
+
+def _normalize_agent_simulation_log(raw_items: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_items, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_items, start=1):
+        if not isinstance(item, dict):
+            return []
+        title = str(item.get("title") or "").strip()
+        detail = str(item.get("detail") or "").strip()
+        if not title or not detail:
+            return []
+        if _contains_long_english_word(title) or _contains_long_english_word(detail):
+            return []
+        normalized.append(
+            {
+                "step": int(item.get("step") or index),
+                "title": title,
+                "detail": detail,
+            }
+        )
+    return normalized
 
 
 def _classify_stress_severity(

@@ -724,17 +724,19 @@ def _collect_enriched_payload(
 async def run_stress_agent(company_name: str, scenario: str, report_period: str | None) -> dict[str, Any]:
     """Risk Agent for Stress Testing — called by company_stress_test service."""
     system_prompt = (
-        "You are a Systemic Risk & Stress Test Agent modeling supply chain impacts.\n"
-        "Return JSON:\n"
-        '{"severity": {"level":"CRITICAL|HIGH|MEDIUM|LOW","label":"Short","color":"risk|warning|safe"},\n'
-        ' "propagation_steps":[{"step":1,"title":"...","detail":"..."}],\n'
-        ' "transmission_matrix":[{"stage":"upstream|midstream|downstream","headline":"...","impact_score":"-X%","impact_label":"..."}],\n'
-        ' "simulation_log":[{"step":1,"title":"...","detail":"..."}]}'
+        "你是新能源产业链压力推演智能体，只能输出中文 JSON，不允许输出英文标题、英文说明或英文风险标签。\n"
+        "如果出现公司简称或代码，可以保留原样；除此之外，所有 title / detail / headline / impact_label / label 都必须是中文。\n"
+        "返回 JSON：\n"
+        '{"severity": {"level":"CRITICAL|HIGH|MEDIUM|LOW","label":"中文短语","color":"risk|warning|safe"},\n'
+        ' "propagation_steps":[{"step":1,"title":"中文标题","detail":"中文说明"}],\n'
+        ' "transmission_matrix":[{"stage":"upstream|midstream|downstream","headline":"中文标题","impact_score":"-X%","impact_label":"中文短语"}],\n'
+        ' "simulation_log":[{"step":1,"title":"中文标题","detail":"中文说明"}]}\n'
+        "禁止返回 Markdown，禁止解释，禁止附加任何多余文本。"
     )
     prompt = f"Target Company: {company_name}\nStress Scenario: {scenario}\nPeriod: {report_period}\n"
     try:
         response_text, _ = await generate_completion(
-            prompt=prompt, system_prompt=system_prompt, model="gpt-4o-mini", temperature=0.6
+            prompt=prompt, system_prompt=system_prompt, model="gpt-4o-mini", temperature=0.2
         )
         response_text = _strip_markdown_fences(response_text)
         return json.loads(response_text.strip())
