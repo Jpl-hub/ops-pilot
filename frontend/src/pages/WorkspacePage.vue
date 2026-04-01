@@ -132,8 +132,8 @@ const analysisStages = computed(() => {
   return [
     {
       index: '01',
-      meta: '任务识别',
-      title: '识别问题类型',
+      meta: '先明确问题',
+      title: '锁定这次要判断什么',
       detail: latestUserMessage.value
         ? `锁定 ${selectedCompany.value || '目标企业'} 的判断问题`
         : '锁定问题和对象',
@@ -141,15 +141,15 @@ const analysisStages = computed(() => {
     },
     {
       index: '02',
-      meta: '数据分析',
-      title: '拉取真实数据与工具',
+      meta: '再拉关键数据',
+      title: '把真正需要的数据拉出来',
       detail: `调取 ${sourceLine}`,
       status: latestAnswer.value || loadingTurn.value ? 'completed' : 'pending',
     },
     {
       index: '03',
-      meta: '证据核验',
-      title: '校验证据与风险',
+      meta: '再回到原文',
+      title: '把证据和风险对上',
       detail: latestEvidenceGroups.value.length
         ? `已挂接 ${latestEvidenceGroups.value.length} 组证据`
         : `围绕 ${riskLine} 回放原文`,
@@ -157,8 +157,8 @@ const analysisStages = computed(() => {
     },
     {
       index: '04',
-      meta: '策略生成',
-      title: '生成角色动作',
+      meta: '最后落到动作',
+      title: '给出下一步做法',
       detail: latestActionCards.value.length
         ? `输出 ${roleLabel.value} 的下一步动作`
         : `按 ${roleLabel.value} 视角生成动作`,
@@ -330,7 +330,7 @@ watch(selectedCompany, async (company, previous) => {
     <div class="workspace-console">
       <ErrorState v-if="pageLoadError" :message="pageLoadError" class="workspace-state" />
       <section v-else-if="!hasCompanies && !loadingCompanies" class="workspace-state workspace-empty">
-        <span class="console-kicker">工作台未就绪</span>
+        <span class="console-kicker">暂时还不能开始</span>
         <h2>公司池尚未就绪</h2>
         <p>先把正式公司池接入，再开始协同分析。</p>
       </section>
@@ -375,7 +375,7 @@ watch(selectedCompany, async (company, previous) => {
           <div class="board-canvas">
             <header class="canvas-head">
               <div>
-                <span class="canvas-kicker">正在判断</span>
+                <span class="canvas-kicker">本轮问题</span>
                 <strong>{{ latestUserMessage?.text || '从一个判断问题开始' }}</strong>
               </div>
               <div class="canvas-head-meta">
@@ -386,8 +386,8 @@ watch(selectedCompany, async (company, previous) => {
 
             <div v-if="loadingTurn" class="canvas-loading">
               <div class="canvas-loading-card">
-                <strong>正在汇总本轮判断</strong>
-                <p>真实服务正在回收数字、证据和动作建议。</p>
+                <strong>正在整理这一轮结果</strong>
+                <p>真实服务正在回收数字、证据和下一步建议。</p>
                 <div class="loading-steps">
                   <div v-for="step in workflowSteps.slice(0, 4)" :key="step.step" class="loading-step">
                     <span>[{{ step.agent_label || step.agent }}]</span>
@@ -421,8 +421,8 @@ watch(selectedCompany, async (company, previous) => {
             <div v-else class="canvas-empty">
               <div class="empty-flag">↓</div>
               <div class="empty-copy">
-                <strong>当前还没有可分析内容</strong>
-                <p>先选公司，再围绕一个明确问题发起这一轮判断。</p>
+                <strong>先给一个明确问题</strong>
+                <p>先选公司，再围绕一个判断问题发起这一轮分析。</p>
               </div>
             </div>
           </div>
@@ -474,7 +474,7 @@ watch(selectedCompany, async (company, previous) => {
               </section>
 
               <section v-if="resultLinks.length" class="rail-section">
-                <span class="rail-label">继续查看</span>
+                <span class="rail-label">继续往下看</span>
                 <div class="rail-link-row">
                   <RouterLink
                     v-for="link in resultLinks"

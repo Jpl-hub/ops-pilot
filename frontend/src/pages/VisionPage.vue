@@ -197,14 +197,14 @@ watch(
 
       <!-- Control Bar -->
       <section class="glass-panel control-bar">
-        <div class="control-left">
-          <div class="glow-icon">文</div>
-          <div class="control-copy">
-            <span class="control-kicker">财报复核</span>
-            <h3 class="company-name text-gradient">{{ selectedCompany || '文档复核' }}</h3>
-            <p class="control-meta">{{ activeJob ? displayPipelineStage(activeJob.stage) : '选择公司后开始复核' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+          <div class="control-left">
+            <div class="glow-icon">文</div>
+            <div class="control-copy">
+              <span class="control-kicker">财报复核</span>
+              <h3 class="company-name text-gradient">{{ selectedCompany || '文档复核' }}</h3>
+              <p class="control-meta">{{ activeJob ? displayPipelineStage(activeJob.stage) : '选择公司后开始复核' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+            </div>
           </div>
-        </div>
         <div class="inline-context">
           <label class="inline-field">
             <span class="subtle-label">公司</span>
@@ -243,7 +243,7 @@ watch(
           <!-- Status Hero -->
           <article class="glass-panel hero-panel">
             <div class="hero-top">
-              <div class="eyebrow">当前报告</div>
+              <div class="eyebrow">当前文档</div>
               <h2 class="hero-title compact">{{ selectedResult?.headline || '等待解析结果' }}</h2>
               <p class="hero-text text-sm muted">{{ runtimeSummary?.next_action || selectedResult?.status_label || '就绪' }}</p>
             </div>
@@ -344,7 +344,7 @@ watch(
 
           <!-- Pipeline Jobs -->
           <article class="glass-panel jobs-panel" v-if="pipelineJobs.length">
-            <h3 class="panel-sm-title">这次做到哪一步</h3>
+            <h3 class="panel-sm-title">这次复核到了哪一步</h3>
             <div class="jobs-grid">
               <div
                 v-for="job in pipelineJobs.slice(0, 3)"
@@ -364,7 +364,7 @@ watch(
           </article>
 
           <article class="glass-panel artifact-panel" v-if="activeJob">
-            <h3 class="panel-sm-title">这次拿到了什么</h3>
+            <h3 class="panel-sm-title">这次能直接用什么</h3>
             <div class="artifact-grid">
               <div class="artifact-kv">
                 <span class="muted">步骤</span>
@@ -384,7 +384,7 @@ watch(
 
           <!-- Analysis Log -->
           <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">这次提取到了什么</h3>
+            <h3 class="panel-sm-title">这次提炼出了什么</h3>
             <div class="log-list">
               <div
                 v-for="item in visibleAnalysisLog"
@@ -438,7 +438,7 @@ watch(
           <article v-else class="glass-panel empty-panel">
             <div class="empty-content">
             <h3 class="text-gradient mb-2">等待文档结果</h3>
-              <p class="muted">选择公司后点击「重新复核」，回看当前页块、表格与证据链。</p>
+              <p class="muted">选择公司后点击「重新复核」，直接回看页块、表格和原文证据。</p>
             </div>
           </article>
 

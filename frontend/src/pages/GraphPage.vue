@@ -314,7 +314,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
     <div class="graph-console">
       <section class="graph-header">
         <div class="graph-heading">
-          <span class="graph-kicker">证据链图谱</span>
+          <span class="graph-kicker">沿主链继续追</span>
           <h1>图谱检索</h1>
           <p>{{ selectedCompany || '选择公司' }} · {{ graphCommandSurface?.focus_label || '沿证据和风险链继续追下去' }}</p>
         </div>
@@ -342,7 +342,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
             <div class="query-strip-icon">图</div>
             <div>
               <h2>{{ graphIntent }}</h2>
-              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '先看主链，再决定沿哪一处证据继续追。' }}</p>
+              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '先看主链，再决定下一步沿哪一处证据继续追。' }}</p>
             </div>
           </div>
 
@@ -369,7 +369,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
       <template v-else>
         <section class="graph-stage" ref="graphStageRef">
           <div class="stage-summary">
-            <span>当前聚焦</span>
+            <span>当前主链</span>
             <strong>{{ currentFrame?.headline || graphCommandSurface?.title || '关键证据链路' }}</strong>
             <p>{{ graphCommandSurface?.headline || '只留下这一轮真正相关的节点、链路和证据。' }}</p>
           </div>
@@ -452,7 +452,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
         <section class="path-dock">
           <div class="path-dock-head">
-            <strong>这条主链最值得继续追</strong>
+            <strong>沿这条主链继续往下看</strong>
           </div>
 
           <div class="path-track">
