@@ -24,23 +24,15 @@ const radarEvents = computed(() => payload.value?.radar_events || [])
 const topSectorTags = computed(() => (payload.value?.sector_tags || []).slice(0, 4))
 const signalFeed = computed(() => externalSignalStream.value?.signals || payload.value?.live_events || [])
 const trendChart = computed(() => payload.value?.charts?.[0] || null)
-const heatChart = computed(() => payload.value?.charts?.[1] || null)
 const anomalyItems = computed(() => (streamingAnomalies.value?.items || []).slice(0, 4))
-const focusCompanies = computed(() => attentionMatrix.value.slice(0, 5))
-const riskCompanies = computed(() => topRiskCompanies.value.slice(0, 4))
+const focusCompanies = computed(() => attentionMatrix.value.slice(0, 4))
+const riskCompanies = computed(() => topRiskCompanies.value.slice(0, 3))
 const radarCards = computed(() => radarEvents.value.slice(0, 3))
-const signalCards = computed(() => signalFeed.value.slice(0, 6))
+const signalCards = computed(() => signalFeed.value.slice(0, 4))
 const pulseSteps = computed(() => brainSignalTape.value.slice(0, 4))
 const tapeItems = computed(() => marketTape.value.slice(0, 6))
 const leadMetric = computed(() => marketTape.value[0] || null)
 const supportMetrics = computed(() => marketTape.value.slice(1, 3))
-const hotspotItems = computed(() =>
-  topSectorTags.value.map((item: any) => ({
-    label: item.label,
-    count: item.count,
-    summary: `${item.label} 相关变化正在进入这一轮判断链。`,
-  })),
-)
 
 const signalFreshnessTone = computed(() => {
   const status = externalSignalStream.value?.status
@@ -212,7 +204,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="brain-sector-strip">
-            <div v-for="tag in topSectorTags" :key="tag.label" class="brain-sector-pill">
+            <div v-for="tag in topSectorTags.slice(0, 3)" :key="tag.label" class="brain-sector-pill">
               <span>{{ tag.label }}</span>
               <strong>{{ tag.count }}</strong>
             </div>
@@ -278,29 +270,7 @@ onBeforeUnmount(() => {
           </article>
         </section>
 
-        <section class="brain-grid">
-          <article class="brain-surface">
-            <div class="brain-section-head">
-              <div>
-                <h2>市场热区</h2>
-              </div>
-            </div>
-            <div v-if="hotspotItems.length" class="brain-hotspot-list">
-              <div
-                v-for="item in hotspotItems"
-                :key="item.label"
-                class="brain-hotspot-card"
-              >
-                <div class="brain-hotspot-head">
-                  <strong>{{ item.label }}</strong>
-                  <span>{{ item.count }}</span>
-                </div>
-                <p>{{ item.summary }}</p>
-              </div>
-            </div>
-            <div v-else class="brain-empty-state">当前没有足够的热区信号。</div>
-          </article>
-
+        <section class="brain-grid brain-grid-compact">
           <article class="brain-surface">
             <div class="brain-section-head">
               <div>
@@ -425,7 +395,7 @@ onBeforeUnmount(() => {
   gap: 16px;
   min-height: 100%;
   width: 100%;
-  max-width: 1380px;
+  max-width: 1320px;
   margin: 0 auto;
   color: #edf2f7;
 }
@@ -521,7 +491,7 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
-  padding: 18px 20px 16px;
+  padding: 16px 18px 14px;
   border-radius: 24px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background:
@@ -583,7 +553,7 @@ onBeforeUnmount(() => {
 .brain-summary {
   margin: 0;
   max-width: 660px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.65;
   color: rgba(200, 211, 228, 0.84);
 }
@@ -597,7 +567,7 @@ onBeforeUnmount(() => {
 .brain-metric {
   display: grid;
   gap: 6px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.03);
@@ -611,12 +581,12 @@ onBeforeUnmount(() => {
 
 .brain-metric strong {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 18px;
+  font-size: 16px;
   color: #f8fafc;
 }
 
 .brain-metric-lead strong {
-  font-size: 22px;
+  font-size: 20px;
 }
 
 .brain-metric.is-risk {
@@ -664,6 +634,10 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1.58fr) minmax(292px, 0.92fr);
   gap: 14px;
+}
+
+.brain-grid-compact {
+  grid-template-columns: 1fr;
 }
 
 .brain-canvas,
@@ -775,7 +749,6 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
-.brain-hotspot-card,
 .brain-stream-item,
 .brain-company-row,
 .brain-risk-card,
@@ -791,7 +764,6 @@ onBeforeUnmount(() => {
   transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
 
-.brain-hotspot-card:hover,
 .brain-stream-item:hover,
 .brain-company-row:hover,
 .brain-risk-card:hover,
@@ -802,7 +774,6 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.045);
 }
 
-.brain-hotspot-head,
 .brain-stream-top,
 .brain-risk-top,
 .brain-anomaly-top,
@@ -813,7 +784,6 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.brain-hotspot-head strong,
 .brain-stream-top strong,
 .brain-company-row strong,
 .brain-risk-top strong,
@@ -822,7 +792,6 @@ onBeforeUnmount(() => {
   color: #f8fafc;
 }
 
-.brain-hotspot-head span,
 .brain-stream-top span,
 .brain-risk-top span,
 .brain-anomaly-top span,
@@ -833,7 +802,6 @@ onBeforeUnmount(() => {
   color: rgba(165, 179, 198, 0.8);
 }
 
-.brain-hotspot-card p,
 .brain-stream-item p,
 .brain-company-row p,
 .brain-risk-card p,

@@ -24,9 +24,9 @@ const scoreCommandSurface = computed(() => scoreState.data.value?.score_command_
 const scoreSignalTape = computed(() => scoreState.data.value?.score_signal_tape || [])
 const scoreWatchItems = computed(() => scoreCommandSurface.value?.watch_items || [])
 const dominantSignal = computed(() => scoreCommandSurface.value?.dominant_signal || null)
-const scorePrimaryActions = computed(() => scoreState.data.value?.action_cards?.slice(0, 3) || [])
+const scorePrimaryActions = computed(() => scoreState.data.value?.action_cards?.slice(0, 2) || [])
 const scorePrimaryCharts = computed(() => scoreState.data.value?.charts?.slice(0, 1) || [])
-const scoreMetricCards = computed(() => scoreState.data.value?.label_cards?.slice(0, 3) || [])
+const scoreMetricCards = computed(() => scoreState.data.value?.label_cards?.slice(0, 2) || [])
 const scoreTagGroups = computed(() => ({
   risks: scoreState.data.value?.scorecard?.risk_labels?.slice(0, 4) || [],
   opportunities: scoreState.data.value?.scorecard?.opportunity_labels?.slice(0, 3) || [],
@@ -167,7 +167,7 @@ watch(
         <div class="control-left">
           <div class="mode-query-icon glow-icon">体</div>
           <div class="mode-query-copy">
-            <span class="control-kicker">企业运营体检</span>
+            <span class="control-kicker">经营诊断</span>
             <h3 class="company-name text-gradient">经营诊断</h3>
             <p class="control-meta">{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
@@ -192,7 +192,7 @@ watch(
               </option>
             </select>
           </label>
-          <button class="button-primary glow-button" @click="loadScore">刷新诊断</button>
+          <button class="button-primary glow-button" @click="loadScore">重新判断</button>
         </div>
       </section>
 
@@ -246,7 +246,7 @@ watch(
               </p>
               <div v-if="scoreWatchItems.length" class="watch-grid">
                 <div
-                  v-for="item in scoreWatchItems"
+                  v-for="item in scoreWatchItems.slice(0, 3)"
                   :key="item.label"
                   class="watch-card"
                 >
@@ -278,13 +278,13 @@ watch(
             <h3 class="panel-sm-title">先做什么</h3>
             <div class="tag-row compact-tags">
               <TagPill
-                v-for="label in scoreTagGroups.risks"
+                v-for="label in scoreTagGroups.risks.slice(0, 3)"
                 :key="label.code"
                 :label="label.name"
                 tone="risk"
               />
               <TagPill
-                v-for="label in scoreTagGroups.opportunities"
+                v-for="label in scoreTagGroups.opportunities.slice(0, 2)"
                 :key="`op-${label.code}`"
                 :label="label.name"
                 tone="success"
@@ -342,7 +342,7 @@ watch(
 
             <!-- Key Metrics Highlights -->
             <article class="glass-panel details-panel scroll-area flex-2">
-              <h3 class="panel-sm-title">需要追溯的指标</h3>
+              <h3 class="panel-sm-title">先回看这些指标</h3>
               <div class="metrics-grid-compact">
                 <div
                   v-for="card in scoreMetricCards"
@@ -350,10 +350,9 @@ watch(
                   class="metric-glance glass-panel-hover"
                 >
                   <div class="mg-head">
-                    <span class="mg-code">{{ card.code }}</span>
+                    <span class="mg-code">{{ card.name }}</span>
                     <span class="mg-val">{{ card.signal_values[0] }}</span>
                   </div>
-                  <h4 class="mg-title">{{ card.name }}</h4>
                   <div class="mg-links">
                     <RouterLink
                       v-for="item in card.evidence_refs.slice(0,2)"
@@ -383,7 +382,7 @@ watch(
   height: 100%;
   overflow: hidden;
   width: 100%;
-  max-width: 1380px;
+  max-width: 1320px;
   margin: 0 auto;
 }
 
@@ -475,7 +474,7 @@ watch(
 /* Main Grid */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 284px 1fr;
+  grid-template-columns: 304px 1fr;
   gap: 16px;
   flex: 1;
   min-height: 0;
@@ -512,7 +511,7 @@ watch(
 
 /* Left Hero Panel */
 .score-hero-panel {
-  padding: 18px;
+  padding: 16px;
   border-radius: 18px;
   display: flex;
   flex-direction: column;
@@ -524,7 +523,7 @@ watch(
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 14px;
+  padding: 12px;
   background: rgba(0,0,0,0.2);
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.05);
@@ -567,7 +566,7 @@ watch(
 .risk-text { color: #f43f5e; }
 
 .hero-summary {
-  padding: 14px;
+  padding: 12px;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.06);
   background: rgba(255,255,255,0.03);
@@ -607,7 +606,7 @@ watch(
 
 .watch-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
@@ -642,7 +641,7 @@ watch(
 
 /* Actions Panel */
 .support-panel {
-  padding: 18px;
+  padding: 16px;
   border-radius: 18px;
   min-height: 180px;
 }
@@ -709,7 +708,7 @@ watch(
 
 .details-panel {
   flex: 1;
-  padding: 18px;
+  padding: 16px;
   border-radius: 18px;
   min-height: 200px;
 }
@@ -736,24 +735,23 @@ watch(
 
 .metrics-grid-compact {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .metric-glance {
-  padding: 16px;
+  padding: 14px;
   border-radius: 12px;
   border: 1px solid rgba(255,255,255,0.05);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   background: rgba(255, 255, 255, 0.02);
 }
 
 .mg-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-family: 'JetBrains Mono', monospace; }
-.mg-code { color: var(--muted); background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 6px; }
+.mg-code { color: #e5edf7; font-family: inherit; font-size: 14px; }
 .mg-val { color: var(--accent); background: rgba(16,185,129,0.1); padding: 4px 8px; border-radius: 6px; }
-.mg-title { margin: 0; font-size: 15px; font-weight: 500; color: #fff;}
 
 .inline-glass-link {
   font-size: 13px;
