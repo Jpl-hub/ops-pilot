@@ -167,9 +167,9 @@ watch(
         <div class="control-left">
           <div class="mode-query-icon glow-icon">体</div>
           <div class="mode-query-copy">
-            <span class="control-kicker">经营诊断</span>
-            <h3 class="company-name text-gradient">经营诊断</h3>
-            <p class="control-meta">{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+            <span class="control-kicker">经营体检</span>
+            <h3 class="company-name text-gradient">{{ selectedCompany || '经营诊断' }}</h3>
+            <p class="control-meta">{{ scoreCommandSurface?.headline || '先看当前判断' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
         </div>
         
@@ -192,7 +192,7 @@ watch(
               </option>
             </select>
           </label>
-          <button class="button-primary glow-button" @click="loadScore">重新判断</button>
+          <button class="button-primary glow-button" @click="loadScore">重新体检</button>
         </div>
       </section>
 
@@ -215,7 +215,7 @@ watch(
               <div class="eyebrow">当前判断</div>
               <h2 class="hero-title compact">{{ scoreCommandSurface?.headline || scoreState.data.value.company_name }}</h2>
               <p class="hero-text text-sm muted">
-                {{ scoreState.data.value.company_name }} · {{ scoreState.data.value.report_period }} · {{ scoreState.data.value.subindustry }}
+                {{ scoreState.data.value.report_period }} · {{ scoreState.data.value.subindustry }}
               </p>
             </div>
             
@@ -246,7 +246,7 @@ watch(
               </p>
               <div v-if="scoreWatchItems.length" class="watch-grid">
                 <div
-                  v-for="item in scoreWatchItems.slice(0, 3)"
+                  v-for="item in scoreWatchItems.slice(0, 2)"
                   :key="item.label"
                   class="watch-card"
                 >
@@ -275,7 +275,7 @@ watch(
 
           <!-- Tags & Actions -->
           <article class="glass-panel support-panel scroll-area">
-            <h3 class="panel-sm-title">先做什么</h3>
+            <h3 class="panel-sm-title">先处理这些</h3>
             <div class="tag-row compact-tags">
               <TagPill
                 v-for="label in scoreTagGroups.risks.slice(0, 3)"
@@ -321,10 +321,10 @@ watch(
           <div class="details-row">
             <!-- Timeline Snapshots -->
             <article class="glass-panel details-panel scroll-area" v-if="timelineState.data.value">
-              <h3 class="panel-sm-title">最近几个报期</h3>
+              <h3 class="panel-sm-title">最近报期</h3>
               <div class="timeline-stack">
                 <div
-                  v-for="item in timelineState.data.value.snapshots.slice(0, 3)"
+                  v-for="item in timelineState.data.value.snapshots.slice(0, 2)"
                   :key="item.report_period"
                   class="timeline-card glass-panel-hover"
                 >
@@ -342,7 +342,7 @@ watch(
 
             <!-- Key Metrics Highlights -->
             <article class="glass-panel details-panel scroll-area flex-2">
-              <h3 class="panel-sm-title">先回看这些指标</h3>
+              <h3 class="panel-sm-title">先看这几个指标</h3>
               <div class="metrics-grid-compact">
                 <div
                   v-for="card in scoreMetricCards"

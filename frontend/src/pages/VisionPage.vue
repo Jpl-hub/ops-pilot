@@ -29,13 +29,13 @@ const selectedResult = computed(() => visionState.data.value?.result || runtimeS
 const phaseTrack = computed(() => selectedResult.value?.phase_track || runtimeState.data.value?.stages || [])
 const analysisLog = computed(() => selectedResult.value?.analysis_log || [])
 const qualitySummary = computed(() => selectedResult.value?.quality_summary || null)
-const qualityMetrics = computed(() => qualitySummary.value?.metrics?.slice(0, 3) || [])
+const qualityMetrics = computed(() => qualitySummary.value?.metrics?.slice(0, 2) || [])
 const qualityDimensions = computed(() => qualitySummary.value?.dimensions?.slice(0, 2) || [])
 const qualityBlockers = computed(() => qualitySummary.value?.blockers?.slice(0, 1) || [])
 const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 2))
 const visibleAnalysisLog = computed(() => analysisLog.value.slice(0, 3))
 const visibleSections = computed(() => selectedResult.value?.sections?.slice(0, 3) || [])
-const visibleResultItems = computed(() => resultItems.value.slice(0, 4))
+const visibleResultItems = computed(() => resultItems.value.slice(0, 3))
 const sourcePreviewText = computed(() => {
   const preview = selectedResult.value?.source_preview
   if (!preview) return ''
@@ -184,9 +184,9 @@ watch(
         <div class="control-left">
           <div class="glow-icon">文</div>
           <div class="control-copy">
-            <span class="control-kicker">文档复核</span>
-            <h3 class="company-name text-gradient">文档复核</h3>
-            <p class="control-meta">{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+            <span class="control-kicker">财报复核</span>
+            <h3 class="company-name text-gradient">{{ selectedCompany || '文档复核' }}</h3>
+            <p class="control-meta">{{ activeJob ? displayPipelineStage(activeJob.stage) : '选择公司后开始复核' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
         </div>
         <div class="inline-context">
@@ -259,7 +259,7 @@ watch(
 
           <article class="glass-panel quality-panel" v-if="qualitySummary">
             <div class="panel-head-compact">
-            <h3 class="panel-sm-title">当前质量</h3>
+            <h3 class="panel-sm-title">先看质量</h3>
               <TagPill :label="displayQualityStatus(qualitySummary.status)" :tone="qualityTone(qualitySummary.status)" />
             </div>
             <div class="quality-summary-copy">
@@ -328,7 +328,7 @@ watch(
 
           <!-- Pipeline Jobs -->
           <article class="glass-panel jobs-panel" v-if="pipelineJobs.length">
-            <h3 class="panel-sm-title">这次复核到了哪一步</h3>
+            <h3 class="panel-sm-title">当前步骤</h3>
             <div class="jobs-grid">
               <div
                 v-for="job in pipelineJobs.slice(0, 3)"
@@ -368,7 +368,7 @@ watch(
 
           <!-- Analysis Log -->
           <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">这次提取到了什么</h3>
+            <h3 class="panel-sm-title">提取结果</h3>
             <div class="log-list">
               <div
                 v-for="item in visibleAnalysisLog"
@@ -386,7 +386,7 @@ watch(
 
           <!-- Sections from Result -->
           <article class="glass-panel sections-panel scroll-area flex-1" v-else-if="visibleSections.length">
-            <h3 class="panel-sm-title">当前内容</h3>
+            <h3 class="panel-sm-title">结构内容</h3>
             <div class="sections-grid">
               <div
                 v-for="section in visibleSections"
@@ -514,7 +514,7 @@ watch(
 .stream-chip.tone-warning { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); }
 .chip-label { font-size: 11px; color: var(--muted); }
 .chip-val { font-size: 14px; font-weight: 600; color: #fff; }
-.quality-dimension-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.quality-dimension-list { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .quality-dimension-card { padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); }
 .quality-dimension-card.is-ready { border-color: rgba(59,130,246,0.25); background: rgba(59,130,246,0.08); }
 .quality-dimension-card.is-warning { border-color: rgba(245,158,11,0.25); background: rgba(245,158,11,0.08); }

@@ -24,13 +24,13 @@ const verifyDeltaTape = ref<any[]>([])
 const availablePeriods = ref<string[]>([])
 const reportStatusMessage = ref('')
 const reportCatalogReady = ref(false)
-const verifyWatchItems = computed(() => verifyCommandSurface.value?.watch_items?.slice(0, 4) || [])
+const verifyWatchItems = computed(() => verifyCommandSurface.value?.watch_items?.slice(0, 2) || [])
 const verifyDominantSignal = computed(() => verifyCommandSurface.value?.dominant_signal || null)
 const verifyPrimaryClaims = computed(() => state.data.value?.claim_cards?.slice(0, 3) || [])
 const verifyPrimaryInsights = computed(() => state.data.value?.research_compare?.insights?.slice(0, 4) || [])
-const verifyCompareRows = computed(() => state.data.value?.research_compare?.rows?.slice(0, 3) || [])
+const verifyCompareRows = computed(() => state.data.value?.research_compare?.rows?.slice(0, 2) || [])
 const verifyCharts = computed(() => state.data.value?.charts?.slice(0, 1) || state.data.value?.research_compare?.charts?.slice(0, 1) || [])
-const verifyDeltaItems = computed(() => verifyDeltaTape.value.slice(0, 4))
+const verifyDeltaItems = computed(() => verifyDeltaTape.value.slice(0, 3))
 
 async function loadCompanies() {
   const data = await get<any>('/workspace/companies')
@@ -171,9 +171,9 @@ watch(
         <div class="control-left">
           <div class="mode-query-icon glow-icon">核</div>
           <div class="mode-query-copy">
-            <span class="control-kicker">研报观点核验</span>
-            <h3 class="company-name text-gradient">观点核验</h3>
-            <p class="control-meta">{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+            <span class="control-kicker">观点核对</span>
+            <h3 class="company-name text-gradient">{{ selectedCompany || '观点核验' }}</h3>
+            <p class="control-meta">{{ selectedReportTitle || '选择一篇研报开始核对' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
         </div>
         
@@ -197,7 +197,7 @@ watch(
               <option v-for="report in reports" :key="report.title" :value="report.title">{{ report.title }} | {{ report.publish_date }}</option>
             </select>
           </label>
-          <button class="button-primary glow-button" @click="loadVerify">刷新核验</button>
+          <button class="button-primary glow-button" @click="loadVerify">重新核对</button>
         </div>
       </section>
 
@@ -224,7 +224,7 @@ watch(
         <div class="dashboard-col left-col">
           <article class="glass-panel score-hero-panel">
             <div class="hero-top">
-              <div class="eyebrow">当前研报</div>
+              <div class="eyebrow">当前对象</div>
               <h2 class="hero-title compact">{{ state.data.value.report_meta.title }}</h2>
               <p class="hero-text text-sm muted">
                 {{ state.data.value.report_meta.publish_date }} · {{ state.data.value.report_meta.source_name }}
@@ -238,11 +238,11 @@ watch(
               </div>
               <div class="grade-metrics">
                 <div class="metric-row-inline">
-                  <span>提取数据</span>
+                  <span>核对条目</span>
                   <strong class="text-accent">{{ state.data.value.claim_cards.length }} 项</strong>
                 </div>
                 <div class="metric-row-inline">
-                  <span>事实偏差</span>
+                  <span>存在偏差</span>
                   <strong class="risk-text">{{ state.data.value.key_numbers[1].value }}</strong>
                 </div>
                 <div class="metric-row-inline mt-2">
@@ -290,7 +290,7 @@ watch(
           </article>
           
           <article class="glass-panel support-panel scroll-area mt-4">
-            <h3 class="panel-sm-title">主要分歧</h3>
+            <h3 class="panel-sm-title">先看分歧</h3>
             <div class="tag-row compact-tags">
               <TagPill
                 v-for="insight in verifyPrimaryInsights"
@@ -332,7 +332,7 @@ watch(
 
           <!-- Bottom Row: Claim Cards List -->
           <div class="glass-panel details-panel scroll-area flex-1">
-            <h3 class="panel-sm-title mb-4">逐条对照</h3>
+            <h3 class="panel-sm-title mb-4">关键证据</h3>
             
             <div class="claims-grid">
               <div
@@ -397,7 +397,7 @@ watch(
 .empty-content { text-align: center; }
 
 /* Dashboard Grid */
-.dashboard-grid { display: grid; grid-template-columns: 304px 1fr; gap: 16px; flex: 1; min-height: 0; }
+.dashboard-grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; flex: 1; min-height: 0; }
 .dashboard-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .dashboard-col::-webkit-scrollbar { width: 4px; }
 .dashboard-col::-webkit-scrollbar-track { background: transparent; }
@@ -420,7 +420,7 @@ watch(
 .hero-summary-head strong { font-size: 14px; line-height: 1.5; color: #f8fafc; }
 .hero-summary-badge { flex-shrink: 0; padding: 6px 10px; border-radius: 999px; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); color: #6ee7b7; font-size: 12px; }
 .hero-summary-copy { margin: 0; font-size: 13px; line-height: 1.7; color: #cbd5e1; }
-.watch-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.watch-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .watch-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(148, 163, 184, 0.14); }
 .watch-card span { font-size: 11px; letter-spacing: 0.04em; color: #94a3b8; }
 .watch-card strong { font-size: 14px; color: #f8fafc; line-height: 1.4; }
@@ -442,7 +442,7 @@ watch(
 :deep(.chart-root) { flex: 1; min-height: 200px !important; }
 
 .details-panel { padding: 16px; border-radius: 18px; }
-.claims-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.claims-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
 .claim-card { padding: 13px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; }
 .cc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .cc-code { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted); background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; }
