@@ -360,13 +360,13 @@ watch(selectedCompany, async (company, previous) => {
         <header class="board-topbar">
           <div class="board-title">
             <div class="board-mark">⎔</div>
-            <strong>OpsPilot-X</strong>
+            <strong>协同分析</strong>
             <span class="board-subtitle">{{ roleFocusTitle }}</span>
           </div>
 
           <div class="board-topbar-meta">
             <label class="board-select">
-              <span>分析公司</span>
+              <span>公司</span>
               <select v-model="selectedCompany" :disabled="loadingCompanies || !companies.length">
                 <option value="" disabled>{{ companySelectPlaceholder }}</option>
                 <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
@@ -457,37 +457,37 @@ watch(selectedCompany, async (company, previous) => {
 
           <aside class="result-rail">
             <header class="rail-head">
-              <strong>分析结果</strong>
+              <strong>本轮结果</strong>
               <span>{{ roleLabel }}</span>
             </header>
 
             <div v-if="latestAnswer" class="rail-body">
-              <section class="rail-section subject-row">
-                <span class="rail-label">当前对象</span>
+              <section class="rail-section summary-card">
+                <span class="rail-label">结论</span>
                 <strong>{{ selectedCompany || '未选择公司' }}</strong>
-                <p>{{ latestUserMessage?.text || '先输入一个判断问题，结果会在这里沉淀。' }}</p>
-              </section>
-
-              <section class="rail-section">
-                <span class="rail-label">本轮结论</span>
                 <p>{{ latestAnswer.summary || '已生成当前结论。' }}</p>
+                <p v-if="latestUserMessage?.text" class="rail-question">{{ latestUserMessage.text }}</p>
               </section>
 
               <section v-if="insightNumbers.length" class="rail-section">
                 <span class="rail-label">关键数字</span>
-                <article v-for="item in insightNumbers" :key="item.label" class="metric-row">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ displayMetricValue(item) }}</strong>
-                </article>
+                <div class="metric-grid">
+                  <article v-for="item in insightNumbers" :key="item.label" class="metric-row">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ displayMetricValue(item) }}</strong>
+                  </article>
+                </div>
               </section>
 
               <section v-if="latestActionCards.length" class="rail-section">
                 <span class="rail-label">下一步动作</span>
-                <article v-for="item in latestActionCards" :key="item.title" class="action-row">
-                  <em>{{ item.priority || '动作' }}</em>
-                  <strong>{{ item.title }}</strong>
-                  <p>{{ item.action || item.reason }}</p>
-                </article>
+                <div class="action-list">
+                  <article v-for="item in latestActionCards" :key="item.title" class="action-row">
+                    <em>{{ item.priority || '动作' }}</em>
+                    <strong>{{ item.title }}</strong>
+                    <p>{{ item.action || item.reason }}</p>
+                  </article>
+                </div>
               </section>
 
               <section v-if="latestEvidenceGroups.length" class="rail-section">
@@ -505,15 +505,17 @@ watch(selectedCompany, async (company, previous) => {
 
               <section v-if="resultLinks.length" class="rail-section">
                 <span class="rail-label">继续下钻</span>
-                <RouterLink
-                  v-for="link in resultLinks"
-                  :key="`${link.label}-${link.path}`"
-                  :to="{ path: link.path, query: link.query || {} }"
-                  class="evidence-link"
-                >
-                  <span>{{ link.label }}</span>
-                  <strong>进入</strong>
-                </RouterLink>
+                <div class="rail-link-row">
+                  <RouterLink
+                    v-for="link in resultLinks"
+                    :key="`${link.label}-${link.path}`"
+                    :to="{ path: link.path, query: link.query || {} }"
+                    class="evidence-link"
+                  >
+                    <span>{{ link.label }}</span>
+                    <strong>进入</strong>
+                  </RouterLink>
+                </div>
               </section>
             </div>
 
@@ -716,15 +718,15 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  padding: 10px 16px 12px;
+  padding: 8px 14px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .flow-card {
   display: grid;
-  gap: 8px;
-  min-height: 96px;
-  padding: 12px 12px 10px;
+  gap: 6px;
+  min-height: 84px;
+  padding: 10px 11px 9px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
@@ -757,20 +759,20 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .flow-card strong {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .flow-card p {
   margin: 0;
   color: rgba(161, 174, 193, 0.88);
-  line-height: 1.55;
-  font-size: 13px;
+  line-height: 1.5;
+  font-size: 12px;
 }
 
 .board-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 388px;
+  grid-template-columns: minmax(0, 1fr) 392px;
 }
 
 .board-canvas {
@@ -842,7 +844,7 @@ watch(selectedCompany, async (company, previous) => {
 
 .canvas-loading-card strong,
 .empty-copy strong {
-  font-size: 22px;
+  font-size: 20px;
 }
 
 .canvas-loading-card p,
@@ -923,9 +925,9 @@ watch(selectedCompany, async (company, previous) => {
 .canvas-content {
   min-height: 0;
   overflow-y: auto;
-  padding: 16px;
+  padding: 18px;
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .canvas-summary {
@@ -946,8 +948,8 @@ watch(selectedCompany, async (company, previous) => {
 
 .analysis-block {
   display: grid;
-  gap: 10px;
-  padding: 0 0 14px;
+  gap: 9px;
+  padding: 0 0 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -985,7 +987,7 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .rail-head strong {
-  font-size: 18px;
+  font-size: 17px;
 }
 
 .rail-head span {
@@ -1013,10 +1015,19 @@ watch(selectedCompany, async (company, previous) => {
   border-bottom: none;
 }
 
-.subject-row strong {
+.summary-card {
+  gap: 10px;
+}
+
+.summary-card strong {
   font-size: 20px;
   letter-spacing: -0.04em;
   color: #f8fafc;
+}
+
+.rail-question {
+  color: rgba(148, 163, 184, 0.92);
+  font-size: 12px;
 }
 
 .metric-row,
@@ -1026,14 +1037,34 @@ watch(selectedCompany, async (company, previous) => {
   gap: 6px;
 }
 
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .metric-row span {
   color: rgba(148, 163, 184, 0.82);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .metric-row strong {
-  font-size: 21px;
+  font-size: 18px;
   letter-spacing: -0.04em;
+}
+
+.metric-row {
+  min-height: 52px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.action-list,
+.rail-link-row {
+  display: grid;
+  gap: 10px;
 }
 
 .action-row em {
@@ -1093,18 +1124,18 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .board-composer {
-  padding: 10px 16px 16px;
+  padding: 8px 14px 12px;
   display: grid;
-  gap: 8px;
+  gap: 6px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .composer-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 108px;
-  gap: 12px;
-  padding: 6px 8px;
-  border-radius: 14px;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 10px;
+  padding: 4px 8px;
+  border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
 }
@@ -1116,9 +1147,9 @@ watch(selectedCompany, async (company, previous) => {
   background: transparent;
   color: #eef2f7;
   font: inherit;
-  line-height: 1.55;
-  min-height: 36px;
-  padding-top: 6px;
+  line-height: 1.5;
+  min-height: 30px;
+  padding-top: 4px;
   outline: none;
 }
 
@@ -1135,17 +1166,18 @@ watch(selectedCompany, async (company, previous) => {
 .composer-prompts {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .prompt-chip {
-  min-height: 32px;
-  padding: 0 14px;
+  min-height: 30px;
+  padding: 0 12px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.025);
   color: #dbe7f3;
   cursor: pointer;
+  font-size: 12px;
 }
 
 @media (max-width: 1180px) {

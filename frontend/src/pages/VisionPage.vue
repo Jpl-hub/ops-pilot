@@ -226,7 +226,7 @@ watch(
             :disabled="!canRunPipeline || pipelineRunning"
             @click="runPipeline"
           >
-            {{ pipelineRunning ? '处理中…' : '刷新文档链' }}
+            {{ pipelineRunning ? '复核中…' : '重新复核' }}
           </button>
         </div>
       </section>
@@ -342,7 +342,7 @@ watch(
 
           <!-- History Runs -->
           <article class="glass-panel runs-panel" v-if="recentRuns.length">
-            <h3 class="panel-sm-title">最近几次处理</h3>
+            <h3 class="panel-sm-title">最近复核</h3>
             <div class="runs-list">
               <div
                 v-for="item in recentRuns"
@@ -365,10 +365,10 @@ watch(
 
           <!-- Pipeline Jobs -->
           <article class="glass-panel jobs-panel" v-if="pipelineJobs.length">
-            <h3 class="panel-sm-title">正在处理哪一步</h3>
+            <h3 class="panel-sm-title">当前复核状态</h3>
             <div class="jobs-grid">
               <div
-                v-for="job in pipelineJobs"
+                v-for="job in pipelineJobs.slice(0, 3)"
                 :key="`${job.stage}-${job.report_id}`"
                 class="job-card glass-panel-hover"
                 :class="{ 'is-active': activeJob && `${job.stage}-${job.report_id}` === `${activeJob.stage}-${activeJob.report_id}` }"
@@ -389,18 +389,18 @@ watch(
           </article>
 
           <article class="glass-panel artifact-panel" v-if="activeJob">
-            <h3 class="panel-sm-title">当前结果</h3>
+            <h3 class="panel-sm-title">本次结果</h3>
             <div class="artifact-grid">
               <div class="artifact-kv">
-                <span class="muted">工序</span>
+                <span class="muted">步骤</span>
                 <strong>{{ displayPipelineStage(activeJob.stage) }}</strong>
               </div>
               <div class="artifact-kv">
-                <span class="muted">报文</span>
+                <span class="muted">文档</span>
                 <strong>{{ activeJob.report_id }}</strong>
               </div>
               <div class="artifact-kv">
-                <span class="muted">来源</span>
+                <span class="muted">来源链</span>
                 <strong>{{ displayArtifactSource(activeJob.artifact_source) }}</strong>
               </div>
               <div class="artifact-kv">
@@ -417,7 +417,7 @@ watch(
 
           <!-- Analysis Log -->
           <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">处理记录</h3>
+            <h3 class="panel-sm-title">复核记录</h3>
             <div class="log-list">
               <div
                 v-for="item in visibleAnalysisLog"
@@ -471,7 +471,7 @@ watch(
           <article v-else class="glass-panel empty-panel">
             <div class="empty-content">
             <h3 class="text-gradient mb-2">等待文档结果</h3>
-              <p class="muted">选择公司后点击「刷新文档链」，回看当前页块、表格与证据链。</p>
+              <p class="muted">选择公司后点击「重新复核」，回看当前页块、表格与证据链。</p>
             </div>
           </article>
 

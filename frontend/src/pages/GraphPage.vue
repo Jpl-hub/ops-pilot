@@ -48,7 +48,7 @@ const graphSummary = computed(() => graphState.data.value?.graph?.summary || {})
 const graphCommandSurface = computed(() => graphState.data.value?.graph_command_surface || null)
 const graphLiveFrames = computed(() => graphState.data.value?.graph_live_frames || [])
 const currentFrame = computed(() => graphLiveFrames.value[activePathStep.value] || null)
-const pathEvidenceLinks = computed(() => evidenceNavigation.value.slice(0, 3))
+const pathEvidenceLinks = computed(() => evidenceNavigation.value.slice(0, 2))
 const visibleNodeIds = computed(() => {
   const nodes = rawGraphNodes.value
   const edges = rawGraphEdges.value
@@ -334,7 +334,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
             <div class="query-strip-icon">图</div>
             <div>
               <h2>{{ graphIntent }}</h2>
-              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '先看关键链路，再决定往哪条证据继续追。' }}</p>
+              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '先看主链，再决定沿哪条证据继续追。' }}</p>
             </div>
           </div>
 
@@ -367,7 +367,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
           <div class="stage-summary">
             <span>当前聚焦</span>
             <strong>{{ currentFrame?.headline || graphCommandSurface?.title || '关键证据链路' }}</strong>
-            <p>{{ graphCommandSurface?.headline || '只保留这一轮真正相关的节点和路径。' }}</p>
+            <p>{{ graphCommandSurface?.headline || '只保留这一轮真正相关的节点和主链。' }}</p>
           </div>
 
           <div class="stage-signal-row">
@@ -411,6 +411,23 @@ watch(selectedPeriod, async () => { await loadGraph() })
             <span>当前节点</span>
             <strong>{{ selectedNode.label }}</strong>
             <p>{{ selectedNode.detail }}</p>
+            <div v-if="pathEvidenceLinks.length || executionStream.length" class="selected-node-links">
+              <RouterLink
+                v-for="item in pathEvidenceLinks"
+                :key="`${item.label}-${item.path}`"
+                :to="{ path: item.path, query: item.query || {} }"
+                class="selected-node-link"
+              >
+                {{ item.label }}
+              </RouterLink>
+              <span
+                v-for="item in executionStream.slice(0, 1)"
+                :key="item.id"
+                class="selected-node-link is-muted"
+              >
+                {{ item.title }}
+              </span>
+            </div>
           </div>
 
           <div v-if="!graphCanvasNodes.length" class="stage-empty">
@@ -421,7 +438,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
         <section class="path-dock">
           <div class="path-dock-head">
             <span>关键链路</span>
-            <strong>{{ inferencePath.length }} 段</strong>
+            <strong>推理主链</strong>
           </div>
 
           <div class="path-track">
@@ -439,31 +456,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
           </div>
         </section>
 
-        <section v-if="pathEvidenceLinks.length || executionStream.length" class="path-dock path-dock-links">
-          <div class="path-dock-head">
-            <span>原文入口</span>
-            <strong>沿证据继续看</strong>
-          </div>
-
-          <div class="path-link-row">
-            <RouterLink
-              v-for="item in pathEvidenceLinks"
-              :key="`${item.label}-${item.path}`"
-              :to="{ path: item.path, query: item.query || {} }"
-              class="path-link-pill"
-            >
-              {{ item.label }} · 第{{ item.page }}页
-            </RouterLink>
-
-            <span
-              v-for="item in executionStream.slice(0, 2)"
-              :key="item.id"
-              class="path-link-pill is-muted"
-            >
-              {{ item.title }}
-            </span>
-          </div>
-        </section>
       </template>
     </div>
   </AppShell>
@@ -473,10 +465,10 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .graph-console {
   min-height: 100%;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 16px;
   width: 100%;
-  max-width: 1380px;
+  max-width: 1320px;
   margin: 0 auto;
 }
 
@@ -582,7 +574,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 16px;
+  padding: 12px 14px;
 }
 
 .query-strip-main {
@@ -593,8 +585,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .query-strip-main h2 {
-  font-size: clamp(17px, 1.8vw, 20px);
-  line-height: 1.05;
+  font-size: clamp(16px, 1.6vw, 18px);
+  line-height: 1.12;
 }
 
 .query-strip-icon {
@@ -628,25 +620,25 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-intent-dock {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 136px;
+  grid-template-columns: minmax(0, 1fr) 118px;
   gap: 12px;
-  padding: 8px 10px;
+  padding: 6px 10px;
 }
 
 .intent-textarea {
   width: 100%;
-  min-height: 60px;
+  min-height: 48px;
   resize: none;
   border: none;
   background: transparent;
   color: #eef2f7;
   font: inherit;
-  line-height: 1.75;
+  line-height: 1.6;
   outline: none;
 }
 
 .intent-submit {
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid rgba(52, 211, 153, 0.26);
   background: rgba(18, 62, 45, 0.92);
   color: #f0fdf4;
@@ -673,7 +665,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-stage {
   position: relative;
-  min-height: 520px;
+  min-height: 500px;
   overflow: hidden;
   background:
     radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.08), transparent 24%),
@@ -691,10 +683,10 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .stage-summary {
   left: 18px;
   top: 18px;
-  max-width: 286px;
+  max-width: 262px;
   display: grid;
   gap: 8px;
-  padding: 12px 14px;
+  padding: 11px 13px;
   border-radius: 16px;
   background: rgba(9, 11, 16, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -748,10 +740,10 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .selected-node-panel {
   right: 18px;
   bottom: 18px;
-  max-width: 280px;
+  max-width: 300px;
   display: grid;
   gap: 8px;
-  padding: 12px 14px;
+  padding: 11px 13px;
   border-radius: 16px;
   background: rgba(9, 11, 16, 0.88);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -761,6 +753,30 @@ watch(selectedPeriod, async () => { await loadGraph() })
   color: #f8fafc;
   font-size: 15px;
   line-height: 1.08;
+}
+
+.selected-node-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.selected-node-link {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #dbe7f3;
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.selected-node-link.is-muted {
+  color: rgba(148, 163, 184, 0.84);
 }
 
 .graph-svg {
@@ -909,7 +925,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .path-dock {
-  padding: 14px 16px;
+  padding: 12px 14px;
 }
 
 .path-dock-head,
@@ -934,8 +950,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .path-step {
-  min-width: 172px;
-  padding: 10px 12px;
+  min-width: 154px;
+  padding: 10px 11px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
@@ -949,36 +965,19 @@ watch(selectedPeriod, async () => { await loadGraph() })
   color: #f8fafc;
 }
 
+.path-step p {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+  color: rgba(203, 213, 225, 0.82);
+  line-height: 1.55;
+}
+
 .path-step.is-active {
   border-color: rgba(94, 234, 212, 0.22);
   background: rgba(18, 62, 45, 0.84);
-}
-
-.path-dock-links {
-  padding-top: 12px;
-}
-
-.path-link-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.path-link-pill {
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #dbe7f3;
-  text-decoration: none;
-  font-size: 12px;
-}
-
-.path-link-pill.is-muted {
-  color: rgba(148, 163, 184, 0.86);
 }
 
 @media (max-width: 1100px) {
