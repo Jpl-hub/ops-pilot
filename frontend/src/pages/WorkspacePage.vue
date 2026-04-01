@@ -1071,9 +1071,9 @@ watch(selectedCompany, async (company, previous) => {
 .board-composer {
   padding: 8px 14px 12px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr) 416px;
   gap: 6px;
   align-items: start;
-  justify-items: center;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -1081,12 +1081,13 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 88px;
   gap: 10px;
-  width: min(100%, 760px);
+  width: 100%;
+  grid-column: 1;
   padding: 4px 6px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
-  justify-self: center;
+  justify-self: stretch;
 }
 
 .composer-shell textarea {
@@ -1116,8 +1117,9 @@ watch(selectedCompany, async (company, previous) => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  width: min(100%, 760px);
-  justify-content: center;
+  width: 100%;
+  grid-column: 1;
+  justify-content: flex-start;
 }
 
 .prompt-chip {
@@ -1135,6 +1137,10 @@ watch(selectedCompany, async (company, previous) => {
   .board-flow,
   .board-body,
   .canvas-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .board-composer {
     grid-template-columns: 1fr;
   }
 

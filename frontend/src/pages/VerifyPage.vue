@@ -289,7 +289,7 @@ watch(
             </div>
           </article>
           
-          <article class="glass-panel support-panel scroll-area mt-4">
+          <article class="glass-panel support-panel mt-4">
             <h3 class="panel-sm-title">先看分歧</h3>
             <div class="tag-row compact-tags">
               <TagPill
@@ -428,7 +428,7 @@ watch(
 /* Support Panel */
 .panel-sm-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
 .support-panel { padding: 16px; border-radius: 18px; }
-.compare-list { display: flex; flex-direction: column; gap: 10px; }
+.compare-list { display: flex; flex-direction: column; gap: 10px; max-height: none; overflow: visible; }
 .compare-item { padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
 .ci-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px; }
 .ci-source { color: #818cf8; }

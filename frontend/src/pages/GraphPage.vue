@@ -186,10 +186,13 @@ const graphCanvasLinks = computed(() =>
       const source = graphCanvasNodes.value.find((node) => node.id === edge.source)
       const target = graphCanvasNodes.value.find((node) => node.id === edge.target)
       if (!source || !target) return null
-      const midX = source.x + (target.x - source.x) / 2
+      const direction = target.x >= source.x ? 1 : -1
+      const offset = Math.max(4, Math.min(14, Math.abs(target.x - source.x) * 0.38))
+      const controlStart = source.x + offset * direction
+      const controlEnd = target.x - offset * direction
       return {
         id: `edge-${index}-${edge.source}-${edge.target}`,
-        pathData: `M ${source.x} ${source.y} C ${midX} ${source.y}, ${midX} ${target.y}, ${target.x} ${target.y}`,
+        pathData: `M ${source.x} ${source.y} C ${controlStart} ${source.y}, ${controlEnd} ${target.y}, ${target.x} ${target.y}`,
         isActive: selectedNodeId.value === source.id || selectedNodeId.value === target.id,
       }
     })
@@ -779,21 +782,21 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .graph-link-glow.is-active {
-  stroke: rgba(110, 231, 255, 0.1);
-  opacity: 0.54;
+  stroke: rgba(110, 231, 255, 0.08);
+  opacity: 0.44;
 }
 
 .graph-link {
   stroke: url(#graph-link-gradient);
-  stroke-width: 0.11;
-  opacity: 0.5;
+  stroke-width: 0.09;
+  opacity: 0.36;
   transition: opacity 0.2s ease, stroke 0.2s ease, stroke-width 0.2s ease;
 }
 
 .graph-link.is-active {
   stroke: url(#graph-link-gradient-active);
-  stroke-width: 0.16;
-  opacity: 0.92;
+  stroke-width: 0.13;
+  opacity: 0.78;
 }
 
 .graph-node {
