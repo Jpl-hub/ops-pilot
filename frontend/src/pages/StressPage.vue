@@ -71,9 +71,33 @@ const focusExplanation = computed(
     ),
 )
 
+const stressPhraseMap: Record<string, string> = {
+  'Material Supply Constraints': '关键材料供给受限',
+  'Production Delays': '生产排期延后',
+  'Sales Decline in EU Market': '欧洲市场销量回落',
+  'Initial Tariff Implementation': '关税冲击开始落地',
+  'Supply Chain Disruption': '供应链开始失衡',
+  'Market Reaction': '市场开始反应',
+  'Temporary tariffs are imposed.': '临时关税开始落地。',
+  'Material imports are constrained.': '关键材料进口开始受限。',
+  'Stress scenario initiated.': '本轮冲击推演已经启动。',
+  'High Risk': '高风险',
+  'Severe': '高冲击',
+  'Moderate': '中等冲击',
+  'Low': '低冲击',
+}
+
+function escapeForReplace(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function localizeStressText(value?: string) {
   if (!value) return ''
-  return value
+  let localized = value
+  Object.entries(stressPhraseMap).forEach(([english, chinese]) => {
+    localized = localized.replace(new RegExp(escapeForReplace(english), 'gi'), chinese)
+  })
+  return localized
     .replace(/\bupstream\b/gi, '上游')
     .replace(/\bmidstream\b/gi, '中游')
     .replace(/\bdownstream\b/gi, '下游')
@@ -88,6 +112,10 @@ function localizeStressText(value?: string) {
     .replace(/\bseverity\b/gi, '等级')
     .replace(/\bshock\b/gi, '冲击')
     .replace(/\btrend\b/gi, '走势')
+    .replace(/\brecovery\b/gi, '修复')
+    .replace(/\bsupply\b/gi, '供应')
+    .replace(/\bdelay(s)?\b/gi, '延后')
+    .replace(/\bmarket\b/gi, '市场')
   }
 
 function displayStageName(value?: string) {
@@ -290,8 +318,8 @@ function selectPreset(item: string) {
 
               <div v-if="primaryRecoveryAction" class="action-focus">
                 <span>优先动作</span>
-                <strong>{{ primaryRecoveryAction.title }}</strong>
-                <p>{{ primaryRecoveryAction.detail }}</p>
+                <strong>{{ localizeStressText(primaryRecoveryAction.title) }}</strong>
+                <p>{{ localizeStressText(primaryRecoveryAction.detail) }}</p>
               </div>
 
               <div class="reason-focus">

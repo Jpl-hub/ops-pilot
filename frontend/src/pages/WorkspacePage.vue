@@ -1071,7 +1071,7 @@ watch(selectedCompany, async (company, previous) => {
 .board-composer {
   padding: 8px 14px 12px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 416px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   align-items: start;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -1082,12 +1082,10 @@ watch(selectedCompany, async (company, previous) => {
   grid-template-columns: minmax(0, 1fr) 88px;
   gap: 10px;
   width: 100%;
-  grid-column: 1;
   padding: 4px 6px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
-  justify-self: stretch;
 }
 
 .composer-shell textarea {
@@ -1118,7 +1116,6 @@ watch(selectedCompany, async (company, previous) => {
   flex-wrap: wrap;
   gap: 8px;
   width: 100%;
-  grid-column: 1;
   justify-content: flex-start;
 }
 
