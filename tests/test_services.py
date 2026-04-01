@@ -3623,7 +3623,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             detail = service.document_pipeline_result_detail("cell_trace", "demo-table")
             self.assertEqual(detail["job"]["status"], "blocked")
             self.assertEqual(detail["artifact"]["tables"], [])
-            self.assertIn("标准 OCR", detail["remediation"][0]["title"])
+            self.assertIn("正式结构产物", detail["remediation"][0]["title"])
 
     def test_document_pipeline_cell_trace_prefers_standard_ocr_artifact(self) -> None:
         class StubRepository:
@@ -3717,7 +3717,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(detail["consumable_sections"][0]["section_type"], "artifact_provenance")
             self.assertEqual(detail["consumable_sections"][0]["items"][0]["source"], "standard_ocr")
             self.assertEqual(detail["artifact_locations"][1]["kind"], "ocr_artifact")
-            self.assertIn("contract", detail["remediation"][0]["detail"])
+            self.assertIn("ocr_cell_trace", detail["remediation"][0]["detail"])
 
     def test_document_pipeline_cell_trace_rejects_invalid_standard_ocr_artifact(self) -> None:
         class StubRepository:
@@ -3817,7 +3817,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             detail = service.document_pipeline_result_detail("cell_trace", "demo-invalid-ocr")
             self.assertEqual(detail["job"]["status"], "blocked")
             self.assertIsNone(detail["job"]["artifact_source"])
-            self.assertIn("补齐标准 OCR", detail["remediation"][0]["title"])
+            self.assertIn("补齐正式结构产物", detail["remediation"][0]["title"])
 
     def test_admin_overview_reports_company_coverage_gaps(self) -> None:
         class StubRepository:

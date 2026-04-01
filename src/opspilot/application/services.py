@@ -5432,8 +5432,8 @@ def _build_vision_quality_summary(
 
 def _artifact_source_label(source: str | None) -> str:
     return {
-        "standard_ocr": "标准 OCR",
-        "geometric_fallback": "旧几何恢复产物",
+        "standard_ocr": "正式结构产物",
+        "geometric_fallback": "历史结构产物",
     }.get(source or "", source or "来源未识别")
 
 
@@ -6460,7 +6460,7 @@ def _build_document_consumable_sections(artifact: dict[str, Any]) -> list[dict[s
                 "count": 1,
                 "items": [
                     {
-                        "text": "标准 OCR 结构产物" if source == "standard_ocr" else "旧非标准产物",
+                        "text": "正式结构产物" if source == "standard_ocr" else "历史结构产物",
                         "source": source,
                         "path": artifact.get("ocr_artifact_path"),
                     }
@@ -6550,7 +6550,7 @@ def _build_document_artifact_locations(
     if artifact.get("ocr_artifact_path"):
         locations.append(
             {
-                "label": "标准 OCR 上游产物",
+                "label": "正式 OCR 上游产物",
                 "kind": "ocr_artifact",
                 "path": artifact.get("ocr_artifact_path"),
             }
@@ -6571,14 +6571,14 @@ def _build_document_artifact_remediation(
     if artifact_source == "standard_ocr":
         return [
             {
-                "title": "抽检标准 OCR contract",
-                "detail": "优先核对 ocr_cell_trace contract 中 tables/cells 的页码、行列号和上游 OCR 产物路径，确保结构产物可复算。",
+                "title": "核对正式结构产物",
+                "detail": "优先核对 ocr_cell_trace 中 tables/cells 的页码、行列号和上游 OCR 产物路径，确保当前结构结果可复算。",
             }
         ]
     return [
         {
-            "title": "补齐标准 OCR 结构产物",
-            "detail": "当前尚未形成合法的标准 OCR tables/cells 产物。应先接通正式 OCR 运行时并写入 ocr_cell_trace contract，再重新运行 cell_trace。",
+            "title": "补齐正式结构产物",
+            "detail": "当前尚未形成合法的 tables/cells 结构结果。应先接通正式 OCR 运行时并写入 ocr_cell_trace，再重新运行 cell_trace。",
         }
     ]
 

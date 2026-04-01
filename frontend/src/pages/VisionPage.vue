@@ -27,17 +27,15 @@ const availablePeriods = computed(() => overviewState.data.value?.available_peri
 const resultItems = computed(() => visionState.data.value?.result?.items || runtimeState.data.value?.vision?.items || [])
 const selectedResult = computed(() => visionState.data.value?.result || runtimeState.data.value?.vision || null)
 const phaseTrack = computed(() => selectedResult.value?.phase_track || runtimeState.data.value?.stages || [])
-const extractionStream = computed(() => selectedResult.value?.extraction_stream || [])
 const analysisLog = computed(() => selectedResult.value?.analysis_log || [])
 const qualitySummary = computed(() => selectedResult.value?.quality_summary || null)
-const qualityMetrics = computed(() => qualitySummary.value?.metrics?.slice(0, 4) || [])
-const qualityDimensions = computed(() => qualitySummary.value?.dimensions?.slice(0, 3) || [])
-const qualityBlockers = computed(() => qualitySummary.value?.blockers?.slice(0, 2) || [])
-const compactExtractionStream = computed(() => extractionStream.value.slice(0, 4))
-const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 3))
-const visibleAnalysisLog = computed(() => analysisLog.value.slice(0, 4))
-const visibleSections = computed(() => selectedResult.value?.sections?.slice(0, 4) || [])
-const visibleResultItems = computed(() => resultItems.value.slice(0, 6))
+const qualityMetrics = computed(() => qualitySummary.value?.metrics?.slice(0, 3) || [])
+const qualityDimensions = computed(() => qualitySummary.value?.dimensions?.slice(0, 2) || [])
+const qualityBlockers = computed(() => qualitySummary.value?.blockers?.slice(0, 1) || [])
+const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 2))
+const visibleAnalysisLog = computed(() => analysisLog.value.slice(0, 3))
+const visibleSections = computed(() => selectedResult.value?.sections?.slice(0, 3) || [])
+const visibleResultItems = computed(() => resultItems.value.slice(0, 4))
 const sourcePreviewText = computed(() => {
   const preview = selectedResult.value?.source_preview
   if (!preview) return ''
@@ -78,8 +76,8 @@ function displayJobStatus(status?: string) {
 
 function displayArtifactSource(source?: string) {
   const map: Record<string, string> = {
-    standard_ocr: '标准 OCR',
-    geometric_fallback: '几何恢复链',
+    standard_ocr: '正式结构产物',
+    geometric_fallback: '历史结构产物',
   }
   return map[source || ''] || source || '当前阶段产物'
 }
@@ -91,14 +89,6 @@ function displayPipelineStage(stage?: string) {
     cell_trace: '单元格溯源',
   }
   return map[stage || ''] || stage || '-'
-}
-
-function displayRuntimeMode(mode?: string) {
-  const map: Record<string, string> = {
-    service: 'OCR 服务模式',
-    local_assets: '本地模型模式',
-  }
-  return map[mode || ''] || mode || '运行时'
 }
 
 function qualityTone(status?: string): 'default' | 'risk' | 'success' {
@@ -251,10 +241,7 @@ watch(
             </div>
             <div v-if="selectedResult" class="status-badge-row">
               <TagPill :label="selectedResult.status_label || '就绪'" tone="success" />
-              <TagPill v-if="selectedResult.company_name" :label="selectedResult.company_name" />
               <TagPill v-if="qualitySummary" :label="qualitySummary.label" :tone="qualityTone(qualitySummary.status)" />
-              <TagPill v-if="qualitySummary?.artifact_source" :label="qualitySummary.artifact_source_label" />
-              <TagPill v-if="runtimeSummary?.mode" :label="displayRuntimeMode(runtimeSummary.mode)" />
             </div>
             <p v-if="sourcePreviewText" class="hero-preview muted">
               {{ sourcePreviewText }}
@@ -324,25 +311,9 @@ watch(
             </div>
           </article>
 
-          <!-- Extraction Stream -->
-          <article class="glass-panel stream-panel" v-if="extractionStream.length">
-            <h3 class="panel-sm-title">提取摘要</h3>
-            <div class="stream-chips">
-              <div
-                v-for="item in compactExtractionStream"
-                :key="item.label + item.value"
-                class="stream-chip"
-                :class="`tone-${item.tone || 'accent'}`"
-              >
-                <span class="chip-label">{{ item.label }}</span>
-                <strong class="chip-val">{{ item.value }}</strong>
-              </div>
-            </div>
-          </article>
-
           <!-- History Runs -->
           <article class="glass-panel runs-panel" v-if="recentRuns.length">
-            <h3 class="panel-sm-title">最近复核</h3>
+            <h3 class="panel-sm-title">最近两次</h3>
             <div class="runs-list">
               <div
                 v-for="item in recentRuns"
@@ -365,7 +336,7 @@ watch(
 
           <!-- Pipeline Jobs -->
           <article class="glass-panel jobs-panel" v-if="pipelineJobs.length">
-            <h3 class="panel-sm-title">当前复核状态</h3>
+            <h3 class="panel-sm-title">本轮进度</h3>
             <div class="jobs-grid">
               <div
                 v-for="job in pipelineJobs.slice(0, 3)"
@@ -389,7 +360,7 @@ watch(
           </article>
 
           <article class="glass-panel artifact-panel" v-if="activeJob">
-            <h3 class="panel-sm-title">本次结果</h3>
+            <h3 class="panel-sm-title">当前产物</h3>
             <div class="artifact-grid">
               <div class="artifact-kv">
                 <span class="muted">步骤</span>
@@ -417,7 +388,7 @@ watch(
 
           <!-- Analysis Log -->
           <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">复核记录</h3>
+            <h3 class="panel-sm-title">处理过程</h3>
             <div class="log-list">
               <div
                 v-for="item in visibleAnalysisLog"
@@ -477,7 +448,7 @@ watch(
 
           <!-- Evidence Links -->
           <article class="glass-panel evidence-panel" v-if="selectedResult?.evidence_navigation?.links?.length">
-            <h3 class="panel-sm-title">回到原文</h3>
+            <h3 class="panel-sm-title">查看原文</h3>
             <div class="evidence-links">
               <RouterLink
                 v-for="link in selectedResult.evidence_navigation.links"
@@ -496,7 +467,7 @@ watch(
 </template>
 
 <style scoped>
-.dashboard-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: hidden; width: 100%; max-width: 1380px; margin: 0 auto; }
+.dashboard-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: hidden; width: 100%; max-width: 1320px; margin: 0 auto; }
 
 .control-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 16px; flex-shrink: 0; }
 .control-left { display: flex; align-items: center; gap: 16px; }
@@ -516,7 +487,7 @@ watch(
 .state-container { flex: 1; }
 
 /* Grid */
-.dashboard-grid { display: grid; grid-template-columns: 292px 1fr; gap: 16px; flex: 1; min-height: 0; }
+.dashboard-grid { display: grid; grid-template-columns: 304px 1fr; gap: 16px; flex: 1; min-height: 0; }
 .dashboard-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
 .left-col { overflow-y: auto; }
 .left-col::-webkit-scrollbar { width: 4px; }
@@ -535,7 +506,7 @@ watch(
 .hero-text { font-size: 13px; margin: 0; }
 .hero-preview { font-size: 12px; line-height: 1.6; margin: 0; }
 .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; }
-.status-badge-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.status-badge-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .muted { color: var(--muted); }
 .text-sm { font-size: 13px; }
 .text-accent { color: #10b981; }

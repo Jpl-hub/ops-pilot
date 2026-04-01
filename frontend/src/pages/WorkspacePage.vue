@@ -359,7 +359,7 @@ watch(selectedCompany, async (company, previous) => {
       <section v-else class="console-board">
         <header class="board-topbar">
           <div class="board-title">
-            <div class="board-mark">⎔</div>
+            <div class="board-mark" aria-hidden="true"></div>
             <strong>协同分析</strong>
             <span class="board-subtitle">{{ roleFocusTitle }}</span>
           </div>
@@ -407,8 +407,8 @@ watch(selectedCompany, async (company, previous) => {
 
             <div v-if="loadingTurn" class="canvas-loading">
               <div class="canvas-loading-card">
-                <strong>正在调度真实服务</strong>
-                <p>评分、图谱、证据校验和动作规划已经开始运行。</p>
+                <strong>正在汇总本轮判断</strong>
+                <p>真实服务正在回收数字、证据和动作建议。</p>
                 <div class="loading-steps">
                   <div v-for="step in workflowSteps.slice(0, 4)" :key="step.step" class="loading-step">
                     <span>[{{ step.agent_label || step.agent }}]</span>
@@ -457,7 +457,7 @@ watch(selectedCompany, async (company, previous) => {
 
           <aside class="result-rail">
             <header class="rail-head">
-              <strong>本轮结果</strong>
+              <strong>判断结果</strong>
               <span>{{ roleLabel }}</span>
             </header>
 
@@ -480,7 +480,7 @@ watch(selectedCompany, async (company, previous) => {
               </section>
 
               <section v-if="latestActionCards.length" class="rail-section">
-                <span class="rail-label">下一步动作</span>
+                <span class="rail-label">先做什么</span>
                 <div class="action-list">
                   <article v-for="item in latestActionCards" :key="item.title" class="action-row">
                     <em>{{ item.priority || '动作' }}</em>
@@ -491,7 +491,7 @@ watch(selectedCompany, async (company, previous) => {
               </section>
 
               <section v-if="latestEvidenceGroups.length" class="rail-section">
-                <span class="rail-label">这轮证据</span>
+                <span class="rail-label">判断依据</span>
                 <article v-for="group in latestEvidenceGroups" :key="group.title || group.code" class="evidence-row">
                   <strong>{{ group.title || group.group_type || '证据组' }}</strong>
                   <p>{{ group.subtitle || '真实证据已挂接到当前判断。' }}</p>
@@ -504,7 +504,7 @@ watch(selectedCompany, async (company, previous) => {
               </section>
 
               <section v-if="resultLinks.length" class="rail-section">
-                <span class="rail-label">继续下钻</span>
+                <span class="rail-label">继续查看</span>
                 <div class="rail-link-row">
                   <RouterLink
                     v-for="link in resultLinks"
@@ -521,7 +521,7 @@ watch(selectedCompany, async (company, previous) => {
 
             <div v-else class="rail-empty">
               <div class="rail-empty-icon">▤</div>
-              <p>发起分析后结果将展示于此</p>
+              <p>发起判断后，结果会显示在这里</p>
             </div>
           </aside>
         </section>
@@ -571,7 +571,7 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   gap: 16px;
   width: 100%;
-  max-width: 1380px;
+  max-width: 1320px;
   margin: 0 auto;
 }
 
@@ -639,14 +639,12 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .board-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  border: 1px solid rgba(52, 211, 153, 0.22);
-  background: rgba(18, 62, 45, 0.92);
-  display: grid;
-  place-items: center;
-  color: #73f0c7;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #73f0c7;
+  box-shadow: 0 0 0 5px rgba(23, 50, 39, 0.78);
+  flex-shrink: 0;
 }
 
 .board-title strong,
@@ -772,7 +770,7 @@ watch(selectedCompany, async (company, previous) => {
 .board-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 392px;
+  grid-template-columns: minmax(0, 1fr) 432px;
 }
 
 .board-canvas {
@@ -1127,6 +1125,7 @@ watch(selectedCompany, async (company, previous) => {
   padding: 8px 14px 12px;
   display: grid;
   gap: 6px;
+  align-items: start;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -1134,6 +1133,7 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 96px;
   gap: 10px;
+  width: min(100%, 760px);
   padding: 4px 8px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
