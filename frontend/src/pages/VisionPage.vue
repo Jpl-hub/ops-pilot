@@ -23,6 +23,19 @@ const selectedCompany = ref('')
 const selectedPeriod = ref('')
 
 const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
+const periodOptions = computed(() =>
+  (availablePeriods.value || [])
+    .map((item: any) => {
+      if (typeof item === 'string') return { value: item, label: item }
+      if (item && typeof item === 'object') {
+        const value = String(item.value || item.period || item.report_period || item.label || '')
+        const label = String(item.label || item.period || item.report_period || item.value || '')
+        return value ? { value, label } : null
+      }
+      return null
+    })
+    .filter(Boolean) as Array<{ value: string; label: string }>,
+)
 
 const resultItems = computed(() => visionState.data.value?.result?.items || runtimeState.data.value?.vision?.items || [])
 const selectedResult = computed(() => visionState.data.value?.result || runtimeState.data.value?.vision || null)
@@ -140,7 +153,10 @@ onMounted(async () => {
   try {
     await overviewState.execute(() => get('/workspace/companies'))
     selectedCompany.value = companies.value[0] || ''
-    selectedPeriod.value = overviewState.data.value?.preferred_period || ''
+    const preferredPeriod = overviewState.data.value?.preferred_period
+    selectedPeriod.value = typeof preferredPeriod === 'string'
+      ? preferredPeriod
+      : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
     try {
       await loadVision()
     } catch {
@@ -200,7 +216,7 @@ watch(
             <span class="subtle-label">报期</span>
             <select v-model="selectedPeriod" class="glass-select">
               <option value="">默认主周期</option>
-              <option v-for="p in availablePeriods" :key="p" :value="p">{{ p }}</option>
+              <option v-for="p in periodOptions" :key="p.value" :value="p.value">{{ p.label }}</option>
             </select>
           </label>
           <button
@@ -328,7 +344,7 @@ watch(
 
           <!-- Pipeline Jobs -->
           <article class="glass-panel jobs-panel" v-if="pipelineJobs.length">
-            <h3 class="panel-sm-title">当前步骤</h3>
+            <h3 class="panel-sm-title">这次做到哪一步</h3>
             <div class="jobs-grid">
               <div
                 v-for="job in pipelineJobs.slice(0, 3)"
@@ -348,7 +364,7 @@ watch(
           </article>
 
           <article class="glass-panel artifact-panel" v-if="activeJob">
-            <h3 class="panel-sm-title">当前产物</h3>
+            <h3 class="panel-sm-title">这次拿到了什么</h3>
             <div class="artifact-grid">
               <div class="artifact-kv">
                 <span class="muted">步骤</span>
@@ -368,7 +384,7 @@ watch(
 
           <!-- Analysis Log -->
           <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">提取结果</h3>
+            <h3 class="panel-sm-title">这次提取到了什么</h3>
             <div class="log-list">
               <div
                 v-for="item in visibleAnalysisLog"
@@ -386,7 +402,7 @@ watch(
 
           <!-- Sections from Result -->
           <article class="glass-panel sections-panel scroll-area flex-1" v-else-if="visibleSections.length">
-            <h3 class="panel-sm-title">结构内容</h3>
+            <h3 class="panel-sm-title">页块与表格</h3>
             <div class="sections-grid">
               <div
                 v-for="section in visibleSections"
@@ -409,7 +425,7 @@ watch(
 
           <!-- Result Items -->
           <article class="glass-panel items-panel scroll-area flex-1" v-else-if="visibleResultItems.length">
-            <h3 class="panel-sm-title">提取条目</h3>
+            <h3 class="panel-sm-title">已识别条目</h3>
             <div class="items-list">
               <div v-for="item in visibleResultItems" :key="`${item.kind}-${item.title}`" class="item-row glass-panel-hover">
                 <strong>{{ item.title }}</strong>

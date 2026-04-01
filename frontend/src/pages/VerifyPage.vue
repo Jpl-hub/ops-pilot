@@ -27,16 +27,34 @@ const reportCatalogReady = ref(false)
 const verifyWatchItems = computed(() => verifyCommandSurface.value?.watch_items?.slice(0, 2) || [])
 const verifyDominantSignal = computed(() => verifyCommandSurface.value?.dominant_signal || null)
 const verifyPrimaryClaims = computed(() => state.data.value?.claim_cards?.slice(0, 3) || [])
-const verifyPrimaryInsights = computed(() => state.data.value?.research_compare?.insights?.slice(0, 4) || [])
+const verifyPrimaryInsights = computed(() => state.data.value?.research_compare?.insights?.slice(0, 3) || [])
 const verifyCompareRows = computed(() => state.data.value?.research_compare?.rows?.slice(0, 2) || [])
 const verifyCharts = computed(() => state.data.value?.charts?.slice(0, 1) || state.data.value?.research_compare?.charts?.slice(0, 1) || [])
 const verifyDeltaItems = computed(() => verifyDeltaTape.value.slice(0, 3))
+const periodOptions = computed(() =>
+  (availablePeriods.value || [])
+    .map((item: any) => {
+      if (typeof item === 'string') return { value: item, label: item }
+      if (item && typeof item === 'object') {
+        const value = String(item.value || item.period || item.report_period || item.label || '')
+        const label = String(item.label || item.period || item.report_period || item.value || '')
+        return value ? { value, label } : null
+      }
+      return null
+    })
+    .filter(Boolean) as Array<{ value: string; label: string }>,
+)
 
 async function loadCompanies() {
   const data = await get<any>('/workspace/companies')
   companies.value = data.companies
   availablePeriods.value = data.available_periods || []
-  selectedPeriod.value = selectedPeriod.value || data.preferred_period || ''
+  const preferredPeriod = data.preferred_period
+  selectedPeriod.value = selectedPeriod.value || (
+    typeof preferredPeriod === 'string'
+      ? preferredPeriod
+      : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
+  ) || ''
 }
 
 async function requestReports(companyName: string) {
@@ -188,7 +206,7 @@ watch(
             <span class="subtle-label">报期</span>
             <select v-model="selectedPeriod" class="glass-select">
               <option value="">默认主周期</option>
-              <option v-for="period in availablePeriods" :key="period" :value="period">{{ period }}</option>
+              <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
             </select>
           </label>
           <label class="field inline-field">
@@ -290,15 +308,18 @@ watch(
           </article>
           
           <article class="glass-panel support-panel mt-4">
-            <h3 class="panel-sm-title">先看分歧</h3>
-            <div class="tag-row compact-tags">
-              <TagPill
+            <h3 class="panel-sm-title">先看哪几处对不上</h3>
+            <div v-if="verifyPrimaryInsights.length" class="insight-list">
+              <div
                 v-for="insight in verifyPrimaryInsights"
                 :key="insight.title"
-                :label="insight.title"
-                tone="risk"
-              />
+                class="insight-row"
+              >
+                <strong>{{ insight.title }}</strong>
+                <p class="muted">{{ insight.detail || '这条说法需要回到财报原文继续核对。' }}</p>
+              </div>
             </div>
+            <p v-else class="muted">这篇研报暂时没有明显分歧，继续逐条对照关键数据即可。</p>
             
             <div class="compare-list mt-4">
                <div
@@ -332,7 +353,7 @@ watch(
 
           <!-- Bottom Row: Claim Cards List -->
           <div class="glass-panel details-panel scroll-area flex-1">
-            <h3 class="panel-sm-title mb-4">关键证据</h3>
+            <h3 class="panel-sm-title mb-4">逐条对照</h3>
             
             <div class="claims-grid">
               <div
@@ -428,6 +449,10 @@ watch(
 /* Support Panel */
 .panel-sm-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
 .support-panel { padding: 16px; border-radius: 18px; }
+.insight-list { display: grid; gap: 10px; }
+.insight-row { padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); display: grid; gap: 6px; }
+.insight-row strong { color: #f8fafc; font-size: 14px; line-height: 1.45; }
+.insight-row p { margin: 0; font-size: 12px; line-height: 1.6; }
 .compare-list { display: flex; flex-direction: column; gap: 10px; max-height: none; overflow: visible; }
 .compare-item { padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
 .ci-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px; }
