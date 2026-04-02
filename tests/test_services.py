@@ -4350,7 +4350,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 service.run_document_pipeline_stage("cell_trace", 1, contract_status="ready")
 
-    @patch("opspilot.application.services.requests.post")
+    @patch("opspilot.application.document_pipeline.requests.post")
     def test_run_document_pipeline_stage_materializes_standard_ocr_contract_via_service(self, mock_post) -> None:
         class StubRepository:
             def preferred_period(self) -> str:
