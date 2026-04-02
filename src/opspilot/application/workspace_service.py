@@ -543,41 +543,47 @@ def _build_answer_sections(payload: dict[str, Any], role_key: str) -> list[dict[
     report_period = payload.get("report_period")
     if query_type == "company_scoring":
         scorecard = payload.get("scorecard", {})
+        risk_names = [item["name"] for item in scorecard.get("risk_labels", [])[:2]]
+        opportunity_names = [item["name"] for item in scorecard.get("opportunity_labels", [])[:2]]
         return [
-            {"title": "经营结论", "lines": [
-                f"{company_name} 在 {report_period} 的总分为 {scorecard.get('total_score')}，等级 {scorecard.get('grade')}。",
-                f"当前处于 {payload.get('subindustry', '所属子行业')} 公司池的 {scorecard.get('subindustry_percentile')}pct 位置。",
+            {"title": "当前判断", "lines": [
+                f"{company_name} 在 {report_period} 的总分 {scorecard.get('total_score')}，当前等级 {scorecard.get('grade')}。",
+                f"当前处于 {payload.get('subindustry', '所属子行业')} 的分位 {scorecard.get('subindustry_percentile')}。",
             ]},
-            {"title": "重点风险", "lines": [
-                item["name"] for item in scorecard.get("risk_labels", [])
-            ] or ["当前没有命中高风险标签。"]},
-            {"title": "优先动作", "lines": [
+            {"title": "为什么这样看", "lines": [
+                f"风险侧先看：{'、'.join(risk_names)}。"
+                if risk_names else "当前没有命中高风险标签。",
+                f"机会侧还能看：{'、'.join(opportunity_names)}。"
+                if opportunity_names else "当前没有明显新增机会标签。",
+            ]},
+            {"title": "先做什么", "lines": [
                 f"{item['priority']} {item['title']}：{item['action']}"
                 for item in payload.get("action_cards", [])[:3]
             ] or ["当前没有新增动作要求。"]},
         ]
     if query_type == "claim_verification":
         report_meta = payload.get("report_meta", {})
+        mismatches = [
+            item["claim_text"]
+            for item in payload.get("claim_cards", [])
+            if item.get("status") != "match"
+        ][:3]
         return [
-            {"title": "核验结论", "lines": [
-                f"当前核验报期为 {report_period}，研报标题为《{report_meta.get('title', '未命名研报')}》。",
-                f"匹配观点 {sum(1 for item in payload.get('claim_cards', []) if item.get('status') == 'match')} 条，"
-                f"偏差观点 {sum(1 for item in payload.get('claim_cards', []) if item.get('status') == 'mismatch')} 条。",
+            {"title": "当前判断", "lines": [
+                f"这次核对的是《{report_meta.get('title', '未命名研报')}》，报期 {report_period}。",
+                f"一致 {sum(1 for item in payload.get('claim_cards', []) if item.get('status') == 'match')} 条，不一致 {sum(1 for item in payload.get('claim_cards', []) if item.get('status') == 'mismatch')} 条。",
             ]},
-            {"title": "偏差与待核查", "lines": [
-                item["claim_text"] for item in payload.get("claim_cards", [])
-                if item.get("status") != "match"
-            ][:3] or ["当前没有发现明显偏差。"]},
-            {"title": "盈利预测", "lines": [
+            {"title": "哪些地方对不上", "lines": mismatches or ["当前没有发现明显偏差。"]},
+            {"title": "继续看哪里", "lines": [
                 f"{item['forecast_year']} 年：{item['profit_value']} 亿元，PE {item['pe_value']} 倍"
                 for item in payload.get("forecast_cards", [])[:3]
-            ] or ["当前研报未提取到明确盈利预测。"]},
+            ] or ["先回到原文页和盈利预测表继续核对。"]},
         ]
     if query_type == "peer_benchmark":
         benchmark = payload.get("benchmark", [])
         return [
-            {"title": "同业位置", "lines": [payload.get("answer_markdown", "")]},
-            {"title": "头部公司", "lines": [
+            {"title": "当前判断", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]},
+            {"title": "同业谁更强", "lines": [
                 f"{i + 1}. {item['company_name']} {item['total_score']} 分"
                 for i, item in enumerate(benchmark[:3])
             ]},
@@ -585,68 +591,100 @@ def _build_answer_sections(payload: dict[str, Any], role_key: str) -> list[dict[
     if query_type == "graph_query":
         focal_nodes = payload.get("focal_nodes", [])
         return [
-            {"title": "图谱结论", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]},
-            {"title": "关键节点", "lines": [
-                f"{item.get('label')}（{item.get('type')}）"
+            {"title": "当前判断", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]},
+            {"title": "为什么这样看", "lines": [
+                f"{item.get('label')}：{item.get('reason') or item.get('type')}"
                 for item in focal_nodes[:5]
             ] or ["当前未命中关键节点。"]},
-            {"title": "主传导链", "lines": [
+            {"title": "继续看哪里", "lines": [
                 f"{item.get('step')}. {item.get('title')}：{item.get('detail')}"
-                for item in payload.get("inference_path", [])[:4]
+                for item in payload.get("inference_path", [])[:3]
             ] or ["当前未形成稳定传导路径。"]},
         ]
     if query_type == "stress_test":
         severity = payload.get("severity", {})
+        action_cards = payload.get("action_cards", [])
         return [
-            {"title": "压力结论", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]},
-            {"title": "冲击等级", "lines": [
-                f"{severity.get('level', 'UNKNOWN')} / {severity.get('label', '待确认')}",
+            {"title": "当前判断", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]},
+            {"title": "为什么这样看", "lines": [
+                f"这轮冲击等级：{severity.get('label', '待确认')}",
                 f"当前场景：{payload.get('scenario', '未提供')}",
             ]},
-            {"title": "传导矩阵", "lines": [
+            {"title": "先做什么", "lines": [
+                f"{item.get('title')}：{item.get('action') or item.get('reason')}"
+                for item in action_cards[:3]
+            ] or [
                 f"{item.get('stage')}：{item.get('headline')}（{item.get('impact_label')} {item.get('impact_score')}）"
-                for item in payload.get("transmission_matrix", [])[:4]
-            ] or ["当前没有可用的传导矩阵。"]},
+                for item in payload.get("transmission_matrix", [])[:3]
+            ] or ["当前没有可用的传导链结果。"]},
         ]
     if query_type == "company_timeline":
         return [
-            {"title": "时间线结论", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]},
-            {"title": "最近报期", "lines": [
+            {"title": "当前判断", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]},
+            {"title": "最近几期", "lines": [
                 f"{item.get('report_period')}：总分 {item.get('total_score')}，评级 {item.get('grade')}"
                 for item in payload.get("snapshots", [])[:3]
             ] or ["当前没有可回放的报期记录。"]},
         ]
     if query_type == "risk_scan":
         return [
-            {"title": "批量预警", "lines": [
+            {"title": "当前判断", "lines": [
                 f"{item['company_name']}：{item['summary']}"
                 for item in payload.get("alert_board", [])[:4]
             ] or ["当前主周期没有新增重点预警。"]},
-            {"title": "高风险公司", "lines": [
+            {"title": "先盯这些公司", "lines": [
                 f"{item['company_name']}：{item['risk_count']} 个风险标签"
                 for item in payload.get("risk_board", [])[:5]
             ]},
         ]
     if query_type == "metric_query":
-        return [{"title": "指标结果", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]}]
+        return [{"title": "当前数字", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]}]
     if query_type == "brief_generation":
         answer = _strip_markdown(payload.get("answer_markdown", ""))
-        return [{"title": "经营简报", "lines": [ln for ln in answer.splitlines() if ln.strip()]}]
-    return [{"title": "分析结果", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]}]
+        return [{"title": "这轮简报", "lines": [ln for ln in answer.splitlines() if ln.strip()]}]
+    return [{"title": "当前判断", "lines": [_strip_markdown(payload.get("answer_markdown", ""))]}]
 
 
 def _build_workspace_insight_cards(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    query_type = payload.get("query_type")
     cards = [
         {"label": item.get("label"), "value": item.get("value"), "unit": item.get("unit")}
-        for item in payload.get("key_numbers", [])[:4]
+        for item in payload.get("key_numbers", [])[:3]
+        if item.get("label")
     ]
-    if payload.get("query_type") == "company_scoring":
+    if query_type == "company_scoring":
         scorecard = payload.get("scorecard", {})
-        cards.extend([
-            {"label": "风险标签", "value": len(scorecard.get("risk_labels", [])), "unit": "个"},
-            {"label": "建议动作", "value": len(payload.get("action_cards", [])), "unit": "项"},
-        ])
-    return cards[:6]
+        cards = [
+            {"label": "总分", "value": scorecard.get("total_score"), "unit": "分"},
+            {"label": "等级", "value": scorecard.get("grade"), "unit": ""},
+            {"label": "子行业分位", "value": scorecard.get("subindustry_percentile"), "unit": ""},
+        ]
+    elif query_type == "claim_verification":
+        cards = [
+            {
+                "label": "一致",
+                "value": sum(1 for item in payload.get("claim_cards", []) if item.get("status") == "match"),
+                "unit": "条",
+            },
+            {
+                "label": "不一致",
+                "value": sum(1 for item in payload.get("claim_cards", []) if item.get("status") == "mismatch"),
+                "unit": "条",
+            },
+            {
+                "label": "盈利预测",
+                "value": len(payload.get("forecast_cards", [])),
+                "unit": "组",
+            },
+        ]
+    elif query_type == "stress_test" and not cards:
+        severity = payload.get("severity", {})
+        cards = [
+            {"label": "冲击等级", "value": severity.get("label"), "unit": ""},
+            {"label": "传导阶段", "value": len(payload.get("transmission_matrix", [])), "unit": "段"},
+            {"label": "优先动作", "value": len(payload.get("action_cards", [])), "unit": "条"},
+        ]
+    return cards[:3]
 
 
 def _build_follow_up_questions(payload: dict[str, Any], role_key: str) -> list[str]:
@@ -714,24 +752,23 @@ def _build_agent_flow(
     return [
         {
             "step": 1, "agent_key": "router", "agent_label": "任务识别", "agent": "任务识别",
-            "status": "completed", "title": "识别任务并锁定公司",
-            "summary": f"已将问题归类为 {query_type}，目标问题是：{query}",
+            "status": "completed", "title": "先锁定这轮问题",
+            "summary": f"这轮围绕“{query}”展开，当前类型是 {QUERY_TYPE_DISPLAY_LABELS.get(str(query_type or ''), '协同分析')}。",
             "source": "问题文本 + 公司池 + 报期索引", "tool": "intent_router", "handoff": "data",
             "route": _build_agent_route("orchestrator", payload),
             "metrics": [
-                {"label": "任务类型", "value": query_type or "unknown"},
+                {"label": "任务类型", "value": QUERY_TYPE_DISPLAY_LABELS.get(str(query_type or ''), query_type or "协同分析")},
                 {"label": "目标公司", "value": payload.get("company_name", "未显式指定")},
                 {"label": "目标报期", "value": payload.get("report_period", "自动选择")},
             ],
         },
         {
             "step": 2, "agent_key": "data", "agent_label": "数据分析", "agent": "数据分析",
-            "status": "completed", "title": "抽取经营与风险信号",
+            "status": "completed", "title": "再拉这轮关键数据",
             "summary": (
-                f"调用了 {len(tools_called)} 个工具: {', '.join(tools_called) or '无'}。"
-                f" 识别到 {risk_count} 个风险，{formula_count} 条公式链。"
+                f"已拿到 {len(payload.get('key_numbers', []))} 个关键数字，补到 {risk_count} 个风险和 {formula_count} 条公式线。"
                 if query_type == "company_scoring"
-                else f"调用了 {len(tools_called)} 个工具，提取 {len(payload.get('key_numbers', []))} 个关键结果。"
+                else f"已拉出 {len(payload.get('key_numbers', []))} 个关键结果，并沿当前问题补回相关数据。"
             ),
             "source": _resolve_agent_signal_source(query_type),
             "tool": _resolve_agent_signal_tool(query_type), "handoff": "risk",
@@ -740,8 +777,8 @@ def _build_agent_flow(
         },
         {
             "step": 3, "agent_key": "risk", "agent_label": "证据校验", "agent": "证据校验",
-            "status": "completed", "title": "回放来源与可核查证据",
-            "summary": f"当前返回 {evidence_count} 条证据引用，优先暴露页码和来源片段。",
+            "status": "completed", "title": "回到原文核对依据",
+            "summary": f"这轮一共回挂 {evidence_count} 条证据，优先保留最能直接核对的原文片段。",
             "source": "官方财报页级解析 + 研报详情页 + 公式输入字段", "tool": "evidence_auditor",
             "handoff": "strategy", "route": _build_agent_route("evidence_auditor", payload),
             "metrics": [
@@ -752,10 +789,10 @@ def _build_agent_flow(
         },
         {
             "step": 4, "agent_key": "strategy", "agent_label": "策略生成",
-            "agent": "策略生成", "status": "completed", "title": "按角色给出下一步",
+            "agent": "策略生成", "status": "completed", "title": "最后落到下一步",
             "summary": (
-                f"已生成 {action_count} 条角色相关动作。" if action_count
-                else f"已切换到 {ROLE_PROFILES[role_key]['label']} 视角的后续问题建议。"
+                f"这轮已经整理出 {action_count} 条下一步。" if action_count
+                else f"这轮暂时没有直接动作，先转成 {ROLE_PROFILES[role_key]['label']} 视角的继续追问。"
             ),
             "source": "评分结果 + 风险标签 + 角色视角", "tool": "action_planner",
             "handoff": "返回工作台", "route": _build_agent_route("action_planner", payload),
@@ -785,6 +822,8 @@ def _build_control_plane(
         "steps_completed": sum(1 for item in agent_flow if item.get("status") == "completed"),
         "step_total": len(agent_flow),
         "data_sources": _build_control_plane_sources(payload),
+        "result_label": QUERY_TYPE_DISPLAY_LABELS.get(str(payload.get("query_type") or ""), "协同分析"),
+        "next_focus": agent_flow[-1]["title"] if agent_flow else "继续追问",
         "assurance_label": ai_assurance.get("label"),
         "assurance_status": ai_assurance.get("status"),
         "model": agent_runtime.get("model"),

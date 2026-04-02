@@ -516,7 +516,9 @@ watch(selectedCompany, async (company, previous) => {
             </button>
           </div>
 
-          <ErrorState v-if="turnError" :message="turnError" />
+          <div v-if="turnError" class="composer-error">
+            <ErrorState :message="turnError" />
+          </div>
         </footer>
       </section>
     </div>
@@ -1039,13 +1041,14 @@ watch(selectedCompany, async (company, previous) => {
 .board-composer {
   padding: 8px 14px 12px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) 416px;
+  gap: 6px 0;
   align-items: start;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .composer-shell {
+  grid-column: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 88px;
   gap: 10px;
@@ -1080,11 +1083,16 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .composer-prompts {
+  grid-column: 1;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   width: 100%;
   justify-content: flex-start;
+}
+
+.composer-error {
+  grid-column: 1 / -1;
 }
 
 .prompt-chip {

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, TYPE_CHECKING
 
 from opspilot.core.llm import generate_completion, ToolCallTrace
@@ -19,6 +20,17 @@ if TYPE_CHECKING:
     from opspilot.application.services import OpsPilotService
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_QUERY_TYPES = {
+    "company_scoring",
+    "peer_benchmark",
+    "risk_scan",
+    "claim_verification",
+    "stress_test",
+    "graph_query",
+    "metric_query",
+    "company_timeline",
+}
 
 
 class AgentExecutionError(RuntimeError):
@@ -113,6 +125,10 @@ def _build_agent_prompt_context(
         "回答必须围绕“问题是什么、原因是什么、下一步怎么做”组织，不准只给抽象判断。\n"
         "必须尊重业务语义层，不允许自造指标定义、口径或风险标签。\n"
         "如果用户问题需要图谱、压力测试、时间线、研报核验等能力，必须调用相应工具，不要只调用评分工具敷衍。\n"
+        "最终文字必须全部使用中文，不允许夹杂英文标题、英文小节名或过程说明。\n"
+        "不要写内部过程汇报，不要解释你调用了什么工具，也不要写系统提示词口吻。\n"
+        "answer_markdown 最多只保留三个小节，标题固定从以下中选择：当前判断、为什么这样看、先做什么、继续看哪里。\n"
+        "小节下只写必要内容；每个小节最多 2 行或 3 个要点，禁止堆长段落。\n"
         "最终回复用 JSON 格式:\n"
         '{"answer_markdown": "...", "query_type": "...", "key_numbers": [...], "tool_calls_made": [...]}\n'
         "query_type 取值: company_scoring | peer_benchmark | risk_scan | claim_verification | stress_test | graph_query | metric_query | company_timeline\n"
@@ -134,6 +150,84 @@ def _build_agent_prompt_context(
         user_prompt += f"目标报期: {report_period}\n"
     user_prompt += "请先用真实工具拿数据，再基于语义层和角色任务给出结论。"
     return system_prompt, user_prompt
+
+
+def _preferred_answer_titles(query_type: str) -> tuple[str, str, str]:
+    mapping = {
+        "claim_verification": ("当前判断", "为什么这样看", "继续看哪里"),
+        "graph_query": ("当前判断", "为什么这样看", "继续看哪里"),
+        "company_timeline": ("当前判断", "为什么这样看", "继续看哪里"),
+    }
+    return mapping.get(query_type, ("当前判断", "为什么这样看", "先做什么"))
+
+
+def _normalize_answer_markdown(value: str, query_type: str) -> str:
+    text = _strip_markdown_fences(str(value or "")).replace("\r\n", "\n").replace("\r", "\n").strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    if not text:
+        first, second, third = _preferred_answer_titles(query_type)
+        return (
+            f"### {first}\n"
+            "当前轮次已完成判断。\n\n"
+            f"### {second}\n"
+            "- 已回到真实数据与原文证据。\n\n"
+            f"### {third}\n"
+            "- 继续围绕这一轮结论追问。"
+        )
+
+    if re.search(r"(?m)^#{2,3}\s+", text):
+        return text
+
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    if not lines:
+        return text
+
+    first_title, second_title, third_title = _preferred_answer_titles(query_type)
+    lead_line = lines[0]
+    why_lines = lines[1:3]
+    next_lines = lines[3:6]
+
+    output = [f"### {first_title}", lead_line]
+    if why_lines:
+        output.extend(["", f"### {second_title}"])
+        output.extend(_normalize_answer_points(why_lines))
+    if next_lines:
+        output.extend(["", f"### {third_title}"])
+        output.extend(_normalize_answer_points(next_lines))
+    return "\n".join(output).strip()
+
+
+def _normalize_answer_points(lines: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for line in lines:
+        clean = line.strip()
+        clean = re.sub(r"^[-*•]\s*", "", clean)
+        clean = re.sub(r"^\d+\.\s*", "", clean)
+        if clean:
+            normalized.append(f"- {clean}")
+    return normalized
+
+
+def _normalize_key_numbers(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        normalized.append(
+            {
+                "label": label,
+                "value": item.get("value"),
+                "unit": item.get("unit"),
+            }
+        )
+        if len(normalized) >= 3:
+            break
+    return normalized
 
 # ---------------------------------------------------------------------------
 #  Role → Tool whitelist
@@ -533,9 +627,13 @@ async def run_orchestrator(
     except json.JSONDecodeError:
         parsed = {}
 
-    answer_markdown = parsed.get("answer_markdown", response_text)
-    query_type = parsed.get("query_type", "metric_query")
-    key_numbers = parsed.get("key_numbers", [])
+    query_type = str(parsed.get("query_type") or detect_query_type(query) or "metric_query")
+    if query_type not in ALLOWED_QUERY_TYPES:
+        query_type = detect_query_type(query)
+    if query_type not in ALLOWED_QUERY_TYPES:
+        query_type = "metric_query"
+    answer_markdown = _normalize_answer_markdown(parsed.get("answer_markdown", response_text), query_type)
+    key_numbers = _normalize_key_numbers(parsed.get("key_numbers", []))
 
     # -- 5) Build enriched payload from tool trace --
     # Gather full service results for downstream _build_workspace_payload

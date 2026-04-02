@@ -194,9 +194,9 @@ watch(
           <div class="control-left">
             <div class="glow-icon">文</div>
             <div class="control-copy">
-              <span class="control-kicker">财报复核</span>
+              <span class="control-kicker">文档复核</span>
               <h3 class="company-name text-gradient">{{ selectedCompany || '文档复核' }}</h3>
-              <p class="control-meta">{{ selectedPeriod || '选择公司后开始复核' }}</p>
+              <p class="control-meta">{{ selectedPeriod || '选定公司后开始查看结果' }}</p>
             </div>
           </div>
         <div class="inline-context">
@@ -238,8 +238,8 @@ watch(
           <article class="glass-panel hero-panel">
             <div class="hero-top">
               <div class="eyebrow">当前结果</div>
-              <h2 class="hero-title compact">{{ selectedResult?.headline || '等待解析结果' }}</h2>
-              <p class="hero-text text-sm muted">{{ runtimeSummary?.next_action || selectedResult?.status_label || '就绪' }}</p>
+              <h2 class="hero-title compact">{{ selectedResult?.headline || '等待当前结果' }}</h2>
+              <p class="hero-text text-sm muted">{{ runtimeSummary?.next_action || selectedResult?.status_label || '等待复核' }}</p>
             </div>
             <div v-if="selectedResult" class="status-badge-row">
               <TagPill :label="selectedResult.status_label || '就绪'" tone="success" />
@@ -284,7 +284,7 @@ watch(
 
           <!-- History Runs -->
           <article class="glass-panel runs-panel" v-if="recentRuns.length">
-            <h3 class="panel-sm-title">最近两次复核</h3>
+            <h3 class="panel-sm-title">最近两次结果</h3>
             <div class="runs-list">
               <div
                 v-for="item in recentRuns"
@@ -306,10 +306,10 @@ watch(
         <div class="dashboard-col right-col">
 
           <article class="glass-panel artifact-panel" v-if="activeJob">
-            <h3 class="panel-sm-title">当前可用内容</h3>
+            <h3 class="panel-sm-title">现在能直接看什么</h3>
             <div class="artifact-grid">
               <div class="artifact-kv">
-                <span class="muted">当前阶段</span>
+                <span class="muted">当前环节</span>
                 <strong>{{ displayPipelineStage(activeJob.stage) }}</strong>
               </div>
               <div class="artifact-kv">
@@ -317,7 +317,7 @@ watch(
                 <strong>{{ activeJob.report_id }}</strong>
               </div>
               <div class="artifact-kv">
-                <span class="muted">结果</span>
+                <span class="muted">当前状态</span>
                 <strong>{{ displayJobStatus(activeJob.status) }}</strong>
               </div>
             </div>
@@ -326,7 +326,7 @@ watch(
 
           <!-- Analysis Log -->
           <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">这次看到了什么</h3>
+            <h3 class="panel-sm-title">这次提炼出了什么</h3>
             <div class="log-list">
               <div
                 v-for="item in visibleAnalysisLog"
@@ -344,7 +344,7 @@ watch(
 
           <!-- Sections from Result -->
           <article class="glass-panel sections-panel scroll-area flex-1" v-else-if="visibleSections.length">
-            <h3 class="panel-sm-title">抽出来的页块</h3>
+            <h3 class="panel-sm-title">这次抽出来的页块</h3>
             <div class="sections-grid">
               <div
                 v-for="section in visibleSections"
@@ -367,7 +367,7 @@ watch(
 
           <!-- Result Items -->
           <article class="glass-panel items-panel scroll-area flex-1" v-else-if="visibleResultItems.length">
-            <h3 class="panel-sm-title">抽出来的条目</h3>
+            <h3 class="panel-sm-title">这次抽出来的条目</h3>
             <div class="items-list">
               <div v-for="item in visibleResultItems" :key="`${item.kind}-${item.title}`" class="item-row glass-panel-hover">
                 <strong>{{ item.title }}</strong>
