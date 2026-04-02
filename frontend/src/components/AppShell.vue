@@ -61,13 +61,13 @@ const activeNavLabel = computed(
 
 const routeContext = computed(() => {
   const mapping: Record<string, { title: string; note: string }> = {
-    '/brain': { title: '先看行业变化', note: '把今天值得继续盯的变化先拎出来。' },
-    '/workspace': { title: '围绕问题直接判断', note: '把结论、动作和证据压成一页。' },
-    '/graph': { title: '顺着证据继续追', note: '沿节点和原文继续追这条判断。' },
-    '/stress': { title: '看冲击会传到哪', note: '先看冲击会先打到哪，再决定先做什么。' },
-    '/score': { title: '先看企业体质', note: '把经营问题和优先动作先看清。' },
-    '/verify': { title: '核对观点靠不靠谱', note: '把研报说法和财报原文放在一起。' },
-    '/vision': { title: '回看财报原文结构', note: '直接回看页块、表格和原文。' },
+    '/brain': { title: '先看行业变化', note: '从这里决定下一步先看谁。' },
+    '/workspace': { title: '围绕问题直接判断', note: '让结论、动作和证据落成一页。' },
+    '/graph': { title: '顺着证据继续追', note: '沿主链一路追到节点和原文。' },
+    '/stress': { title: '看冲击会先传到哪', note: '先看冲击，再决定先做什么。' },
+    '/score': { title: '先看企业体质', note: '把经营问题和优先级先排清。' },
+    '/verify': { title: '核对观点靠不靠谱', note: '把说法和原文放在一起。' },
+    '/vision': { title: '回看财报原文结构', note: '直接回到页块、表格和原文。' },
   }
   return mapping[route.path] || { title: activeNavLabel.value, note: '先看当前工作面，再决定下一步往哪追。' }
 })
@@ -126,6 +126,7 @@ async function logout() {
         <div class="app-context-card">
           <span class="app-muted-label">{{ activeNavLabel }}</span>
           <strong>{{ routeContext.title }}</strong>
+          <p>{{ routeContext.note }}</p>
         </div>
 
         <div v-if="session.isAuthenticated.value" class="app-role-box">
