@@ -25,14 +25,14 @@ const topSectorTags = computed(() => (payload.value?.sector_tags || []).slice(0,
 const signalFeed = computed(() => externalSignalStream.value?.signals || payload.value?.live_events || [])
 const trendChart = computed(() => payload.value?.charts?.[0] || null)
 const anomalyItems = computed(() => (streamingAnomalies.value?.items || []).slice(0, 4))
-const focusCompanies = computed(() => attentionMatrix.value.slice(0, 3))
+const focusCompanies = computed(() => attentionMatrix.value.slice(0, 4))
 const riskCompanies = computed(() => topRiskCompanies.value.slice(0, 3))
-const radarCards = computed(() => radarEvents.value.slice(0, 2))
-const signalCards = computed(() => signalFeed.value.slice(0, 3))
+const radarCards = computed(() => radarEvents.value.slice(0, 3))
+const signalCards = computed(() => signalFeed.value.slice(0, 4))
 const pulseSteps = computed(() => brainSignalTape.value.slice(0, 3))
-const tapeItems = computed(() => marketTape.value.slice(0, 3))
 const leadMetric = computed(() => marketTape.value[0] || null)
-const supportMetrics = computed(() => marketTape.value.slice(1, 2))
+const supportMetrics = computed(() => marketTape.value.slice(1, 4))
+
 const companyQueue = computed(() => {
   const merged = new Map<
     string,
@@ -74,7 +74,7 @@ const companyQueue = computed(() => {
     if (!item?.company_name || merged.has(item.company_name)) return
     merged.set(item.company_name, {
       companyName: item.company_name,
-      badge: '继续跟',
+      badge: '继续看',
       tone: 'is-calm',
       detail: item.headline || '继续跟这一轮变化。',
       meta: displayFocusMeta(item),
@@ -85,11 +85,6 @@ const companyQueue = computed(() => {
   return Array.from(merged.values()).slice(0, 4)
 })
 
-const signalFreshnessTone = computed(() => {
-  const status = externalSignalStream.value?.status
-  return status === 'stale' || status === 'unavailable' ? 'is-risk' : 'is-live'
-})
-
 function displayWsStatus(status: 'connecting' | 'connected' | 'disconnected') {
   const map: Record<string, string> = {
     connecting: '连通中',
@@ -97,17 +92,6 @@ function displayWsStatus(status: 'connecting' | 'connected' | 'disconnected') {
     disconnected: '已断开',
   }
   return map[status] || status
-}
-
-function displaySignalFreshnessLabel(label?: string) {
-  const normalized = label || ''
-  const map: Record<string, string> = {
-    正式信号待接入: '实时信号未接通',
-    正式信号已接通: '实时信号已接通',
-    stale: '信号已过时',
-    unavailable: '实时信号未接通',
-  }
-  return map[normalized] || normalized || '实时信号未接通'
 }
 
 function displaySignalMeta(item: any) {
@@ -134,16 +118,6 @@ function displayAnomalyMeta(item: any) {
   return parts.join(' · ')
 }
 
-function displayAnomalyLevel(level?: string) {
-  const map: Record<string, string> = {
-    critical: '高压变化',
-    high: '重点变化',
-    medium: '持续变化',
-    low: '轻微变化',
-  }
-  return map[(level || '').toLowerCase()] || '变化跟踪'
-}
-
 function anomalyTone(level?: string) {
   const normalized = (level || '').toLowerCase()
   if (normalized === 'critical' || normalized === 'high') return 'is-risk'
@@ -164,8 +138,8 @@ function stopLiveRefresh() {
 
 async function refreshLive() {
   try {
-    const payload = await get('/industry/brain/tick')
-    livePayload.value = payload
+    const nextPayload = await get('/industry/brain/tick')
+    livePayload.value = nextPayload
     wsStatus.value = 'connected'
   } catch {
     wsStatus.value = 'disconnected'
@@ -197,117 +171,88 @@ onBeforeUnmount(() => {
 
 <template>
   <AppShell title="">
-    <div class="brain-page">
-      <LoadingState v-if="state.loading.value && !payload" class="brain-surface brain-loading" />
+    <div class="brain-console">
+      <LoadingState v-if="state.loading.value && !payload" class="brain-panel brain-loading" />
 
-      <div v-else-if="state.error.value && !payload" class="brain-surface brain-error">
+      <div v-else-if="state.error.value && !payload" class="brain-panel brain-error">
         <strong>产业大脑暂时不可用</strong>
         <p>{{ state.error.value }}</p>
         <button type="button" class="brain-action" @click="() => { loadPage(); startLiveRefresh() }">重新连接</button>
       </div>
 
       <template v-else-if="payload">
-        <section class="brain-hero">
-          <div class="brain-hero-copy">
-            <div class="brain-kicker-row">
-              <span class="brain-kicker">{{ brainCommandSurface?.title || '行业主线' }}</span>
+        <section class="brain-header">
+          <div class="brain-title">
+            <div class="brain-title-row">
+              <h1>新能源产业大脑</h1>
               <span class="brain-live-chip" :class="wsStatus === 'connected' ? 'is-live' : 'is-risk'">
                 {{ displayWsStatus(wsStatus) }}
               </span>
-              <span class="brain-live-chip" :class="signalFreshnessTone">
-                {{ displaySignalFreshnessLabel(externalSignalStream?.freshness_label) }}
-              </span>
             </div>
-            <h1 class="brain-title">
+            <p>
               {{
                 brainCommandSurface?.headline
                   || signalCards[0]?.headline
-                  || streamingAnomalies?.summary?.focus_line
-                  || '行业变化会先在这里收束，再进入企业判断链路。'
-              }}
-            </h1>
-            <p class="brain-summary">
-              {{
-                brainCommandSurface?.summary
-                  || brainCommandSurface?.dominant_signal?.value
-                  || '把真正值得追的变化先拎出来，再决定下一步去看谁、看什么。'
+                  || '先把今天真正值得继续看的行业变化拎出来。'
               }}
             </p>
-
-            <div v-if="tapeItems.length" class="brain-quickline">
-              <span
-                v-for="item in tapeItems"
-                :key="`${item.label}-${item.value}`"
-                class="brain-quick-chip"
-                :class="`is-${item.tone || 'default'}`"
-              >
-                {{ item.label }} · {{ item.value }}
-              </span>
-            </div>
-
-            <div class="brain-metrics">
-              <div v-if="leadMetric" class="brain-metric brain-metric-lead" :class="`is-${leadMetric.tone || 'default'}`">
-                <span>{{ leadMetric.label }}</span>
-                <strong>{{ leadMetric.value }}</strong>
-                <small>{{ leadMetric.delta }}</small>
-              </div>
-              <div
-                v-for="item in supportMetrics"
-                :key="item.label"
-                class="brain-metric"
-                :class="`is-${item.tone || 'default'}`"
-              >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-                <small>{{ item.delta }}</small>
-              </div>
-            </div>
           </div>
 
           <div class="brain-sector-strip">
-            <div v-for="tag in topSectorTags.slice(0, 2)" :key="tag.label" class="brain-sector-pill">
+            <div v-for="tag in topSectorTags" :key="tag.label" class="brain-sector-pill">
               <span>{{ tag.label }}</span>
               <strong>{{ tag.count }}</strong>
             </div>
           </div>
         </section>
 
-        <section class="brain-stage">
-          <article class="brain-surface brain-canvas">
-            <div class="brain-section-head">
-              <div>
-                <h2>先看主线</h2>
-              </div>
+        <section class="brain-metric-strip" v-if="leadMetric">
+          <article class="brain-metric brain-metric-lead" :class="`is-${leadMetric.tone || 'default'}`">
+            <span>{{ leadMetric.label }}</span>
+            <strong>{{ leadMetric.value }}</strong>
+            <small>{{ leadMetric.delta }}</small>
+          </article>
+          <article
+            v-for="item in supportMetrics"
+            :key="item.label"
+            class="brain-metric"
+            :class="`is-${item.tone || 'default'}`"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <small>{{ item.delta }}</small>
+          </article>
+        </section>
+
+        <section class="brain-main">
+          <article class="brain-panel brain-chart-surface">
+            <div class="section-head">
+              <strong>先看主线</strong>
             </div>
 
-            <div class="brain-canvas-grid">
-              <div class="brain-chart-stage">
-                <ChartPanel
-                  v-if="trendChart"
-                  :title="trendChart.title || '行业脉冲'"
-                  :options="trendChart.options"
-                  class="brain-chart-panel"
-                />
-              </div>
+            <div class="brain-chart-wrap">
+              <ChartPanel
+                v-if="trendChart"
+                :title="trendChart.title || '行业脉冲'"
+                :options="trendChart.options"
+                class="brain-chart-panel"
+              />
+            </div>
 
-              <div class="brain-pulse-list">
-                <div v-for="item in pulseSteps" :key="`${item.step}-${item.label}`" class="brain-pulse-card">
-                  <span class="brain-pulse-step">0{{ item.step }}</span>
-                  <div>
-                    <strong>{{ item.label }}</strong>
-                    <p>{{ item.value }}</p>
-                  </div>
+            <div v-if="pulseSteps.length" class="brain-pulse-strip">
+              <div v-for="item in pulseSteps" :key="`${item.step}-${item.label}`" class="brain-pulse-item">
+                <em>0{{ item.step }}</em>
+                <div>
+                  <strong>{{ item.label }}</strong>
+                  <p>{{ item.value }}</p>
                 </div>
               </div>
             </div>
           </article>
 
-          <article class="brain-surface brain-queue">
-            <div class="brain-section-head">
-              <div>
-                <h2>今天先处理谁</h2>
-              </div>
-              <span class="brain-section-meta">先看这 {{ companyQueue.length }} 家</span>
+          <aside class="brain-panel brain-queue-surface">
+            <div class="section-head">
+              <strong>今天先处理谁</strong>
             </div>
 
             <div v-if="companyQueue.length" class="brain-queue-list">
@@ -327,18 +272,13 @@ onBeforeUnmount(() => {
               </RouterLink>
             </div>
             <div v-else class="brain-empty-state">当前没有需要立刻处理的企业。</div>
-          </article>
+          </aside>
         </section>
 
-        <section class="brain-grid">
-          <article class="brain-surface">
-            <div class="brain-section-head">
-              <div>
-                <h2>最新变化</h2>
-              </div>
-              <span class="brain-section-meta">
-                今天 {{ signalCards.length }} 条
-              </span>
+        <section class="brain-bottom">
+          <article class="brain-panel">
+            <div class="section-head">
+              <strong>最新变化</strong>
             </div>
 
             <div v-if="signalCards.length" class="brain-stream-list">
@@ -358,19 +298,15 @@ onBeforeUnmount(() => {
                 <small>{{ displaySignalMeta(item) }}</small>
               </a>
             </div>
-            <div v-else class="brain-empty-state">
-              {{ externalSignalStream?.freshness_label || '当前还没有新的正式线索。' }}
-            </div>
+            <div v-else class="brain-empty-state">当前还没有新的正式线索。</div>
           </article>
 
-          <article class="brain-surface brain-radar">
-            <div class="brain-section-head">
-              <div>
-                <h2>政策与技术变化</h2>
-              </div>
+          <article class="brain-panel">
+            <div class="section-head">
+              <strong>政策与技术变化</strong>
             </div>
 
-            <div v-if="radarCards.length" class="brain-radar-grid">
+            <div v-if="radarCards.length" class="brain-radar-list">
               <a
                 v-for="item in radarCards"
                 :key="item.id"
@@ -380,15 +316,14 @@ onBeforeUnmount(() => {
                 rel="noreferrer"
               >
                 <div class="brain-radar-top">
-                  <span>{{ item.domain }}</span>
-                  <strong>{{ item.year }}</strong>
+                  <span>{{ item.year }}</span>
+                  <strong>{{ displayResearchSource(item) }}</strong>
                 </div>
                 <h3>{{ item.title }}</h3>
                 <p>{{ (item.core_points || []).slice(0, 2).join(' · ') }}</p>
-                <small>{{ displayResearchSource(item) }}</small>
               </a>
             </div>
-            <div v-else class="brain-empty-state">当前还没有需要重点关注的政策或技术变化。</div>
+            <div v-else class="brain-empty-state">当前还没有需要重点关注的变化。</div>
           </article>
         </section>
       </template>
@@ -397,10 +332,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.brain-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.brain-console {
+  display: grid;
+  gap: 14px;
   min-height: 100%;
   width: 100%;
   max-width: 1280px;
@@ -408,12 +342,10 @@ onBeforeUnmount(() => {
   color: #edf2f7;
 }
 
-.brain-surface {
-  border-radius: 24px;
+.brain-panel {
+  border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  background:
-    linear-gradient(180deg, rgba(15, 16, 20, 0.98), rgba(11, 12, 17, 0.96));
-  box-shadow: 0 18px 48px -28px rgba(0, 0, 0, 0.66);
+  background: linear-gradient(180deg, rgba(15, 16, 20, 0.98), rgba(11, 12, 17, 0.96));
 }
 
 .brain-loading,
@@ -429,16 +361,25 @@ onBeforeUnmount(() => {
   padding: 32px;
 }
 
-.brain-error strong {
-  font-size: 22px;
+.brain-error strong,
+.brain-title h1,
+.section-head strong,
+.brain-queue-top strong,
+.brain-stream-top strong,
+.brain-radar-card h3 {
+  margin: 0;
   color: #f8fafc;
 }
 
-.brain-error p {
+.brain-error p,
+.brain-title p,
+.brain-pulse-item p,
+.brain-queue-card p,
+.brain-stream-item p,
+.brain-radar-card p {
   margin: 0;
-  max-width: 480px;
-  color: rgba(191, 207, 228, 0.78);
-  line-height: 1.7;
+  color: rgba(191, 207, 228, 0.82);
+  line-height: 1.65;
 }
 
 .brain-action {
@@ -451,47 +392,42 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.brain-hero {
+.brain-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
-  padding: 16px 18px 14px;
-  border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background:
-    radial-gradient(circle at top left, rgba(16, 185, 129, 0.12), transparent 26%),
-    linear-gradient(180deg, rgba(15, 17, 22, 0.98), rgba(11, 12, 17, 0.96));
+  align-items: end;
+  padding: 4px 2px 2px;
 }
 
-.brain-hero-copy {
+.brain-title {
   display: grid;
-  gap: 14px;
+  gap: 8px;
 }
 
-.brain-kicker-row {
+.brain-title-row {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
-  align-items: center;
+  flex-wrap: wrap;
 }
 
-.brain-kicker {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(137, 221, 191, 0.86);
+.brain-title h1 {
+  font-size: clamp(28px, 2.9vw, 36px);
+  line-height: 0.98;
+  letter-spacing: -0.05em;
 }
 
-.brain-live-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
+.brain-live-chip,
+.brain-sector-pill {
+  min-height: 32px;
   padding: 0 10px;
   border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 11px;
-  color: rgba(221, 229, 240, 0.86);
 }
 
 .brain-live-chip.is-live {
@@ -506,119 +442,17 @@ onBeforeUnmount(() => {
   color: #fda4af;
 }
 
-.brain-title {
-  margin: 0;
-  font-size: clamp(20px, 2.7vw, 28px);
-  line-height: 1.08;
-  letter-spacing: -0.04em;
-  color: #f8fafc;
-}
-
-.brain-summary {
-  margin: 0;
-  max-width: 660px;
-  font-size: 13px;
-  line-height: 1.65;
-  color: rgba(200, 211, 228, 0.84);
-}
-
-.brain-quickline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.brain-quick-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: rgba(221, 229, 240, 0.82);
-}
-
-.brain-quick-chip.is-risk {
-  border-color: rgba(251, 113, 133, 0.2);
-  color: #fda4af;
-}
-
-.brain-quick-chip.is-success,
-.brain-quick-chip.is-accent {
-  border-color: rgba(52, 211, 153, 0.18);
-  color: #9fe8c9;
-}
-
-.brain-metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.brain-metric {
-  display: grid;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.brain-metric span,
-.brain-metric small {
-  font-size: 11px;
-  color: rgba(163, 178, 198, 0.84);
-}
-
-.brain-metric strong {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 16px;
-  color: #f8fafc;
-}
-
-.brain-metric-lead strong {
-  font-size: 20px;
-}
-
-.brain-metric-lead {
-  grid-column: 1 / -1;
-}
-
-.brain-metric.is-risk {
-  border-color: rgba(251, 113, 133, 0.22);
-}
-
-.brain-metric.is-success,
-.brain-metric.is-accent {
-  border-color: rgba(52, 211, 153, 0.2);
-}
-
 .brain-sector-strip {
   display: flex;
   flex-wrap: wrap;
-  align-content: flex-start;
   justify-content: flex-end;
   gap: 8px;
-  max-width: 260px;
+  max-width: 320px;
 }
 
 .brain-sector-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(52, 211, 153, 0.18);
-  background: rgba(16, 185, 129, 0.08);
+  background: rgba(255, 255, 255, 0.025);
   color: #dff8ee;
-}
-
-.brain-sector-pill span {
-  font-size: 12px;
 }
 
 .brain-sector-pill strong {
@@ -627,66 +461,72 @@ onBeforeUnmount(() => {
   color: #86efac;
 }
 
-.brain-stage,
-.brain-grid {
+.brain-metric-strip {
   display: grid;
-  grid-template-columns: minmax(0, 1.58fr) minmax(292px, 0.92fr);
-  gap: 14px;
+  grid-template-columns: 1.1fr repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.brain-grid-compact {
-  grid-template-columns: 1fr;
+.brain-metric {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
 }
 
-.brain-canvas,
-.brain-stream,
-.brain-queue,
-.brain-radar,
-.brain-grid > .brain-surface {
-  padding: 16px;
-}
-
-.brain-section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-
-.brain-section-kicker {
-  display: inline-block;
-  margin-bottom: 8px;
+.brain-metric span,
+.brain-metric small,
+.brain-pulse-item em,
+.brain-stream-top span,
+.brain-queue-top span,
+.brain-stream-item small,
+.brain-queue-card small,
+.brain-radar-top span,
+.brain-radar-top strong {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(121, 138, 162, 0.82);
+  color: rgba(160, 175, 194, 0.82);
 }
 
-.brain-section-head h2 {
-  margin: 0;
+.brain-metric strong {
+  font-family: 'JetBrains Mono', monospace;
   font-size: 18px;
-  line-height: 1.1;
   color: #f8fafc;
 }
 
-.brain-section-meta {
-  flex: 0 0 auto;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: rgba(156, 169, 188, 0.84);
+.brain-metric-lead strong {
+  font-size: 24px;
 }
 
-.brain-canvas-grid {
+.brain-main,
+.brain-bottom {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.95fr);
   gap: 14px;
-  align-items: stretch;
 }
 
-.brain-chart-stage {
-  min-height: 300px;
+.brain-chart-surface,
+.brain-queue-surface,
+.brain-bottom > .brain-panel {
+  padding: 16px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.section-head strong {
+  font-size: 16px;
+  letter-spacing: -0.03em;
+}
+
+.brain-chart-wrap {
+  min-height: 316px;
 }
 
 :deep(.brain-chart-panel) {
@@ -697,17 +537,36 @@ onBeforeUnmount(() => {
   box-shadow: none !important;
 }
 
-.brain-pulse-list {
-  display: grid;
-  gap: 8px;
-}
-
-.brain-queue-list {
+.brain-pulse-strip,
+.brain-queue-list,
+.brain-stream-list,
+.brain-radar-list {
   display: grid;
   gap: 10px;
 }
 
-.brain-queue-card {
+.brain-pulse-strip {
+  margin-top: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.brain-pulse-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.brain-pulse-item strong {
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+.brain-queue-card,
+.brain-stream-item,
+.brain-radar-card {
   display: grid;
   gap: 6px;
   padding: 14px;
@@ -719,7 +578,9 @@ onBeforeUnmount(() => {
   transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
 
-.brain-queue-card:hover {
+.brain-queue-card:hover,
+.brain-stream-item:hover,
+.brain-radar-card:hover {
   transform: translateY(-2px);
   border-color: rgba(52, 211, 153, 0.18);
   background: rgba(255, 255, 255, 0.045);
@@ -735,113 +596,8 @@ onBeforeUnmount(() => {
   background: rgba(120, 53, 15, 0.08);
 }
 
-.brain-queue-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.brain-queue-top strong {
-  color: #f8fafc;
-}
-
-.brain-queue-top span {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: rgba(165, 179, 198, 0.8);
-}
-
-.brain-queue-card p,
-.brain-queue-card small {
-  margin: 0;
-}
-
-.brain-queue-card p {
-  font-size: 12px;
-  line-height: 1.6;
-  color: rgba(197, 210, 227, 0.84);
-}
-
-.brain-queue-card small {
-  font-size: 11px;
-  color: rgba(144, 160, 181, 0.78);
-}
-
-.brain-pulse-card {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  gap: 10px;
-  padding: 12px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.brain-pulse-step {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: rgba(16, 185, 129, 0.12);
-  color: #8af4c8;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
-}
-
-.brain-pulse-card strong {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 13px;
-  color: #f8fafc;
-}
-
-.brain-pulse-card p {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.6;
-  color: rgba(191, 205, 223, 0.82);
-}
-
-.brain-stream-list,
-.brain-hotspot-list,
-.brain-company-list,
-.brain-risk-list,
-.brain-anomaly-list {
-  display: grid;
-  gap: 8px;
-}
-
-.brain-stream-item,
-.brain-company-row,
-.brain-risk-card,
-.brain-anomaly-card {
-  display: grid;
-  gap: 6px;
-  padding: 12px 13px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
-  color: inherit;
-  text-decoration: none;
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-}
-
-.brain-stream-item:hover,
-.brain-company-row:hover,
-.brain-risk-card:hover,
-.brain-anomaly-card:hover,
-.brain-radar-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(52, 211, 153, 0.18);
-  background: rgba(255, 255, 255, 0.045);
-}
-
+.brain-queue-top,
 .brain-stream-top,
-.brain-risk-top,
-.brain-anomaly-top,
 .brain-radar-top {
   display: flex;
   align-items: center;
@@ -849,70 +605,9 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.brain-stream-top strong,
-.brain-company-row strong,
-.brain-risk-top strong,
-.brain-anomaly-top strong,
 .brain-radar-card h3 {
-  color: #f8fafc;
-}
-
-.brain-stream-top span,
-.brain-risk-top span,
-.brain-anomaly-top span,
-.brain-radar-top span,
-.brain-radar-top strong {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: rgba(165, 179, 198, 0.8);
-}
-
-.brain-stream-item p,
-.brain-company-row p,
-.brain-risk-card p,
-.brain-anomaly-card p,
-.brain-radar-card p {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: rgba(197, 210, 227, 0.84);
-}
-
-.brain-stream-item small,
-.brain-company-row small,
-.brain-risk-card small,
-.brain-anomaly-card small,
-.brain-radar-card small {
-  font-size: 11px;
-  color: rgba(144, 160, 181, 0.78);
-}
-
-.brain-radar-grid {
-  display: grid;
-  gap: 10px;
-}
-
-.brain-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
-  gap: 10px;
-}
-
-.brain-radar-card {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
-  color: inherit;
-  text-decoration: none;
-}
-
-.brain-radar-card h3 {
-  margin: 0;
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .brain-empty-state {
@@ -924,10 +619,16 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-@media (max-width: 1260px) {
-  .brain-stage,
-  .brain-grid,
-  .brain-hero {
+@media (max-width: 1180px) {
+  .brain-metric-strip,
+  .brain-main,
+  .brain-bottom {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .brain-header {
     grid-template-columns: 1fr;
   }
 
@@ -936,26 +637,8 @@ onBeforeUnmount(() => {
     max-width: none;
   }
 
-  .brain-canvas-grid,
-  .brain-radar-grid {
+  .brain-pulse-strip {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 860px) {
-  .brain-title {
-    font-size: 26px;
-  }
-
-  .brain-metrics {
-    grid-template-columns: 1fr;
-  }
-
-  .brain-canvas,
-  .brain-stream,
-  .brain-radar,
-  .brain-grid > .brain-surface {
-    padding: 18px;
   }
 }
 </style>

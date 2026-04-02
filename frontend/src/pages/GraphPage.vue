@@ -357,11 +357,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
       <template v-else>
         <section class="graph-stage" ref="graphStageRef">
-          <div class="stage-summary">
-            <strong>{{ currentFrame?.headline || graphCommandSurface?.title || '关键证据链路' }}</strong>
-            <p>{{ graphCommandSurface?.headline || '只留下这一轮最相关的节点和链路。' }}</p>
-          </div>
-
           <svg class="graph-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
             <defs>
               <filter id="graph-link-glow" x="-50%" y="-50%" width="200%" height="200%">
@@ -406,7 +401,33 @@ watch(selectedPeriod, async () => { await loadGraph() })
             <span class="node-name">{{ node.label }}</span>
           </button>
 
-          <div v-if="selectedNode" class="selected-node-panel">
+          <div v-if="!graphCanvasNodes.length" class="stage-empty">
+            <p>输入问题后开始检索。</p>
+          </div>
+        </section>
+
+        <section class="graph-footer">
+          <div class="path-dock">
+            <div class="path-dock-head">
+              <strong>沿这条主链继续追</strong>
+            </div>
+
+            <div class="path-track">
+              <button
+                v-for="(item, idx) in inferencePath"
+                :key="item.step"
+                class="path-step"
+                :class="{ 'is-active': item.step === activePathId || idx <= activePathStep }"
+                @click="activePathStep = idx"
+              >
+                <strong>{{ item.title }}</strong>
+                <p>{{ item.detail }}</p>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="selectedNode" class="graph-node-focus">
+            <span class="graph-node-kind">{{ displayNodeType(selectedNode.type) }}</span>
             <strong>{{ selectedNode.label }}</strong>
             <p>{{ selectedNode.detail }}</p>
             <div v-if="pathEvidenceLinks.length" class="selected-node-links">
@@ -419,29 +440,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
                 {{ item.label }}
               </RouterLink>
             </div>
-          </div>
-
-          <div v-if="!graphCanvasNodes.length" class="stage-empty">
-            <p>输入问题后开始检索。</p>
-          </div>
-        </section>
-
-        <section class="path-dock">
-          <div class="path-dock-head">
-            <strong>继续看这三步</strong>
-          </div>
-
-          <div class="path-track">
-            <button
-              v-for="(item, idx) in inferencePath"
-              :key="item.step"
-              class="path-step"
-              :class="{ 'is-active': item.step === activePathId || idx <= activePathStep }"
-              @click="activePathStep = idx"
-            >
-              <strong>{{ item.title }}</strong>
-              <p>{{ item.detail }}</p>
-            </button>
           </div>
         </section>
 
@@ -485,7 +483,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-heading h1,
 .query-strip-main h2,
-.stage-summary strong {
+.graph-node-focus strong {
   margin: 0;
   color: #f8fafc;
   letter-spacing: -0.05em;
@@ -498,8 +496,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-heading p,
 .query-strip-main p,
-.stage-summary p,
-.selected-node-panel p,
+.graph-node-focus p,
 .path-step p {
   margin: 0;
   color: rgba(148, 163, 184, 0.9);
@@ -537,8 +534,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .graph-query-strip,
 .graph-intent-dock,
 .graph-stage,
+.graph-footer,
 .path-dock,
-.bottom-panel,
 .graph-state {
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -612,53 +609,12 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
 .graph-stage {
   position: relative;
-  min-height: 500px;
+  min-height: 520px;
   overflow: hidden;
   background:
     radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.06), transparent 24%),
     radial-gradient(circle at 82% 18%, rgba(96, 165, 250, 0.06), transparent 26%),
     linear-gradient(180deg, rgba(7, 9, 13, 0.98), rgba(5, 7, 10, 0.98));
-}
-
-.stage-summary,
-.selected-node-panel {
-  position: absolute;
-  z-index: 3;
-}
-
-.stage-summary {
-  left: 18px;
-  top: 18px;
-  max-width: 248px;
-  display: grid;
-  gap: 5px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  background: rgba(9, 11, 16, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.stage-summary strong {
-  font-size: 16px;
-  line-height: 1.06;
-}
-
-.selected-node-panel {
-  right: 18px;
-  bottom: 18px;
-  max-width: 248px;
-  display: grid;
-  gap: 8px;
-  padding: 11px 13px;
-  border-radius: 16px;
-  background: rgba(9, 11, 16, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.selected-node-panel strong {
-  color: #f8fafc;
-  font-size: 15px;
-  line-height: 1.08;
 }
 
 .selected-node-links {
@@ -714,21 +670,21 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .graph-link {
   stroke: url(#graph-link-gradient);
   stroke-width: 0.07;
-  opacity: 0.28;
+  opacity: 0.22;
   transition: opacity 0.2s ease, stroke 0.2s ease, stroke-width 0.2s ease;
 }
 
 .graph-link.is-active {
   stroke: url(#graph-link-gradient-active);
-  stroke-width: 0.11;
-  opacity: 0.64;
+  stroke-width: 0.12;
+  opacity: 0.72;
 }
 
 .graph-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  min-width: 78px;
-  max-width: 104px;
+  min-width: 82px;
+  max-width: 116px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -841,8 +797,37 @@ watch(selectedPeriod, async () => { await loadGraph() })
   padding: 12px 14px;
 }
 
-.path-dock-head,
-.bottom-head {
+.graph-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+.graph-node-focus {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.graph-node-focus strong {
+  font-size: 18px;
+  line-height: 1.05;
+}
+
+.graph-node-kind {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(132, 244, 202, 0.82);
+}
+
+.path-dock-head {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -850,8 +835,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   margin-bottom: 12px;
 }
 
-.path-dock-head strong,
-.bottom-head strong {
+.path-dock-head strong {
   color: #f8fafc;
   font-size: 14px;
   letter-spacing: -0.02em;
@@ -896,8 +880,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 @media (max-width: 1100px) {
-  .selected-node-panel {
-    max-width: calc(100% - 36px);
+  .graph-footer {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -914,12 +898,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
   .graph-stage {
     min-height: 500px;
-  }
-
-  .stage-summary,
-  .selected-node-panel {
-    position: static;
-    margin: 16px;
   }
 
   .graph-node {
