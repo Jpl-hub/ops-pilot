@@ -5,12 +5,14 @@ import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { get } from '@/lib/api'
+import { buildWebSocketUrl, get, loadAccessToken } from '@/lib/api'
 
 const state = useAsyncState<any>()
 const livePayload = ref<any | null>(null)
 const wsStatus = ref<'connecting' | 'connected' | 'disconnected'>('connecting')
-let liveTimer: number | null = null
+let liveSocket: WebSocket | null = null
+let reconnectTimer: number | null = null
+let shouldReconnect = true
 
 const payload = computed(() => livePayload.value || state.data.value)
 const marketTape = computed(() => payload.value?.market_tape || [])
@@ -129,30 +131,74 @@ function displayResearchSource(event: any) {
   return event?.source || event?.source_name || event?.domain || '外部线索'
 }
 
-function stopLiveRefresh() {
-  if (liveTimer !== null) {
-    window.clearInterval(liveTimer)
-    liveTimer = null
+function stopReconnectTimer() {
+  if (reconnectTimer !== null) {
+    window.clearTimeout(reconnectTimer)
+    reconnectTimer = null
   }
 }
 
-async function refreshLive() {
-  try {
-    const nextPayload = await get('/industry/brain/tick')
-    livePayload.value = nextPayload
-    wsStatus.value = 'connected'
-  } catch {
-    wsStatus.value = 'disconnected'
-  }
-}
-
-function startLiveRefresh() {
-  stopLiveRefresh()
-  wsStatus.value = 'connecting'
-  void refreshLive()
-  liveTimer = window.setInterval(() => {
-    void refreshLive()
+function scheduleReconnect() {
+  if (!shouldReconnect || reconnectTimer !== null) return
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null
+    connectLiveStream()
   }, 4000)
+}
+
+function disconnectLiveStream() {
+  stopReconnectTimer()
+  shouldReconnect = false
+  const activeSocket = liveSocket
+  liveSocket = null
+  if (activeSocket) {
+    activeSocket.onopen = null
+    activeSocket.onmessage = null
+    activeSocket.onerror = null
+    activeSocket.onclose = null
+    activeSocket.close()
+  }
+}
+
+function connectLiveStream() {
+  const token = loadAccessToken()
+  if (!token) {
+    wsStatus.value = 'disconnected'
+    return
+  }
+  if (liveSocket && liveSocket.readyState <= WebSocket.OPEN) return
+
+  stopReconnectTimer()
+  wsStatus.value = 'connecting'
+  const nextSocket = new WebSocket(
+    buildWebSocketUrl(`/ws/industry-brain?token=${encodeURIComponent(token)}`),
+  )
+  liveSocket = nextSocket
+
+  nextSocket.onopen = () => {
+    wsStatus.value = 'connected'
+  }
+
+  nextSocket.onmessage = (event) => {
+    try {
+      livePayload.value = JSON.parse(event.data)
+      wsStatus.value = 'connected'
+    } catch {
+      wsStatus.value = 'disconnected'
+    }
+  }
+
+  nextSocket.onerror = () => {
+    nextSocket.close()
+  }
+
+  nextSocket.onclose = () => {
+    if (liveSocket === nextSocket) {
+      liveSocket = null
+    }
+    wsStatus.value = 'disconnected'
+    scheduleReconnect()
+  }
 }
 
 async function loadPage() {
@@ -160,12 +206,13 @@ async function loadPage() {
 }
 
 onMounted(async () => {
+  shouldReconnect = true
   await loadPage()
-  startLiveRefresh()
+  connectLiveStream()
 })
 
 onBeforeUnmount(() => {
-  stopLiveRefresh()
+  disconnectLiveStream()
 })
 </script>
 
@@ -177,7 +224,18 @@ onBeforeUnmount(() => {
       <div v-else-if="state.error.value && !payload" class="brain-panel brain-error">
         <strong>产业大脑暂时不可用</strong>
         <p>{{ state.error.value }}</p>
-        <button type="button" class="brain-action" @click="() => { loadPage(); startLiveRefresh() }">重新连接</button>
+        <button
+          type="button"
+          class="brain-action"
+          @click="() => {
+            disconnectLiveStream()
+            void loadPage()
+            shouldReconnect = true
+            connectLiveStream()
+          }"
+        >
+          重新连接
+        </button>
       </div>
 
       <template v-else-if="payload">
