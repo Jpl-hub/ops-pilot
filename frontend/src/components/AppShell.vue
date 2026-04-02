@@ -90,7 +90,6 @@ async function logout() {
           class="app-nav-item"
         >
           <strong>{{ item.label }}</strong>
-          <span>{{ item.detail }}</span>
         </RouterLink>
       </nav>
 

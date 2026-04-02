@@ -251,7 +251,7 @@ function selectPreset(item: string) {
 
           <div class="preset-list">
             <button
-              v-for="item in presetScenarios"
+              v-for="item in presetScenarios.slice(0, 2)"
               :key="item"
               class="preset-card"
               :disabled="!selectedCompany"

@@ -45,6 +45,20 @@ const periodOptions = computed(() =>
     .filter(Boolean) as Array<{ value: string; label: string }>,
 )
 
+function displayClaimStatus(status?: string) {
+  const map: Record<string, string> = {
+    match: '一致',
+    mismatch: '不一致',
+    partial: '部分一致',
+    review: '待复核',
+  }
+  return map[(status || '').toLowerCase()] || '待复核'
+}
+
+function claimTone(status?: string) {
+  return (status || '').toLowerCase() === 'match' ? 'success' : 'risk'
+}
+
 async function loadCompanies() {
   const data = await get<any>('/workspace/companies')
   companies.value = data.companies
@@ -357,13 +371,13 @@ watch(
             
             <div class="claims-grid">
               <div
-                v-for="card in verifyPrimaryClaims"
+                v-for="(card, idx) in verifyPrimaryClaims"
                 :key="card.claim_id"
                 class="claim-card glass-panel-hover"
               >
                 <div class="cc-head">
-                  <div class="cc-code">{{ card.metric_key }}</div>
-                  <TagPill :label="card.status" :tone="card.status === 'match' ? 'success' : 'risk'" />
+                  <div class="cc-code">条目 {{ String(idx + 1).padStart(2, '0') }}</div>
+                  <TagPill :label="displayClaimStatus(card.status)" :tone="claimTone(card.status)" />
                 </div>
                 <h4 class="cc-title">{{ card.label }}</h4>
                 <div class="cc-vs">

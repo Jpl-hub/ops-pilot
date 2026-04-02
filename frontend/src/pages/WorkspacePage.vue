@@ -100,8 +100,6 @@ const resultLinks = computed(() => {
 
 const workspaceStatus = computed(() => [
   controlPlane.value?.report_period ? `报期 ${controlPlane.value.report_period}` : '',
-  controlPlane.value?.data_sources?.length ? controlPlane.value.data_sources.join(' · ') : '',
-  aiAssurance.value?.label ? aiAssurance.value.label : '',
 ].filter(Boolean))
 
 const pageLoadError = computed(() => companiesError.value || overviewError.value || companyWorkspaceError.value || '')
@@ -217,6 +215,24 @@ function displayFlowStatus(status?: string) {
     blocked: '阻断',
   }
   return map[(status || '').toLowerCase()] || '完成'
+}
+
+function displayWorkflowLabel(step: any) {
+  const raw = step?.title || step?.label || step?.summary || ''
+  if (raw) return raw
+  const agent = String(step?.agent_label || step?.agent || '').toLowerCase()
+  const map: Record<string, string> = {
+    data: '拉取数据',
+    risk: '核对风险',
+    strategy: '整理动作',
+    reflection: '回看结果',
+    self_reflection: '回看结果',
+    graph: '沿图谱追证据',
+    score: '补经营判断',
+    verify: '核对原文',
+    vision: '回看财报页块',
+  }
+  return map[agent] || '正在整理这一轮结果'
 }
 
 function displayMetricValue(item: any) {
@@ -385,7 +401,7 @@ watch(selectedCompany, async (company, previous) => {
                 <p>真实服务正在回收数字、证据和下一步建议。</p>
                 <div class="loading-steps">
                   <div v-for="step in workflowSteps.slice(0, 4)" :key="step.step" class="loading-step">
-                    <span>[{{ step.agent_label || step.agent }}]</span>
+                    <span>{{ displayWorkflowLabel(step) }}</span>
                     <strong>{{ displayFlowStatus(step.status) }}</strong>
                   </div>
                 </div>
