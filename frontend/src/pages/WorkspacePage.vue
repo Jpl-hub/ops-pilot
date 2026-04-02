@@ -114,32 +114,22 @@ const analysisStages = computed(() => {
   return [
     {
       index: '01',
-      title: '先明确问题',
-      detail: latestUserMessage.value
-        ? `${selectedCompany.value || '目标企业'}`
-        : '锁定对象',
+      title: '明确问题',
       status: latestUserMessage.value ? 'completed' : 'pending',
     },
     {
       index: '02',
-      title: '再拉关键数据',
-      detail: '回到真实数字',
+      title: '拉取数据',
       status: latestAnswer.value || loadingTurn.value ? 'completed' : 'pending',
     },
     {
       index: '03',
-      title: '再回到原文',
-      detail: latestEvidenceGroups.value.length
-        ? `${latestEvidenceGroups.value.length} 组证据`
-        : '核对判断依据',
+      title: '核对原文',
       status: latestEvidenceGroups.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
     },
     {
       index: '04',
-      title: '最后落到动作',
-      detail: latestActionCards.value.length
-        ? `${roleLabel.value}动作`
-        : `${roleLabel.value}视角`,
+      title: '落到动作',
       status: latestActionCards.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
     },
   ]
@@ -350,11 +340,8 @@ watch(selectedCompany, async (company, previous) => {
             class="flow-card"
             :class="`is-${stage.status}`"
           >
-            <div class="flow-meta">
-              <span>{{ stage.index }}</span>
-            </div>
+            <span class="flow-index">{{ stage.index }}</span>
             <strong>{{ stage.title }}</strong>
-            <p>{{ stage.detail }}</p>
           </article>
         </section>
 
@@ -653,52 +640,46 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .board-flow {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
   gap: 8px;
   padding: 10px 14px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .flow-card {
-  display: grid;
-  gap: 4px;
-  min-height: 64px;
-  padding: 10px 11px;
-  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  min-width: max-content;
+  padding: 0 12px;
+  border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
 }
 
 .flow-card.is-completed {
   border-color: rgba(52, 211, 153, 0.16);
+  background: rgba(18, 62, 45, 0.42);
 }
 
 .flow-card.is-running {
   border-color: rgba(96, 165, 250, 0.18);
+  background: rgba(20, 37, 58, 0.5);
 }
 
-.flow-meta {
-  display: flex;
-  justify-content: flex-start;
+.flow-index {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   letter-spacing: 0.08em;
-}
-
-.flow-meta span {
   color: #73f0c7;
 }
 
 .flow-card strong {
-  font-size: 14px;
-}
-
-.flow-card p {
-  margin: 0;
-  color: rgba(161, 174, 193, 0.88);
-  line-height: 1.4;
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .board-body {
