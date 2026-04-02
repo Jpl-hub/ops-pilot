@@ -13,13 +13,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from opspilot.application.services import (
     OpsPilotService,
     _build_evidence_groups,
-    _build_forecast_cards,
     _build_label_cards,
+)
+from opspilot.application.research_claims import _build_claim_cards, _infer_report_period_from_text
+from opspilot.application.research_reports import (
+    _build_forecast_cards,
     _extract_research_body,
     _extract_research_payload,
     _select_research_report,
 )
-from opspilot.application.research_claims import _build_claim_cards, _infer_report_period_from_text
 from opspilot.delivery_report import build_delivery_report_markdown
 from opspilot.runtime_checks import build_runtime_report, validate_delivery_runtime
 from opspilot.infra.sample_repository import SampleRepository
