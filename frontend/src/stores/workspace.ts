@@ -9,6 +9,7 @@ export type WorkspaceMessage =
 
 type WorkspaceOverview = {
   companies: string[]
+  preferred_period?: string
   role_profile?: {
     label?: string
     focus_title?: string
@@ -283,6 +284,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           payload,
         })
         await this.loadCompanyWorkspace(role)
+        await this.loadOverview(role)
       } catch (error) {
         this.turnError = error instanceof Error ? error.message : '分析执行失败'
       } finally {
@@ -308,6 +310,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     async updateAlertStatus(
       alertId: string,
       status: 'new' | 'dispatched' | 'in_progress' | 'resolved' | 'dismissed',
+      role: UserRole = 'management',
       note?: string,
     ) {
       await post('/alerts/update', {
@@ -316,8 +319,8 @@ export const useWorkspaceStore = defineStore('workspace', {
         report_period: this.overview?.alert_summary?.preferred_period,
         note,
       })
-      await this.loadOverview('management')
-      await this.loadCompanyWorkspace('management')
+      await this.loadOverview(role)
+      await this.loadCompanyWorkspace(role)
     },
     async dispatchAlertToTask(alertId: string, role: UserRole, note?: string) {
       await post('/alerts/dispatch', {
