@@ -116,7 +116,6 @@ async function logout() {
             <RouterLink to="/profile" class="app-footer-link">
               {{ session.currentUser.value?.display_name || '个人档案' }}
             </RouterLink>
-            <RouterLink to="/admin" class="app-footer-link">保障台</RouterLink>
             <button type="button" class="app-footer-link is-button" @click="logout">退出</button>
           </template>
           <template v-else>
@@ -296,7 +295,7 @@ async function logout() {
 }
 
 .app-user-box {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .app-footer-link {
