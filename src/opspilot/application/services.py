@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
-import json
 import time
 
 from opspilot.config import Settings
@@ -25,19 +23,13 @@ from opspilot.application.scoring_service import (
     _build_label_cards,
 )
 from opspilot.application.admin_delivery import (
-    _append_document_pipeline_run_record,
     _build_acceptance_checklist,
     _build_admin_job_catalog,
     _build_admin_quality_overview,
     _build_delivery_readiness,
     _build_delivery_report_payload,
-    _build_document_pipeline_execution_feedback,
     _build_document_pipeline_overview,
     _build_runtime_readiness,
-    _document_stage_label,
-    _resolve_document_contract_status,
-    _status_label,
-    _summarize_contract_statuses,
 )
 from opspilot.application.research_claims import (
     _build_claim_cards,
@@ -68,53 +60,18 @@ from opspilot.application.research_compare import (
     _label_research_compare_rows,
     _sort_research_compare_rows,
 )
-from opspilot.application.document_review import (
-    _build_document_artifact_locations,
-    _build_document_artifact_remediation,
-    _build_document_consumable_sections,
-    _build_document_evidence_navigation,
-    _build_document_navigation_unavailable,
-)
 from opspilot.application.industry_signals import (
-    _build_external_signal_market_tape,
-    _build_external_signal_stream,
-    _build_kafka_signal_market_tape,
     _build_kafka_signal_runtime,
-    _build_streaming_anomaly_board,
-    _build_streaming_anomaly_market_tape,
-    _build_streaming_attention_matrix,
-    _build_streaming_heat_chart,
-    _load_company_signal_snapshot,
-    _load_company_signal_timeline,
-    _merge_streaming_anomalies_into_attention_matrix,
-    _load_subindustry_signal_heatmap,
 )
-from opspilot.application.document_pipeline import (
-    DocumentPipelineBlockedError,
-    _run_document_pipeline_job,
-    _utcnow_iso,
-    _write_json,
-)
-from opspilot.application.runtime_manifests import (
-    _append_industry_brain_snapshot,
-    _build_workspace_run_id,
-    _document_pipeline_run_detail_path,
-    _load_document_pipeline_job_manifest,
-    _load_document_pipeline_run_manifest,
-    _load_industry_brain_manifest,
-    _load_workspace_run_manifest,
-    _workspace_run_detail_path,
-    _write_document_pipeline_job_manifest,
-    _write_workspace_run_manifest,
-)
-from opspilot.application.runtime_views import (
-    _build_brain_command_surface,
-    _build_brain_signal_tape,
-    _build_industry_brain_history_snapshot,
-    _build_industry_brain_watchboard_snapshot,
+from opspilot.application.document_pipeline_runtime import (
+    _document_pipeline_jobs,
+    _document_pipeline_result_detail,
+    _document_pipeline_results,
+    _document_pipeline_run_detail,
+    _document_pipeline_runs,
+    _run_document_pipeline_stage,
 )
 from opspilot.application.data_runtime import (
-    _build_industry_live_chart,
     _build_innovation_radar,
     _build_official_data_status,
     _load_research_reports,
@@ -125,6 +82,10 @@ from opspilot.application.graph_query_runtime import (
     _run_company_graph_query,
 )
 from opspilot.application.workspace_service import WorkspaceService
+from opspilot.application.workspace_runtime import (
+    _persist_workspace_run,
+    _workspace_history,
+)
 from opspilot.application.vision_runtime import (
     _company_vision_analyze,
     _company_vision_runtime,
@@ -772,50 +733,13 @@ class OpsPilotService:
         )
 
     def document_pipeline_jobs(self) -> dict[str, Any]:
-        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
-        records = jobs_manifest["records"]
-        stage_summary = []
-        for stage in ("cross_page_merge", "title_hierarchy", "cell_trace"):
-            stage_records = [item for item in records if item["stage"] == stage]
-            stage_summary.append(
-                {
-                    "stage": stage,
-                    "total": len(stage_records),
-                    "completed": sum(1 for item in stage_records if item["status"] == "completed"),
-                    "pending": sum(1 for item in stage_records if item["status"] == "pending"),
-                    "blocked": sum(1 for item in stage_records if item["status"] == "blocked"),
-                }
-            )
-        return {
-            "generated_at": jobs_manifest["generated_at"],
-            "stage_summary": stage_summary,
-            "jobs": records[:30],
-        }
+        return _document_pipeline_jobs(self.settings)
 
     def document_pipeline_runs(self, limit: int = 30) -> dict[str, Any]:
-        manifest = _load_document_pipeline_run_manifest(self.settings)
-        records = list(manifest["records"])
-        records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
-        return {
-            "generated_at": manifest["generated_at"],
-            "total": len(records),
-            "runs": records[:limit],
-        }
+        return _document_pipeline_runs(self.settings, limit=limit)
 
     def document_pipeline_run_detail(self, run_id: str) -> dict[str, Any]:
-        manifest = _load_document_pipeline_run_manifest(self.settings)
-        record = next((item for item in manifest["records"] if item.get("run_id") == run_id), None)
-        if record is None:
-            raise ValueError(f"未找到文档升级运行：{run_id}")
-        detail_path = _document_pipeline_run_detail_path(self.settings, run_id)
-        if not detail_path.exists():
-            raise ValueError(f"未找到文档升级运行详情：{run_id}")
-        try:
-            with detail_path.open("r", encoding="utf-8") as file:
-                detail = json.load(file)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"文档升级运行记录损坏：{run_id}") from exc
-        return detail
+        return _document_pipeline_run_detail(self.settings, run_id)
 
     def document_pipeline_results(
         self,
@@ -826,128 +750,17 @@ class OpsPilotService:
         contract_status: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
-        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
-        records = jobs_manifest["records"]
-        filtered = []
-        for item in records:
-            if stage and item["stage"] != stage:
-                continue
-            if status and item["status"] != status:
-                continue
-            item_contract_status = _resolve_document_contract_status(self.settings, item)
-            item_artifact_source = item.get("artifact_source")
-            if artifact_source and item_artifact_source != artifact_source:
-                continue
-            if contract_status and item_contract_status != contract_status:
-                continue
-            filtered.append(
-                {
-                    "stage": item["stage"],
-                    "report_id": item["report_id"],
-                    "company_name": item["company_name"],
-                    "security_code": item["security_code"],
-                    "report_period": item.get("report_period"),
-                    "status": item["status"],
-                    "artifact_path": item.get("artifact_path"),
-                    "artifact_summary": item.get("artifact_summary"),
-                    "artifact_source": item_artifact_source,
-                    "contract_status": item_contract_status,
-                    "completed_at": item.get("completed_at"),
-                    "detail_route": {
-                        "path": f"/api/v1/admin/document-pipeline/results/{item['stage']}/{item['report_id']}",
-                    },
-                }
-            )
-        filtered.sort(
-            key=lambda item: (
-                item.get("completed_at") or "",
-                item.get("report_period") or "",
-                item.get("stage") or "",
-                item.get("report_id") or "",
-            ),
-            reverse=True,
+        return _document_pipeline_results(
+            self,
+            stage=stage,
+            status=status,
+            artifact_source=artifact_source,
+            contract_status=contract_status,
+            limit=limit,
         )
-        return {
-            "stage": stage,
-            "status": status,
-            "artifact_source": artifact_source,
-            "contract_status": contract_status,
-            "total": len(filtered),
-            "results": filtered[:limit],
-        }
 
     def document_pipeline_result_detail(self, stage: str, report_id: str) -> dict[str, Any]:
-        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
-        job = next(
-            (
-                item
-                for item in jobs_manifest["records"]
-                if item["stage"] == stage and item["report_id"] == report_id
-            ),
-            None,
-        )
-        if job is None:
-            raise ValueError(f"未找到解析结果：{stage}/{report_id}")
-        artifact_path_value = str(job.get("artifact_path") or "").strip()
-        artifact_path = Path(artifact_path_value) if artifact_path_value else None
-        if artifact_path is not None and artifact_path.exists():
-            try:
-                with artifact_path.open("r", encoding="utf-8") as file:
-                    artifact = json.load(file)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"解析产物损坏：{artifact_path}") from exc
-            evidence_navigation = _build_document_evidence_navigation(
-                repository=self.repository,
-                company_name=job["company_name"],
-                report_period=job.get("report_period"),
-                artifact=artifact,
-            )
-            artifact_source = job.get("artifact_source") or artifact.get("source")
-        elif job.get("status") == "blocked":
-            artifact = {
-                "report_id": job["report_id"],
-                "company_name": job["company_name"],
-                "summary": job.get("artifact_summary") or "当前工序已阻断，未生成可交付解析产物。",
-                "tables": [],
-                "cells": [],
-                "headings": [],
-                "merge_candidates": [],
-            }
-            evidence_navigation = _build_document_navigation_unavailable(
-                artifact,
-                message="当前工序已阻断，未形成可跳转的正式证据入口。",
-            )
-            artifact_source = job.get("artifact_source")
-        else:
-            raise ValueError(f"未找到解析产物：{artifact_path_value or '<missing>'}")
-        return {
-            "job": {
-                "stage": job["stage"],
-                "stage_label": _document_stage_label(job["stage"]),
-                "report_id": job["report_id"],
-                "company_name": job["company_name"],
-                "security_code": job["security_code"],
-                "report_period": job.get("report_period"),
-                "status": job["status"],
-                "status_label": _status_label(job["status"]),
-                "contract_status": _resolve_document_contract_status(self.settings, job),
-                "artifact_path": job["artifact_path"],
-                "completed_at": job.get("completed_at"),
-                "artifact_summary": job.get("artifact_summary"),
-                "artifact_source": artifact_source,
-            },
-            "artifact": artifact,
-            "artifact_locations": _build_document_artifact_locations(job, artifact)
-            if artifact_path is not None and artifact_path.exists()
-            else [],
-            "remediation": _build_document_artifact_remediation(
-                stage=job["stage"],
-                artifact_source=artifact_source,
-                artifact=artifact,
-            ),
-            "evidence_navigation": evidence_navigation,
-            "consumable_sections": _build_document_consumable_sections(artifact),
-        }
+        return _document_pipeline_result_detail(self, stage, report_id)
 
     def run_document_pipeline_stage(
         self,
@@ -957,97 +770,13 @@ class OpsPilotService:
         artifact_source: str | None = None,
         contract_status: str | None = None,
     ) -> dict[str, Any]:
-        jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
-        records = jobs_manifest["records"]
-        if contract_status and stage != "cell_trace":
-            raise ValueError("contract_status 仅支持 cell_trace 阶段。")
-        if contract_status == "ready":
-            raise ValueError("不允许批量重跑 contract 已达标的样本。")
-        before_summary = _summarize_contract_statuses(records, settings=self.settings, stage=stage)
-        candidate_jobs: list[dict[str, Any]] = []
-        for item in records:
-            if item["stage"] != stage:
-                continue
-            item_contract_status = _resolve_document_contract_status(self.settings, item)
-            item_artifact_source = item.get("artifact_source")
-            if artifact_source and item_artifact_source != artifact_source:
-                continue
-            if contract_status and item_contract_status != contract_status:
-                continue
-            if contract_status:
-                candidate_jobs.append(item)
-                continue
-            if item["status"] == "pending":
-                candidate_jobs.append(item)
-        pending_jobs = candidate_jobs[:limit]
-        results: list[dict[str, Any]] = []
-        for job in pending_jobs:
-            try:
-                artifact_payload, artifact_path = _run_document_pipeline_job(stage, job, self.settings)
-            except DocumentPipelineBlockedError as exc:
-                job["status"] = "blocked"
-                job["artifact_path"] = ""
-                job["completed_at"] = _utcnow_iso()
-                job["artifact_summary"] = str(exc)
-                job["artifact_source"] = None
-                results.append(
-                    {
-                        "report_id": job["report_id"],
-                        "company_name": job["company_name"],
-                        "artifact_path": "",
-                        "summary": str(exc),
-                        "source": None,
-                        "status": "blocked",
-                    }
-                )
-                continue
-            job["status"] = "completed"
-            job["artifact_path"] = str(artifact_path)
-            job["completed_at"] = _utcnow_iso()
-            job["artifact_summary"] = artifact_payload.get("summary")
-            job["artifact_source"] = artifact_payload.get("source")
-            results.append(
-                {
-                    "report_id": job["report_id"],
-                    "company_name": job["company_name"],
-                    "artifact_path": str(artifact_path),
-                    "summary": artifact_payload.get("summary"),
-                    "source": artifact_payload.get("source"),
-                    "status": "completed",
-                }
-            )
-        _write_document_pipeline_job_manifest(self.settings, jobs_manifest)
-        after_summary = _summarize_contract_statuses(
-            jobs_manifest["records"],
-            settings=self.settings,
-            stage=stage,
-        )
-        execution_feedback = _build_document_pipeline_execution_feedback(
-            stage=stage,
-            contract_status=contract_status,
-            processed=len(results),
-            before_summary=before_summary,
-            after_summary=after_summary,
-        )
-        run_record = _append_document_pipeline_run_record(
-            self.settings,
-            stage=stage,
+        return _run_document_pipeline_stage(
+            self,
+            stage,
+            limit,
             artifact_source=artifact_source,
             contract_status=contract_status,
-            results=results,
-            execution_feedback=execution_feedback,
         )
-        return {
-            "stage": stage,
-            "requested": limit,
-            "artifact_source": artifact_source,
-            "contract_status": contract_status,
-            "processed": len(results),
-            "results": results,
-            "execution_feedback": execution_feedback,
-            "run_id": run_record["run_id"],
-            "jobs": self.document_pipeline_jobs(),
-        }
 
     def risk_scan(self, report_period: str | None = None) -> dict[str, Any]:
         companies = (
@@ -1413,177 +1142,13 @@ class OpsPilotService:
         limit: int = 30,
         source_limit: int = 200,
     ) -> dict[str, Any]:
-        period = report_period or self._preferred_period()
-        analysis_runs = [
-            {
-                "history_type": "analysis_run",
-                "id": item["run_id"],
-                "title": item.get("query") or "分析执行",
-                "company_name": item.get("company_name"),
-                "report_period": item.get("report_period"),
-                "user_role": item.get("user_role"),
-                "status": "completed",
-                "created_at": item.get("created_at"),
-                "meta": {
-                    "query_type": item.get("query_type"),
-                    "detail_path": item.get("detail_path"),
-                    "route": {
-                        "path": f"/api/v1/workspace/runs/{item['run_id']}",
-                    },
-                },
-            }
-            for item in self.workspace_runs(limit=source_limit)["runs"]
-            if item.get("user_role") == user_role and item.get("report_period") == period
-        ]
-        watch_runs = [
-            {
-                "history_type": "watchboard_scan",
-                "id": item["run_id"],
-                "title": f"监测扫描 {item['report_period']}",
-                "company_name": "、".join(item.get("companies", [])[:3]) or None,
-                "report_period": item.get("report_period"),
-                "user_role": item.get("user_role"),
-                "status": "completed",
-                "created_at": item.get("created_at"),
-                "meta": {
-                    "tracked_companies": item.get("summary", {}).get("tracked_companies"),
-                    "companies_with_new_alerts": item.get("summary", {}).get("companies_with_new_alerts"),
-                    "route": {
-                        "path": f"/api/v1/watchboard/runs/{item['run_id']}",
-                    },
-                },
-            }
-            for item in self.watchboard_runs(
-                user_role=user_role,
-                report_period=period,
-                limit=source_limit,
-            )["runs"]
-        ]
-        document_jobs = [
-            {
-                "history_type": "document_pipeline",
-                "id": f"{item['stage']}::{item['report_id']}",
-                "title": f"{item['stage']} · {item['company_name']}",
-                "company_name": item.get("company_name"),
-                "report_period": item.get("report_period"),
-                "user_role": user_role,
-                "status": item.get("status"),
-                "created_at": item.get("completed_at"),
-                "meta": {
-                    "stage": item.get("stage"),
-                    "artifact_summary": item.get("artifact_summary"),
-                    "route": {
-                        "path": f"/api/v1/admin/document-pipeline/results/{item['stage']}/{item['report_id']}",
-                    },
-                },
-            }
-            for item in self.document_pipeline_results(limit=max(source_limit, limit))["results"]
-            if item.get("report_period") == period
-        ]
-        document_runs = [
-            {
-                "history_type": "document_pipeline_run",
-                "id": item["run_id"],
-                "title": f"{item['stage']} 批量执行",
-                "company_name": "、".join(item.get("companies", [])[:3]) or None,
-                "report_period": item.get("report_period"),
-                "user_role": user_role,
-                "status": item.get("status", "completed"),
-                "created_at": item.get("created_at"),
-                "meta": {
-                    "stage": item.get("stage"),
-                    "processed": item.get("processed"),
-                    "fixed_count": item.get("execution_feedback", {}).get("fixed_count"),
-                    "remaining_count": item.get("execution_feedback", {}).get("remaining_count"),
-                    "headline": item.get("execution_feedback", {}).get("headline"),
-                    "contract_status": item.get("contract_status"),
-                    "route": {
-                        "path": f"/api/v1/admin/document-pipeline/runs/{item['run_id']}",
-                    },
-                },
-            }
-            for item in self.document_pipeline_runs(limit=source_limit)["runs"]
-            if item.get("report_period") == period
-        ]
-        stress_runs = [
-            {
-                "history_type": "stress_test",
-                "id": item["run_id"],
-                "title": f"压力测试 · {item['company_name']}",
-                "company_name": item.get("company_name"),
-                "report_period": item.get("report_period"),
-                "user_role": item.get("user_role"),
-                "status": item.get("severity", {}).get("level", "completed"),
-                "created_at": item.get("created_at"),
-                "meta": {
-                    "scenario": item.get("scenario"),
-                    "severity": item.get("severity", {}).get("label"),
-                    "route": {
-                        "path": f"/api/v1/stress-test/runs/{item['run_id']}",
-                    },
-                },
-            }
-            for item in self.stress_test_runs(
-                report_period=period,
-                user_role=user_role,
-                limit=source_limit,
-            )["runs"]
-        ]
-        graph_runs = [
-            {
-                "history_type": "graph_query",
-                "id": item["run_id"],
-                "title": f"图谱检索 · {item['company_name']}",
-                "company_name": item.get("company_name"),
-                "report_period": item.get("report_period"),
-                "user_role": item.get("user_role"),
-                "status": "completed",
-                "created_at": item.get("created_at"),
-                "meta": {
-                    "intent": item.get("intent"),
-                    "route": {
-                        "path": f"/api/v1/graph-query/runs/{item['run_id']}",
-                    },
-                },
-            }
-            for item in self.graph_query_runs(
-                report_period=period,
-                user_role=user_role,
-                limit=source_limit,
-            )["runs"]
-        ]
-        vision_runs = [
-            {
-                "history_type": "vision_analyze",
-                "id": item["run_id"],
-                "title": f"多模态解析 · {item['company_name']}",
-                "company_name": item.get("company_name"),
-                "report_period": item.get("report_period"),
-                "user_role": item.get("user_role"),
-                "status": item.get("status_label", "completed"),
-                "created_at": item.get("created_at"),
-                "meta": {
-                    "headline": item.get("headline"),
-                    "route": {
-                        "path": f"/api/v1/vision-analyze/runs/{item['run_id']}",
-                    },
-                },
-            }
-            for item in self.vision_runs(
-                report_period=period,
-                user_role=user_role,
-                limit=source_limit,
-            )["runs"]
-        ]
-        records = analysis_runs + watch_runs + document_jobs + document_runs + stress_runs
-        records += graph_runs + vision_runs
-        records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
-        return {
-            "user_role": user_role,
-            "report_period": period,
-            "total": len(records),
-            "records": records[:limit],
-        }
+        return _workspace_history(
+            self,
+            user_role=user_role,
+            report_period=report_period,
+            limit=limit,
+            source_limit=source_limit,
+        )
 
     def workspace_run_detail(self, run_id: str) -> dict[str, Any]:
         return self._workspace.workspace_run_detail(run_id)
@@ -1604,48 +1169,13 @@ class OpsPilotService:
         company_name: str | None,
         user_role: str,
     ) -> dict[str, Any]:
-        run_id = _build_workspace_run_id(
-            payload.get("company_name") or company_name or "industry",
-            payload.get("query_type") or "unknown",
+        return _persist_workspace_run(
+            self,
+            payload,
+            query=query,
+            company_name=company_name,
+            user_role=user_role,
         )
-        detail_path = _workspace_run_detail_path(self.settings, run_id)
-        detail_payload = {
-            "run_id": run_id,
-            "query": query,
-            "company_name": payload.get("company_name") or company_name,
-            "report_period": payload.get("report_period"),
-            "user_role": user_role,
-            "query_type": payload.get("query_type"),
-            "control_plane": payload.get("control_plane"),
-            "agent_flow": payload.get("agent_flow"),
-            "answer_sections": payload.get("answer_sections"),
-            "insight_cards": payload.get("insight_cards"),
-            "follow_up_questions": payload.get("follow_up_questions"),
-            "formula_cards": payload.get("formula_cards"),
-            "charts": payload.get("charts"),
-            "evidence_groups": payload.get("evidence_groups"),
-            "created_at": _utcnow_iso(),
-        }
-        _write_json(detail_path, detail_payload)
-
-        manifest = _load_workspace_run_manifest(self.settings)
-        record = {
-            "run_id": run_id,
-            "query": query,
-            "company_name": detail_payload["company_name"],
-            "report_period": detail_payload["report_period"],
-            "user_role": user_role,
-            "query_type": detail_payload["query_type"],
-            "detail_path": str(detail_path),
-            "created_at": detail_payload["created_at"],
-            "control_plane_status": payload.get("control_plane", {}).get("session_label"),
-        }
-        manifest["records"] = [
-            item for item in manifest["records"] if item.get("run_id") != run_id
-        ]
-        manifest["records"].append(record)
-        _write_workspace_run_manifest(self.settings, manifest)
-        return {**payload, "run_id": run_id}
 
     def _preferred_period(self) -> str:
         if hasattr(self.repository, "preferred_period"):
