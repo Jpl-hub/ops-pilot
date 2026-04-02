@@ -21,42 +21,22 @@ const roleOptions: Array<{ value: UserRole; label: string }> = [
   { value: 'regulator', label: '监管风控' },
 ]
 
-const navGroups = [
-  {
-    title: '先看行业',
-    items: [{ to: '/brain', label: '产业大脑', auth: true }],
-  },
-  {
-    title: '再做判断',
-    items: [
-      { to: '/workspace', label: '协同分析', auth: true },
-      { to: '/score', label: '经营诊断', auth: true },
-      { to: '/stress', label: '压力推演', auth: true },
-    ],
-  },
-  {
-    title: '最后回到证据',
-    items: [
-      { to: '/graph', label: '图谱检索', auth: true },
-      { to: '/verify', label: '观点核验', auth: true },
-      { to: '/vision', label: '文档复核', auth: true },
-    ],
-  },
+const navItems = [
+  { to: '/brain', label: '新能源产业大脑', desc: '实时变化与行业主线', auth: true },
+  { to: '/workspace', label: '协同分析', desc: '围绕一个问题直接判断', auth: true },
+  { to: '/graph', label: '图谱检索', desc: '顺着主链继续追证据', auth: true },
+  { to: '/stress', label: '压力推演', desc: '看冲击会先传到哪里', auth: true },
+  { to: '/score', label: '经营诊断', desc: '先看企业体质和短板', auth: true },
+  { to: '/verify', label: '观点核验', desc: '把说法和原文放一起', auth: true },
+  { to: '/vision', label: '文档复核', desc: '回到页块、表格和原文', auth: true },
 ]
 
-const sidebarItems = computed(() => navGroups.flatMap((group) => group.items))
-
-const visibleNavGroups = computed(() =>
-  navGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => !item.auth || session.isAuthenticated.value),
-    }))
-    .filter((group) => group.items.length > 0),
+const visibleNavItems = computed(() =>
+  navItems.filter((item) => !item.auth || session.isAuthenticated.value),
 )
 
 const activeNavLabel = computed(
-  () => sidebarItems.value.find((item) => item.to === route.path)?.label || '协同分析',
+  () => navItems.find((item) => item.to === route.path)?.label || '协同分析',
 )
 
 const routeContext = computed(() => {
@@ -103,23 +83,15 @@ async function logout() {
       </RouterLink>
 
       <nav class="app-nav">
-        <section
-          v-for="group in visibleNavGroups"
-          :key="group.title"
-          class="app-nav-group"
+        <RouterLink
+          v-for="item in visibleNavItems"
+          :key="item.to"
+          :to="item.to"
+          class="app-nav-item"
         >
-          <header class="app-nav-group-title">{{ group.title }}</header>
-          <div class="app-nav-group-items">
-            <RouterLink
-              v-for="item in group.items"
-              :key="item.to"
-              :to="item.to"
-              class="app-nav-item"
-            >
-              <strong>{{ item.label }}</strong>
-            </RouterLink>
-          </div>
-        </section>
+          <strong>{{ item.label }}</strong>
+          <span>{{ item.desc }}</span>
+        </RouterLink>
       </nav>
 
       <div class="app-sidebar-footer">
@@ -225,32 +197,13 @@ async function logout() {
 
 .app-nav {
   display: grid;
-  gap: 16px;
-  padding-top: 2px;
-}
-
-.app-nav-group {
-  display: grid;
-  gap: 8px;
-}
-
-.app-nav-group-title {
-  padding: 0 6px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(120, 143, 172, 0.7);
-}
-
-.app-nav-group-items {
-  display: grid;
   gap: 10px;
+  padding-top: 2px;
 }
 
 .app-nav-item {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
   padding: 12px 14px;
   border-radius: 16px;
@@ -268,9 +221,7 @@ async function logout() {
 }
 
 .app-nav-item span {
-  font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  letter-spacing: 0.1em;
   color: rgba(110, 137, 170, 0.9);
 }
 
@@ -299,7 +250,7 @@ async function logout() {
 
 .app-context-card {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   padding: 12px 12px 10px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -307,15 +258,15 @@ async function logout() {
 }
 
 .app-context-card strong {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.35;
   color: #eef2f7;
 }
 
 .app-context-card p {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 11px;
+  line-height: 1.55;
   color: rgba(187, 200, 217, 0.82);
 }
 
