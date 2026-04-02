@@ -21,22 +21,42 @@ const roleOptions: Array<{ value: UserRole; label: string }> = [
   { value: 'regulator', label: '监管风控' },
 ]
 
-const sidebarItems = [
-  { to: '/brain', label: '产业大脑', detail: '行业变化', auth: true },
-  { to: '/workspace', label: '协同分析', detail: '直接判断', auth: true },
-  { to: '/graph', label: '图谱检索', detail: '证据追溯', auth: true },
-  { to: '/stress', label: '压力推演', detail: '冲击传导', auth: true },
-  { to: '/score', label: '经营诊断', detail: '经营体检', auth: true },
-  { to: '/verify', label: '观点核验', detail: '研报对照', auth: true },
-  { to: '/vision', label: '文档复核', detail: '财报原文', auth: true },
+const navGroups = [
+  {
+    title: '先看行业',
+    items: [{ to: '/brain', label: '产业大脑', auth: true }],
+  },
+  {
+    title: '再做判断',
+    items: [
+      { to: '/workspace', label: '协同分析', auth: true },
+      { to: '/score', label: '经营诊断', auth: true },
+      { to: '/stress', label: '压力推演', auth: true },
+    ],
+  },
+  {
+    title: '最后回到证据',
+    items: [
+      { to: '/graph', label: '图谱检索', auth: true },
+      { to: '/verify', label: '观点核验', auth: true },
+      { to: '/vision', label: '文档复核', auth: true },
+    ],
+  },
 ]
 
-const visibleSidebarItems = computed(() =>
-  sidebarItems.filter((item) => !item.auth || session.isAuthenticated.value),
+const sidebarItems = computed(() => navGroups.flatMap((group) => group.items))
+
+const visibleNavGroups = computed(() =>
+  navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.auth || session.isAuthenticated.value),
+    }))
+    .filter((group) => group.items.length > 0),
 )
 
 const activeNavLabel = computed(
-  () => sidebarItems.find((item) => item.to === route.path)?.label || '协同分析',
+  () => sidebarItems.value.find((item) => item.to === route.path)?.label || '协同分析',
 )
 
 const routeContext = computed(() => {
@@ -83,14 +103,23 @@ async function logout() {
       </RouterLink>
 
       <nav class="app-nav">
-        <RouterLink
-          v-for="item in visibleSidebarItems"
-          :key="item.to"
-          :to="item.to"
-          class="app-nav-item"
+        <section
+          v-for="group in visibleNavGroups"
+          :key="group.title"
+          class="app-nav-group"
         >
-          <strong>{{ item.label }}</strong>
-        </RouterLink>
+          <header class="app-nav-group-title">{{ group.title }}</header>
+          <div class="app-nav-group-items">
+            <RouterLink
+              v-for="item in group.items"
+              :key="item.to"
+              :to="item.to"
+              class="app-nav-item"
+            >
+              <strong>{{ item.label }}</strong>
+            </RouterLink>
+          </div>
+        </section>
       </nav>
 
       <div class="app-sidebar-footer">
@@ -195,8 +224,27 @@ async function logout() {
 
 .app-nav {
   display: grid;
-  gap: 10px;
+  gap: 16px;
   padding-top: 2px;
+}
+
+.app-nav-group {
+  display: grid;
+  gap: 8px;
+}
+
+.app-nav-group-title {
+  padding: 0 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(120, 143, 172, 0.7);
+}
+
+.app-nav-group-items {
+  display: grid;
+  gap: 10px;
 }
 
 .app-nav-item {

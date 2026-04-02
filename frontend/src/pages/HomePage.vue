@@ -3,27 +3,14 @@ import { computed } from 'vue'
 
 import AppShell from '@/components/AppShell.vue'
 import { useSession } from '@/lib/session'
-import type { UserRole } from '@/lib/api'
 
-type ScenarioCard = {
-  role: UserRole
-  roleLabel: string
+type EntryCard = {
+  label: string
   title: string
-  prompt: string
+  to: string | { path: string; query?: Record<string, string> }
 }
 
 const session = useSession()
-
-function buildScenarioRoute(role: UserRole, prompt: string) {
-  return {
-    path: '/workspace',
-    query: {
-      role,
-      prompt,
-      auto_run: '1',
-    },
-  }
-}
 
 const entryAction = computed(() => {
   if (session.isAuthenticated.value) {
@@ -38,24 +25,28 @@ const entryAction = computed(() => {
   }
 })
 
-const scenarioCards: ScenarioCard[] = [
+const entryCards: EntryCard[] = [
   {
-    role: 'investor',
-    roleLabel: '投资者',
-    title: '看风险和分歧',
-    prompt: '这家公司当前最值得警惕的风险是什么？',
+    label: '先看行业',
+    title: '进入产业大脑',
+    to: '/brain',
   },
   {
-    role: 'management',
-    roleLabel: '管理层',
-    title: '做经营诊断',
-    prompt: '给我一份当前经营体检和整改优先级。',
+    label: '再做判断',
+    title: '进入协同分析',
+    to: {
+      path: '/workspace',
+      query: {
+        role: 'management',
+        prompt: '给我一份当前经营体检和整改优先级。',
+        auto_run: '1',
+      },
+    },
   },
   {
-    role: 'regulator',
-    roleLabel: '监管 / 风控',
-    title: '做持续巡检',
-    prompt: '当前主周期哪些公司风险抬升最快？',
+    label: '最后回到证据',
+    title: '进入图谱检索',
+    to: '/graph',
   },
 ]
 </script>
@@ -96,14 +87,13 @@ const scenarioCards: ScenarioCard[] = [
 
       <section class="landing-dock">
         <RouterLink
-          v-for="item in scenarioCards"
-          :key="item.role"
+          v-for="item in entryCards"
+          :key="item.title"
           class="dock-strip"
-          :class="`is-${item.role}`"
-          :to="buildScenarioRoute(item.role, item.prompt)"
+          :to="item.to"
         >
           <div class="dock-copy">
-            <span>{{ item.roleLabel }}</span>
+            <span>{{ item.label }}</span>
             <strong>{{ item.title }}</strong>
           </div>
         </RouterLink>
@@ -257,15 +247,15 @@ const scenarioCards: ScenarioCard[] = [
   gap: 4px;
 }
 
-.dock-strip.is-investor {
+.dock-strip:nth-child(1) {
   background: rgba(59, 130, 246, 0.06);
 }
 
-.dock-strip.is-management {
+.dock-strip:nth-child(2) {
   background: rgba(16, 185, 129, 0.06);
 }
 
-.dock-strip.is-regulator {
+.dock-strip:nth-child(3) {
   background: rgba(245, 158, 11, 0.06);
 }
 
