@@ -22,13 +22,13 @@ const roleOptions: Array<{ value: UserRole; label: string }> = [
 ]
 
 const navItems = [
-  { to: '/brain', label: '新能源产业大脑', desc: '实时变化与行业主线', auth: true },
-  { to: '/workspace', label: '协同分析', desc: '围绕一个问题直接判断', auth: true },
-  { to: '/graph', label: '图谱检索', desc: '顺着主链继续追证据', auth: true },
-  { to: '/stress', label: '压力推演', desc: '看冲击会先传到哪里', auth: true },
-  { to: '/score', label: '经营诊断', desc: '先看企业体质和短板', auth: true },
-  { to: '/verify', label: '观点核验', desc: '把说法和原文放一起', auth: true },
-  { to: '/vision', label: '文档复核', desc: '回到页块、表格和原文', auth: true },
+  { to: '/brain', label: '新能源产业大脑', auth: true },
+  { to: '/workspace', label: '协同分析', auth: true },
+  { to: '/graph', label: '图谱检索', auth: true },
+  { to: '/stress', label: '压力推演', auth: true },
+  { to: '/score', label: '经营诊断', auth: true },
+  { to: '/verify', label: '观点核验', auth: true },
+  { to: '/vision', label: '文档复核', auth: true },
 ]
 
 const visibleNavItems = computed(() =>
@@ -41,15 +41,15 @@ const activeNavLabel = computed(
 
 const routeContext = computed(() => {
   const mapping: Record<string, { title: string; note: string }> = {
-    '/brain': { title: '先看行业变化', note: '从这里决定下一步先看谁。' },
-    '/workspace': { title: '围绕问题直接判断', note: '让结论、动作和证据落成一页。' },
-    '/graph': { title: '顺着证据继续追', note: '沿主链一路追到节点和原文。' },
-    '/stress': { title: '看冲击会先传到哪', note: '先看冲击，再决定先做什么。' },
-    '/score': { title: '先看企业体质', note: '把经营问题和优先级先排清。' },
-    '/verify': { title: '核对观点靠不靠谱', note: '把说法和原文放在一起。' },
-    '/vision': { title: '回看财报原文结构', note: '直接回到页块、表格和原文。' },
+    '/brain': { title: '先看行业变化', note: '' },
+    '/workspace': { title: '围绕问题直接判断', note: '' },
+    '/graph': { title: '顺着证据继续追', note: '' },
+    '/stress': { title: '看冲击会先传到哪', note: '' },
+    '/score': { title: '先看企业体质', note: '' },
+    '/verify': { title: '核对观点靠不靠谱', note: '' },
+    '/vision': { title: '回看财报原文结构', note: '' },
   }
-  return mapping[route.path] || { title: activeNavLabel.value, note: '先看当前工作面，再决定下一步往哪追。' }
+  return mapping[route.path] || { title: activeNavLabel.value, note: '' }
 })
 
 async function logout() {
@@ -90,7 +90,6 @@ async function logout() {
           class="app-nav-item"
         >
           <strong>{{ item.label }}</strong>
-          <span>{{ item.desc }}</span>
         </RouterLink>
       </nav>
 
@@ -98,7 +97,6 @@ async function logout() {
         <div class="app-context-card">
           <span class="app-muted-label">{{ activeNavLabel }}</span>
           <strong>{{ routeContext.title }}</strong>
-          <p>{{ routeContext.note }}</p>
         </div>
 
         <div v-if="session.isAuthenticated.value" class="app-role-box">
@@ -202,10 +200,11 @@ async function logout() {
 }
 
 .app-nav-item {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 12px 14px;
+  min-height: 52px;
+  padding: 0 14px;
   border-radius: 16px;
   border: 1px solid transparent;
   background: transparent;
@@ -220,11 +219,6 @@ async function logout() {
   color: #eef2f7;
 }
 
-.app-nav-item span {
-  font-size: 11px;
-  color: rgba(110, 137, 170, 0.9);
-}
-
 .app-nav-item:hover {
   background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.06);
@@ -234,10 +228,6 @@ async function logout() {
 .app-nav-item.router-link-active {
   background: rgba(18, 62, 45, 0.88);
   border-color: rgba(52, 211, 153, 0.22);
-}
-
-.app-nav-item.router-link-active span {
-  color: rgba(110, 242, 194, 0.82);
 }
 
 .app-sidebar-footer {
@@ -250,8 +240,8 @@ async function logout() {
 
 .app-context-card {
   display: grid;
-  gap: 6px;
-  padding: 12px 12px 10px;
+  gap: 4px;
+  padding: 12px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.025);
@@ -261,13 +251,6 @@ async function logout() {
   font-size: 13px;
   line-height: 1.35;
   color: #eef2f7;
-}
-
-.app-context-card p {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.55;
-  color: rgba(187, 200, 217, 0.82);
 }
 
 .app-muted-label {

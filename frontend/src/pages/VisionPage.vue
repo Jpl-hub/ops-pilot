@@ -183,7 +183,7 @@ watch(
       <section class="glass-panel control-bar">
         <div class="control-copy">
           <h1>{{ selectedCompany || '文档复核' }}</h1>
-          <p>{{ selectedPeriod || '选定公司后开始查看结果' }}</p>
+          <p>{{ selectedPeriod || '查看当前结果' }}</p>
         </div>
         <div class="control-fields">
           <select v-model="selectedCompany" class="glass-select">
@@ -224,7 +224,6 @@ watch(
           <div class="summary-grid">
             <div v-if="qualitySummary" class="summary-card">
               <strong>{{ qualitySummary.headline }}</strong>
-              <p>{{ qualitySummary.summary }}</p>
               <div class="metric-row">
                 <div v-for="item in qualityMetrics" :key="`${item.label}-${item.value}`" class="metric-card">
                   <span>{{ item.label }}</span>
@@ -278,7 +277,6 @@ watch(
             <div class="main-head">
               <div>
                 <h3>这次提炼出了什么</h3>
-                <p>先看结果，再顺着页块和原文继续往下追。</p>
               </div>
             </div>
 

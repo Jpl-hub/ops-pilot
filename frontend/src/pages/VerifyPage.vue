@@ -194,7 +194,7 @@ watch(
       <section class="glass-panel control-bar">
         <div class="control-copy">
           <h1>{{ selectedCompany || '观点核验' }}</h1>
-          <p>{{ selectedReportTitle || '选一篇研报，直接和财报原文对照。' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+          <p>{{ selectedReportTitle || '选一篇研报开始核对' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
         </div>
         <div class="control-fields">
           <select v-model="selectedCompany" class="glass-select">
@@ -255,10 +255,6 @@ watch(
               <strong>{{ verifyCommandSurface.metric }}</strong>
             </div>
             <div class="metric-card">
-              <span>核对条目</span>
-              <strong>{{ state.data.value.claim_cards.length }} 项</strong>
-            </div>
-            <div class="metric-card">
               <span>有分歧</span>
               <strong class="risk-text">{{ state.data.value.key_numbers[1].value }}</strong>
             </div>
@@ -290,7 +286,7 @@ watch(
             <p v-else class="muted-copy">这篇研报暂时没有明显分歧，继续逐条回看关键数据即可。</p>
 
             <div v-if="verifyCompareRows.length" class="related-list">
-              <h4>最近还可以顺手看哪几篇</h4>
+              <h4>继续看</h4>
               <div v-for="row in verifyCompareRows" :key="row.title + row.publish_date" class="related-item">
                 <strong>{{ row.source_name }}</strong>
                 <p>{{ row.title }}</p>
@@ -303,7 +299,6 @@ watch(
             <div class="main-head">
               <div>
                 <h3>逐条对照</h3>
-                <p>把研报写法和财报原文放在一起看，顺着出处继续追。</p>
               </div>
             </div>
 

@@ -7,7 +7,6 @@ import { useSession } from '@/lib/session'
 type EntryCard = {
   label: string
   title: string
-  cue: string
   to: string | { path: string; query?: Record<string, string> }
 }
 
@@ -30,13 +29,11 @@ const entryCards: EntryCard[] = [
   {
     label: '先看行业',
     title: '进入产业大脑',
-    cue: '先锁定今天最值得继续看的变化',
     to: '/brain',
   },
   {
     label: '再做判断',
     title: '进入协同分析',
-    cue: '围绕一个问题直接收结论、动作和证据',
     to: {
       path: '/workspace',
       query: {
@@ -49,7 +46,6 @@ const entryCards: EntryCard[] = [
   {
     label: '最后回到证据',
     title: '进入图谱检索',
-    cue: '顺着主链继续追到原文和节点',
     to: '/graph',
   },
 ]
@@ -76,17 +72,14 @@ const entryCards: EntryCard[] = [
           <div class="stage-column">
             <div class="stage-frame stage-frame-lead">
               <strong>先看主线</strong>
-              <span>行业变化会先收在这里</span>
             </div>
 
             <div class="stage-frame">
               <strong>再做判断</strong>
-              <span>把这一轮结论和动作压成一页</span>
             </div>
 
             <div class="stage-frame">
               <strong>最后回到原文</strong>
-              <span>顺着证据继续往下追</span>
             </div>
           </div>
         </div>
@@ -102,7 +95,6 @@ const entryCards: EntryCard[] = [
           <div class="dock-copy">
             <span>{{ item.label }}</span>
             <strong>{{ item.title }}</strong>
-            <small>{{ item.cue }}</small>
           </div>
         </RouterLink>
       </section>
@@ -204,9 +196,10 @@ const entryCards: EntryCard[] = [
 }
 
 .stage-frame {
-  display: grid;
-  gap: 7px;
-  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  min-height: 72px;
+  padding: 0 20px;
   border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(12, 16, 24, 0.82);
@@ -252,14 +245,7 @@ const entryCards: EntryCard[] = [
 
 .dock-copy {
   display: grid;
-  gap: 4px;
-}
-
-.dock-copy small,
-.stage-frame span {
-  font-size: 12px;
-  line-height: 1.55;
-  color: rgba(191, 203, 220, 0.8);
+  gap: 2px;
 }
 
 .dock-strip:nth-child(1) {
