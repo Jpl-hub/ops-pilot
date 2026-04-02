@@ -10,8 +10,14 @@ from opspilot.domain.audit import build_audit
 from opspilot.domain.rules import evaluate_risk_labels
 # 域服务 — 拆分后的模块化架构
 from opspilot.application.alert_runtime import (
+    _alert_workflow,
     _build_alert_board,
+    _dispatch_alert_to_task,
     _get_company_periods,
+    _task_board,
+    _task_queue,
+    _update_alert_status,
+    _update_task_status,
 )
 from opspilot.application.scoring_service import (
     ScoringService,
@@ -91,20 +97,14 @@ from opspilot.application.document_pipeline import (
 )
 from opspilot.application.runtime_manifests import (
     _append_industry_brain_snapshot,
-    _build_alert_id,
-    _build_task_id,
     _build_workspace_run_id,
     _document_pipeline_run_detail_path,
-    _load_alert_board_manifest,
     _load_document_pipeline_job_manifest,
     _load_document_pipeline_run_manifest,
     _load_industry_brain_manifest,
-    _load_task_board_manifest,
     _load_workspace_run_manifest,
     _workspace_run_detail_path,
-    _write_alert_board_manifest,
     _write_document_pipeline_job_manifest,
-    _write_task_board_manifest,
     _write_workspace_run_manifest,
 )
 from opspilot.application.runtime_views import (
@@ -412,45 +412,7 @@ class OpsPilotService:
         )
 
     def alert_workflow(self, report_period: str | None = None) -> dict[str, Any]:
-        period = report_period or self._preferred_period()
-        risk_payload = self.risk_scan(period)
-        alert_manifest = _load_alert_board_manifest(self.settings)
-        status_counts = {
-            "new": 0,
-            "dispatched": 0,
-            "in_progress": 0,
-            "resolved": 0,
-            "dismissed": 0,
-        }
-        alerts: list[dict[str, Any]] = []
-        for alert in risk_payload["alert_board"]:
-            alert_id = _build_alert_id(alert)
-            record = alert_manifest["records"].get(alert_id, {})
-            status = record.get("status", "new")
-            status_counts[status] = status_counts.get(status, 0) + 1
-            alerts.append(
-                {
-                    **alert,
-                    "alert_id": alert_id,
-                    "status": status,
-                    "status_label": _status_label(status),
-                    "note": record.get("note"),
-                    "updated_at": record.get("updated_at"),
-                    "history": record.get("history", []),
-                }
-            )
-        return {
-            "report_period": period,
-            "summary": {
-                "total": len(alerts),
-                "new": status_counts["new"],
-                "dispatched": status_counts["dispatched"],
-                "in_progress": status_counts["in_progress"],
-                "resolved": status_counts["resolved"],
-                "dismissed": status_counts["dismissed"],
-            },
-            "alerts": alerts,
-        }
+        return _alert_workflow(self, report_period=report_period)
 
     def update_alert_status(
         self,
@@ -459,29 +421,13 @@ class OpsPilotService:
         report_period: str | None = None,
         note: str | None = None,
     ) -> dict[str, Any]:
-        workflow = self.alert_workflow(report_period=report_period)
-        alert = next((item for item in workflow["alerts"] if item["alert_id"] == alert_id), None)
-        if alert is None:
-            raise ValueError(f"未找到预警：{alert_id}")
-
-        manifest = _load_alert_board_manifest(self.settings)
-        record = manifest["records"].setdefault(alert_id, {})
-        updated_at = _utcnow_iso()
-        history = list(record.get("history", []))
-        history.append({"status": status, "note": note, "updated_at": updated_at})
-        record.update(
-            {
-                "alert_id": alert_id,
-                "status": status,
-                "note": note,
-                "updated_at": updated_at,
-                "history": history[-10:],
-            }
+        return _update_alert_status(
+            self,
+            alert_id=alert_id,
+            status=status,
+            report_period=report_period,
+            note=note,
         )
-        _write_alert_board_manifest(self.settings, manifest)
-        refreshed = self.alert_workflow(report_period=report_period or workflow["report_period"])
-        refreshed_alert = next(item for item in refreshed["alerts"] if item["alert_id"] == alert_id)
-        return {"alert": refreshed_alert, "summary": refreshed["summary"]}
 
     def dispatch_alert_to_task(
         self,
@@ -491,41 +437,13 @@ class OpsPilotService:
         report_period: str | None = None,
         note: str | None = None,
     ) -> dict[str, Any]:
-        workflow = self.alert_workflow(report_period=report_period)
-        alert = next((item for item in workflow["alerts"] if item["alert_id"] == alert_id), None)
-        if alert is None:
-            raise ValueError(f"未找到预警：{alert_id}")
-
-        period = report_period or workflow["report_period"]
-        task_board = self.task_board(user_role=user_role, report_period=period, limit=20)
-        task = next(
-            (item for item in task_board["tasks"] if item["company_name"] == alert["company_name"]),
-            None,
-        )
-        if task is None:
-            raise ValueError(f"未找到可派发任务：{alert['company_name']}")
-
-        task_note = note or f"由预警 {alert_id} 派发"
-        alert_note = note or f"已派发到任务 {task['task_id']}"
-        task_payload = self.update_task_status(
-            task_id=task["task_id"],
-            status="in_progress",
+        return _dispatch_alert_to_task(
+            self,
+            alert_id,
             user_role=user_role,
-            report_period=period,
-            note=task_note,
+            report_period=report_period,
+            note=note,
         )
-        alert_payload = self.update_alert_status(
-            alert_id=alert_id,
-            status="dispatched",
-            report_period=period,
-            note=alert_note,
-        )
-        return {
-            "alert": alert_payload["alert"],
-            "alert_summary": alert_payload["summary"],
-            "task": task_payload["task"],
-            "task_summary": task_payload["summary"],
-        }
 
     def list_company_names(self) -> list[str]:
         return self.repository.list_company_names()
@@ -819,37 +737,12 @@ class OpsPilotService:
     def task_board(
         self, user_role: str = "management", report_period: str | None = None, limit: int = 12
     ) -> dict[str, Any]:
-        period = report_period or self._preferred_period()
-        task_manifest = _load_task_board_manifest(self.settings)
-        tasks = self.task_queue(user_role=user_role, report_period=period, limit=limit)
-        status_counts = {"queued": 0, "in_progress": 0, "done": 0, "blocked": 0}
-        enriched_tasks: list[dict[str, Any]] = []
-        for task in tasks:
-            record = task_manifest["records"].get(task["task_id"], {})
-            status = record.get("status", "queued")
-            status_counts[status] = status_counts.get(status, 0) + 1
-            enriched_tasks.append(
-                {
-                    **task,
-                    "status": status,
-                    "status_label": _status_label(status),
-                    "note": record.get("note"),
-                    "updated_at": record.get("updated_at"),
-                    "history": record.get("history", []),
-                }
-            )
-        return {
-            "user_role": user_role,
-            "report_period": period,
-            "summary": {
-                "total": len(enriched_tasks),
-                "queued": status_counts["queued"],
-                "in_progress": status_counts["in_progress"],
-                "done": status_counts["done"],
-                "blocked": status_counts["blocked"],
-            },
-            "tasks": enriched_tasks,
-        }
+        return _task_board(
+            self,
+            user_role=user_role,
+            report_period=report_period,
+            limit=limit,
+        )
 
     def update_task_status(
         self,
@@ -859,71 +752,24 @@ class OpsPilotService:
         report_period: str | None = None,
         note: str | None = None,
     ) -> dict[str, Any]:
-        task_board = self.task_board(user_role=user_role, report_period=report_period, limit=20)
-        task = next((item for item in task_board["tasks"] if item["task_id"] == task_id), None)
-        if task is None:
-            raise ValueError(f"未找到任务：{task_id}")
-
-        task_manifest = _load_task_board_manifest(self.settings)
-        record = task_manifest["records"].setdefault(task_id, {})
-        history = list(record.get("history", []))
-        updated_at = _utcnow_iso()
-        history.append({"status": status, "note": note, "updated_at": updated_at})
-        record.update(
-            {
-                "task_id": task_id,
-                "status": status,
-                "note": note,
-                "updated_at": updated_at,
-                "history": history[-10:],
-            }
-        )
-        _write_task_board_manifest(self.settings, task_manifest)
-        refreshed = self.task_board(
+        return _update_task_status(
+            self,
+            task_id=task_id,
+            status=status,
             user_role=user_role,
-            report_period=report_period or task_board["report_period"],
-            limit=20,
+            report_period=report_period,
+            note=note,
         )
-        refreshed_task = next(item for item in refreshed["tasks"] if item["task_id"] == task_id)
-        return {"task": refreshed_task, "summary": refreshed["summary"]}
 
     def task_queue(
         self, user_role: str = "management", report_period: str | None = None, limit: int = 8
     ) -> list[dict[str, Any]]:
-        period = report_period or self._preferred_period()
-        alerts = self.risk_scan(period)["alert_board"]
-        tasks: list[dict[str, Any]] = []
-        for alert in alerts[:limit]:
-            company_name = alert["company_name"]
-            score_payload = self.score_company(company_name, period)
-            action_cards = score_payload["action_cards"]
-            if not action_cards:
-                continue
-            primary_action = action_cards[0]
-            route = {"path": "/score", "query": {"company": company_name, "period": period}}
-            if user_role == "investor":
-                route = {"path": "/verify", "query": {"company": company_name}}
-            elif user_role == "regulator":
-                route = {"path": "/risk", "query": {"company": company_name}}
-            task_id = _build_task_id(
-                period,
-                company_name,
-                primary_action["priority"],
-                primary_action["title"],
-            )
-            tasks.append(
-                {
-                    "task_id": task_id,
-                    "company_name": company_name,
-                    "report_period": score_payload["report_period"],
-                    "priority": primary_action["priority"],
-                    "title": primary_action["title"],
-                    "summary": primary_action["reason"],
-                    "label_names": [item["name"] for item in score_payload["scorecard"]["risk_labels"][:3]],
-                    "route": route,
-                }
-            )
-        return tasks
+        return _task_queue(
+            self,
+            user_role=user_role,
+            report_period=report_period,
+            limit=limit,
+        )
 
     def document_pipeline_jobs(self) -> dict[str, Any]:
         jobs_manifest = _load_document_pipeline_job_manifest(self.settings)
