@@ -46,7 +46,7 @@ const qualityBlockers = computed(() => qualitySummary.value?.blockers?.slice(0, 
 const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 2))
 const visibleAnalysisLog = computed(() => analysisLog.value.slice(0, 3))
 const visibleSections = computed(() => selectedResult.value?.sections?.slice(0, 3) || [])
-const visibleResultItems = computed(() => resultItems.value.slice(0, 3))
+const visibleResultItems = computed(() => resultItems.value.slice(0, 4))
 const sourcePreviewText = computed(() => {
   const preview = selectedResult.value?.source_preview
   if (!preview) return ''
@@ -154,7 +154,7 @@ onMounted(async () => {
     try {
       await loadVision()
     } catch {
-      // 请求错误已由状态容器接管
+      // 请求错误由状态容器接管
     }
   } finally {
     bootstrapping.value = false
@@ -166,9 +166,10 @@ watch([selectedCompany, selectedPeriod], async () => {
   try {
     await loadVision()
   } catch {
-    // 请求错误已由状态容器接管
+    // 请求错误由状态容器接管
   }
 })
+
 watch(
   pipelineJobs,
   (jobs) => {
@@ -187,18 +188,17 @@ watch(
 
 <template>
   <AppShell title="">
-    <div class="dashboard-wrapper">
-
-      <!-- Control Bar -->
+    <div class="vision-page">
       <section class="glass-panel control-bar">
-          <div class="control-left">
-            <div class="glow-icon">文</div>
-            <div class="control-copy">
-              <span class="control-kicker">文档复核</span>
-              <h3 class="company-name text-gradient">{{ selectedCompany || '文档复核' }}</h3>
-              <p class="control-meta">{{ selectedPeriod || '选定公司后开始查看结果' }}</p>
-            </div>
+        <div class="control-left">
+          <div class="glow-icon">文</div>
+          <div class="control-copy">
+            <span class="control-kicker">文档复核</span>
+            <h3 class="company-name text-gradient">{{ selectedCompany || '文档复核' }}</h3>
+            <p class="control-meta">{{ selectedPeriod || '选定公司后开始查看结果' }}</p>
           </div>
+        </div>
+
         <div class="inline-context">
           <label class="inline-field">
             <span class="subtle-label">公司</span>
@@ -230,111 +230,95 @@ watch(
         class="state-container"
       />
 
-      <div v-else class="dashboard-grid">
-        <!-- Left Col -->
-        <div class="dashboard-col left-col">
-
-          <!-- Status Hero -->
-          <article class="glass-panel hero-panel">
-            <div class="hero-top">
-              <div class="eyebrow">当前结果</div>
-              <h2 class="hero-title compact">{{ selectedResult?.headline || '等待当前结果' }}</h2>
-              <p class="hero-text text-sm muted">{{ runtimeSummary?.next_action || selectedResult?.status_label || '等待复核' }}</p>
+      <div v-else class="vision-grid">
+        <aside class="vision-sidebar">
+          <article class="glass-panel sidebar-section">
+            <div class="section-headline">
+              <span class="section-kicker">当前结果</span>
+              <h2>{{ selectedResult?.headline || '等待当前结果' }}</h2>
+              <p class="muted">{{ runtimeSummary?.next_action || selectedResult?.status_label || '等待复核' }}</p>
             </div>
-            <div v-if="selectedResult" class="status-badge-row">
+
+            <div v-if="selectedResult" class="status-row">
               <TagPill :label="selectedResult.status_label || '就绪'" tone="success" />
               <TagPill v-if="qualitySummary" :label="qualitySummary.label" :tone="qualityTone(qualitySummary.status)" />
             </div>
-            <p v-if="sourcePreviewText" class="hero-preview muted">
-              {{ sourcePreviewText }}
-            </p>
+
+            <p v-if="sourcePreviewText" class="context-copy">{{ sourcePreviewText }}</p>
           </article>
 
-          <article class="glass-panel quality-panel" v-if="qualitySummary">
-            <div class="panel-head-compact">
-            <h3 class="panel-sm-title">这次能不能直接用</h3>
-              <TagPill :label="displayQualityStatus(qualitySummary.status)" :tone="qualityTone(qualitySummary.status)" />
+          <article v-if="qualitySummary" class="glass-panel sidebar-section">
+            <div class="section-headline">
+              <span class="section-kicker">先看质量</span>
+              <h3>这次能不能直接用</h3>
             </div>
-            <div class="quality-summary-copy">
-              <strong>{{ qualitySummary.headline }}</strong>
-              <p class="muted">{{ qualitySummary.summary }}</p>
-            </div>
-            <div class="stream-chips">
-              <div
-                v-for="item in qualityMetrics"
-                :key="`${item.label}-${item.value}`"
-                class="stream-chip"
-                :class="`tone-${item.tone || 'accent'}`"
-              >
-                <span class="chip-label">{{ item.label }}</span>
-                <strong class="chip-val">{{ item.value }}</strong>
+            <p class="context-copy"><strong>{{ qualitySummary.headline }}</strong></p>
+            <p class="muted">{{ qualitySummary.summary }}</p>
+
+            <div class="metric-strip">
+              <div v-for="item in qualityMetrics" :key="`${item.label}-${item.value}`" class="metric-pill">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
               </div>
             </div>
-            <div v-if="qualityBlockers.length" class="quality-blocker-list">
-              <div
-                v-for="item in qualityBlockers"
-                :key="item.title"
-                class="quality-blocker-card"
-              >
+
+            <div v-if="qualityBlockers.length" class="blocker-list">
+              <div v-for="item in qualityBlockers" :key="item.title" class="blocker-row">
                 <strong>{{ item.title }}</strong>
                 <p class="muted">{{ item.detail }}</p>
               </div>
             </div>
           </article>
 
-          <!-- History Runs -->
-          <article class="glass-panel runs-panel" v-if="recentRuns.length">
-            <h3 class="panel-sm-title">最近两次结果</h3>
-            <div class="runs-list">
-              <div
-                v-for="item in recentRuns"
-                :key="item.run_id"
-                class="run-item glass-panel-hover"
-                @click="openVisionRun(item.run_id)"
-              >
-                <div class="run-head">
-                  <strong class="run-company">{{ item.company_name }}</strong>
+          <article v-if="recentRuns.length" class="glass-panel sidebar-section">
+            <div class="section-headline">
+              <span class="section-kicker">最近结果</span>
+              <h3>最近两次复核</h3>
+            </div>
+            <div class="run-list">
+              <div v-for="item in recentRuns" :key="item.run_id" class="run-row" @click="openVisionRun(item.run_id)">
+                <div class="run-row-head">
+                  <strong>{{ item.company_name }}</strong>
                   <TagPill :label="item.status_label || displayJobStatus(item.status) || '已完成'" tone="success" />
                 </div>
-                <p class="run-summary muted">{{ item.headline || item.status_label || '-' }}</p>
+                <p class="muted">{{ item.headline || item.status_label || '-' }}</p>
               </div>
             </div>
           </article>
-        </div>
+        </aside>
 
-        <!-- Right Col -->
-        <div class="dashboard-col right-col">
-
-          <article class="glass-panel artifact-panel" v-if="activeJob">
-            <h3 class="panel-sm-title">现在能直接看什么</h3>
-            <div class="artifact-grid">
-              <div class="artifact-kv">
-                <span class="muted">当前环节</span>
+        <section class="vision-main">
+          <article v-if="activeJob" class="glass-panel main-section">
+            <div class="section-headline">
+              <span class="section-kicker">当前产物</span>
+              <h3>现在能直接看什么</h3>
+            </div>
+            <div class="artifact-strip">
+              <div class="artifact-pill">
+                <span>环节</span>
                 <strong>{{ displayPipelineStage(activeJob.stage) }}</strong>
               </div>
-              <div class="artifact-kv">
-                <span class="muted">原文</span>
+              <div class="artifact-pill">
+                <span>原文</span>
                 <strong>{{ activeJob.report_id }}</strong>
               </div>
-              <div class="artifact-kv">
-                <span class="muted">当前状态</span>
+              <div class="artifact-pill">
+                <span>状态</span>
                 <strong>{{ displayJobStatus(activeJob.status) }}</strong>
               </div>
             </div>
-            <p class="job-summary muted">{{ activeJob.artifact_summary || '当前产物尚无结构摘要。' }}</p>
+            <p class="context-copy">{{ activeJob.artifact_summary || '当前产物尚无结构摘要。' }}</p>
           </article>
 
-          <!-- Analysis Log -->
-          <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">这次提炼出了什么</h3>
-            <div class="log-list">
-              <div
-                v-for="item in visibleAnalysisLog"
-                :key="`log-${item.step}`"
-                class="log-item"
-              >
-                <div class="log-step-badge">{{ item.step }}</div>
-                <div class="log-body">
+          <article v-if="analysisLog.length" class="glass-panel main-section">
+            <div class="section-headline">
+              <span class="section-kicker">提炼结果</span>
+              <h3>这次提炼出了什么</h3>
+            </div>
+            <div class="flow-list">
+              <div v-for="item in visibleAnalysisLog" :key="`log-${item.step}`" class="flow-row">
+                <div class="flow-step">{{ item.step }}</div>
+                <div class="flow-body">
                   <strong>{{ item.title }}</strong>
                   <p class="muted">{{ item.detail }}</p>
                 </div>
@@ -342,21 +326,19 @@ watch(
             </div>
           </article>
 
-          <!-- Sections from Result -->
-          <article class="glass-panel sections-panel scroll-area flex-1" v-else-if="visibleSections.length">
-            <h3 class="panel-sm-title">这次抽出来的页块</h3>
-            <div class="sections-grid">
-              <div
-                v-for="section in visibleSections"
-                :key="section.section_type"
-                class="section-card glass-panel-hover"
-              >
-                <div class="section-head">
-                  <span class="section-type-badge">{{ section.title }}</span>
-                  <strong class="text-accent">{{ section.count }} 条</strong>
+          <article v-if="visibleSections.length" class="glass-panel main-section">
+            <div class="section-headline">
+              <span class="section-kicker">页块结果</span>
+              <h3>这次抽出来的页块</h3>
+            </div>
+            <div class="result-list">
+              <div v-for="section in visibleSections" :key="section.section_type" class="result-row">
+                <div class="result-row-head">
+                  <strong>{{ section.title }}</strong>
+                  <span class="muted">{{ section.count }} 条</span>
                 </div>
-                <div class="section-items">
-                  <div v-for="it in section.items.slice(0, 4)" :key="JSON.stringify(it)" class="section-row">
+                <div class="result-sublist">
+                  <div v-for="it in section.items.slice(0, 3)" :key="JSON.stringify(it)" class="result-subrow">
                     <span>{{ it.text || it.title || it.reason || '条目' }}</span>
                     <span class="muted">P{{ it.page || it.to_page || '-' }}</span>
                   </div>
@@ -365,28 +347,24 @@ watch(
             </div>
           </article>
 
-          <!-- Result Items -->
-          <article class="glass-panel items-panel scroll-area flex-1" v-else-if="visibleResultItems.length">
-            <h3 class="panel-sm-title">这次抽出来的条目</h3>
-            <div class="items-list">
-              <div v-for="item in visibleResultItems" :key="`${item.kind}-${item.title}`" class="item-row glass-panel-hover">
+          <article v-else-if="visibleResultItems.length" class="glass-panel main-section">
+            <div class="section-headline">
+              <span class="section-kicker">提取条目</span>
+              <h3>这次抽出来了什么</h3>
+            </div>
+            <div class="result-list">
+              <div v-for="item in visibleResultItems" :key="`${item.kind}-${item.title}`" class="result-row">
                 <strong>{{ item.title }}</strong>
-                <span class="muted">{{ item.summary }}</span>
+                <p class="muted">{{ item.summary }}</p>
               </div>
             </div>
           </article>
 
-          <!-- Empty -->
-          <article v-else class="glass-panel empty-panel">
-            <div class="empty-content">
-            <h3 class="text-gradient mb-2">等待文档结果</h3>
-              <p class="muted">选择公司后点击「重新复核」，直接回看原文和表格。</p>
+          <article v-if="selectedResult?.evidence_navigation?.links?.length" class="glass-panel main-section">
+            <div class="section-headline">
+              <span class="section-kicker">回到原文</span>
+              <h3>继续顺着原文和页块往下看</h3>
             </div>
-          </article>
-
-          <!-- Evidence Links -->
-          <article class="glass-panel evidence-panel" v-if="selectedResult?.evidence_navigation?.links?.length">
-            <h3 class="panel-sm-title">回到原文</h3>
             <div class="evidence-links">
               <RouterLink
                 v-for="link in selectedResult.evidence_navigation.links"
@@ -398,145 +376,392 @@ watch(
               </RouterLink>
             </div>
           </article>
-        </div>
+
+          <article v-if="!selectedResult && !activeJob" class="glass-panel empty-panel">
+            <div class="empty-content">
+              <h3 class="text-gradient">等待文档结果</h3>
+              <p class="muted">选择公司后点击「重新复核」，直接回看原文和表格。</p>
+            </div>
+          </article>
+        </section>
       </div>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-.dashboard-wrapper { display: flex; flex-direction: column; gap: 16px; height: 100%; overflow: hidden; width: 100%; max-width: 1280px; margin: 0 auto; }
-
-.control-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-radius: 16px; flex-shrink: 0; }
-.control-left { display: flex; align-items: center; gap: 16px; }
-.control-copy { display: grid; gap: 4px; }
-.glow-icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(168,85,247,0.15); border: 1px solid rgba(168,85,247,0.4); color: #a855f7; display: grid; place-items: center; font-weight: bold; font-size: 18px; box-shadow: 0 0 15px rgba(168,85,247,0.2); }
-.company-name { margin: 0; font-size: 18px; font-weight: 600; }
-.control-kicker { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
-.control-meta { margin: 0; font-size: 12px; color: var(--muted); }
-.text-gradient { background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(to right, #a855f7, #60a5fa); }
-.inline-context { display: flex; align-items: center; gap: 16px; }
-.inline-field { display: flex; align-items: center; gap: 8px; }
-.subtle-label { font-size: 12px; color: var(--muted); text-transform: uppercase; }
-.glass-select { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); min-height: 36px; padding: 0 12px; border-radius: 8px; color: #fff; }
-.glass-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); min-height: 36px; padding: 0 12px; border-radius: 8px; color: #fff; width: 120px; outline: none; }
-.glow-button { min-height: 36px; border-radius: 8px; box-shadow: 0 0 15px rgba(168,85,247,0.2); }
-.glow-button:disabled { opacity: 0.5; cursor: not-allowed; }
-.state-container { flex: 1; }
-
-/* Grid */
-.dashboard-grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; flex: 1; min-height: 0; }
-.dashboard-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
-.left-col { overflow-y: auto; }
-.left-col::-webkit-scrollbar { width: 4px; }
-.left-col::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-.right-col { overflow: hidden; }
-.scroll-area { overflow-y: auto; }
-.scroll-area::-webkit-scrollbar { width: 4px; }
-.scroll-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-.flex-1 { flex: 1; min-height: 0; }
-
-/* Hero Panel */
-.hero-panel { padding: 24px; border-radius: 20px; display: flex; flex-direction: column; gap: 16px; flex-shrink: 0; }
-.hero-top { display: flex; flex-direction: column; gap: 4px; }
-.hero-title { font-size: 18px; font-weight: 600; margin: 0; color: #fff; }
-.hero-title.compact { font-size: 16px; }
-.hero-text { font-size: 13px; margin: 0; }
-.hero-preview { font-size: 12px; line-height: 1.6; margin: 0; }
-.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; }
-.status-badge-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.muted { color: var(--muted); }
-.text-sm { font-size: 13px; }
-.text-accent { color: #10b981; }
-
-.stream-panel { padding: 20px; border-radius: 20px; flex-shrink: 0; }
-.quality-panel { padding: 20px; border-radius: 20px; display: flex; flex-direction: column; gap: 14px; }
-.quality-summary-copy { display: flex; flex-direction: column; gap: 4px; }
-.quality-summary-copy strong { font-size: 15px; color: #fff; }
-.quality-summary-copy p { margin: 0; font-size: 12px; line-height: 1.6; }
-.stream-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.stream-chip { display: flex; flex-direction: column; align-items: center; padding: 10px 14px; border-radius: 10px; min-width: 80px; }
-.stream-chip.tone-accent { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); }
-.stream-chip.tone-success { background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); }
-.stream-chip.tone-warning { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); }
-.chip-label { font-size: 11px; color: var(--muted); }
-.chip-val { font-size: 14px; font-weight: 600; color: #fff; }
-.quality-blocker-list { display: flex; flex-direction: column; gap: 8px; }
-.quality-blocker-card { padding: 12px; border-radius: 12px; border: 1px solid rgba(239,68,68,0.18); background: rgba(239,68,68,0.08); }
-.quality-blocker-card strong { display: block; margin-bottom: 4px; color: #fff; font-size: 13px; }
-.quality-blocker-card p { margin: 0; font-size: 12px; line-height: 1.6; }
-
-/* Runs */
-.runs-panel { padding: 20px; border-radius: 20px; }
-.runs-list { display: flex; flex-direction: column; gap: 8px; }
-.run-item { padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); cursor: pointer; }
-.run-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-.run-company { font-size: 14px; color: #fff; }
-.run-summary { font-size: 12px; margin: 0; }
-
-.job-summary { font-size: 12px; margin: 0; line-height: 1.5; }
-
-.artifact-panel { padding: 20px; border-radius: 20px; flex-shrink: 0; }
-.artifact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
-.artifact-kv { display: flex; flex-direction: column; gap: 4px; }
-.artifact-kv strong { font-size: 13px; color: #fff; word-break: break-word; }
-.artifact-location-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
-.artifact-location-card { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); display: flex; flex-direction: column; gap: 6px; }
-.artifact-location-card code { font-size: 11px; white-space: pre-wrap; word-break: break-all; color: #cbd5e1; }
-
-/* Log */
-.log-panel { padding: 20px; border-radius: 20px; }
-.log-list { display: flex; flex-direction: column; gap: 12px; }
-.log-item { display: flex; gap: 14px; align-items: flex-start; }
-.log-step-badge { width: 28px; height: 28px; border-radius: 50%; background: rgba(168,85,247,0.15); border: 1px solid rgba(168,85,247,0.3); color: #a855f7; display: grid; place-items: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
-.log-body { display: flex; flex-direction: column; gap: 2px; }
-.log-body strong { font-size: 14px; color: #fff; }
-.log-body p { font-size: 13px; margin: 0; }
-
-/* Sections */
-.sections-panel { padding: 20px; border-radius: 20px; }
-.sections-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.section-card { padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
-.section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.section-type-badge { font-size: 11px; font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.3); padding: 3px 8px; border-radius: 4px; color: var(--muted); }
-.section-items { display: flex; flex-direction: column; gap: 6px; }
-.section-row { display: flex; justify-content: space-between; font-size: 12px; color: #e2e8f0; }
-
-/* Items */
-.items-panel { padding: 20px; border-radius: 20px; }
-.items-list { display: flex; flex-direction: column; gap: 8px; }
-.item-row { padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 4px; }
-.item-row strong { font-size: 14px; color: #fff; }
-.item-row span { font-size: 12px; }
-
-/* Empty */
-.empty-panel { display: grid; place-items: center; flex: 1; border-radius: 20px; }
-.empty-content { text-align: center; }
-.mb-2 { margin-bottom: 8px; }
-
-/* Evidence */
-.evidence-panel { padding: 16px 20px; border-radius: 16px; flex-shrink: 0; }
-.evidence-links { display: flex; gap: 8px; flex-wrap: wrap; }
-.inline-glass-link { font-size: 12px; padding: 6px 12px; border-radius: 6px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--muted); text-decoration: none; transition: all 0.2s; }
-.inline-glass-link:hover { background: rgba(168,85,247,0.1); border-color: rgba(168,85,247,0.3); color: #a855f7; }
-
-/* Common */
-.panel-sm-title { font-size: 13px; letter-spacing: 0; color: var(--muted); margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-
-@media (max-width: 1180px) {
-  .dashboard-wrapper { overflow: auto; }
-  .dashboard-grid { grid-template-columns: 1fr; }
-  .left-col, .right-col { overflow: visible; }
-  .flex-1 { min-height: 280px; }
+.vision-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  overflow: hidden;
 }
 
-@media (max-width: 768px) {
-  .control-bar { flex-direction: column; align-items: stretch; gap: 14px; padding: 16px; }
-  .inline-context { flex-wrap: wrap; gap: 12px; }
-  .inline-field { flex: 1 1 180px; }
-  .glass-select { width: 100%; }
-  .dashboard-grid { gap: 12px; }
-  .artifact-grid { grid-template-columns: 1fr; }
-  .sections-grid { grid-template-columns: 1fr; }
+.control-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  flex-shrink: 0;
+}
+
+.control-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.control-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.glow-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  color: #c084fc;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.control-kicker {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.company-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.text-gradient {
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(to right, #a855f7, #60a5fa);
+}
+
+.control-meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.inline-context {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subtle-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.glass-select {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.glow-button {
+  min-height: 36px;
+  border-radius: 10px;
+}
+
+.glow-button:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.state-container {
+  flex: 1;
+}
+
+.vision-grid {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+  flex: 1;
+}
+
+.vision-sidebar,
+.vision-main {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vision-sidebar {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.vision-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.vision-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.sidebar-section,
+.main-section {
+  padding: 18px;
+  border-radius: 20px;
+}
+
+.section-headline {
+  display: grid;
+  gap: 6px;
+}
+
+.section-kicker {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.section-headline h2,
+.section-headline h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.28;
+  color: #f8fafc;
+}
+
+.status-row,
+.context-links,
+.evidence-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.context-copy,
+.muted {
+  color: var(--muted);
+}
+
+.context-copy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.metric-strip,
+.artifact-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.metric-pill,
+.artifact-pill {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.metric-pill span,
+.artifact-pill span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.metric-pill strong,
+.artifact-pill strong {
+  font-size: 15px;
+  color: #f8fafc;
+}
+
+.blocker-list,
+.run-list,
+.flow-list,
+.result-list {
+  display: grid;
+  gap: 10px;
+}
+
+.blocker-row,
+.run-row,
+.flow-row,
+.result-row {
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.blocker-row strong,
+.run-row-head strong,
+.flow-body strong,
+.result-row strong {
+  color: #f8fafc;
+}
+
+.blocker-row p,
+.run-row p,
+.flow-body p,
+.result-row p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.run-row {
+  cursor: pointer;
+}
+
+.run-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.vision-main {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.vision-main::-webkit-scrollbar {
+  width: 4px;
+}
+
+.vision-main::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.flow-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.flow-step {
+  width: 32px;
+  height: 32px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.28);
+}
+
+.result-row-head,
+.result-subrow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.result-sublist {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.result-subrow {
+  font-size: 12px;
+}
+
+.inline-glass-link {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: 11px;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.inline-glass-link:hover {
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.1);
+  border-color: rgba(168, 85, 247, 0.3);
+}
+
+.empty-panel {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  border-radius: 20px;
+}
+
+.empty-content {
+  text-align: center;
+  display: grid;
+  gap: 8px;
+}
+
+.empty-content h3 {
+  margin: 0;
+}
+
+@media (max-width: 1180px) {
+  .vision-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vision-sidebar,
+  .vision-main {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 900px) {
+  .control-bar,
+  .inline-context {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .inline-field,
+  .glass-select {
+    width: 100%;
+  }
+
+  .metric-strip,
+  .artifact-strip {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
