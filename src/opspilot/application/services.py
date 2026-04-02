@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 from typing import Any
-from datetime import datetime
 import json
 import time
 
@@ -172,6 +171,10 @@ from opspilot.application.verify_runtime import (
     _build_verify_delta_tape,
 )
 from opspilot.application.stress_service import StressService
+from opspilot.application.industry_brain_runtime import (
+    _build_industry_brain_payload,
+    _industry_brain_history,
+)
 
 
 LABEL_METRIC_CODES = {
@@ -312,256 +315,13 @@ class OpsPilotService:
         return _build_innovation_radar()
 
     def industry_brain(self) -> dict[str, Any]:
-        return self._build_industry_brain_payload(force_refresh=True)
+        return _build_industry_brain_payload(self, force_refresh=True)
 
     def industry_brain_tick(self) -> dict[str, Any]:
-        return self._build_industry_brain_payload(force_refresh=False)
+        return _build_industry_brain_payload(self, force_refresh=False)
 
     def industry_brain_history(self, limit: int = 24) -> dict[str, Any]:
-        manifest = _load_industry_brain_manifest(self.settings)
-        records = list(manifest["records"])
-        records.sort(key=lambda item: item.get("refreshed_at") or "", reverse=True)
-        return {
-            "generated_at": manifest.get("generated_at"),
-            "total": len(records),
-            "records": records[:limit],
-        }
-
-    def _build_industry_brain_payload(self, *, force_refresh: bool) -> dict[str, Any]:
-        now = time.monotonic()
-        cache = self._industry_brain_cache
-        if (
-            not force_refresh
-            and cache.get("payload") is not None
-            and now - float(cache.get("generated_at") or 0.0) < 8.0
-        ):
-            payload = dict(cache["payload"])
-            payload["stream"] = {
-                **payload["stream"],
-                "ws_connected": True,
-                "refreshed_at": _utcnow_iso(),
-            }
-            return payload
-
-        preferred_period = self._preferred_period()
-        health = self.health()
-        alert_workflow = self.alert_workflow(report_period=preferred_period)
-        task_board = self.task_board(user_role="management", report_period=preferred_period, limit=200)
-        risk_payload = self.risk_scan(preferred_period)
-        watchboard = _build_industry_brain_watchboard_snapshot(
-            self.settings,
-            report_period=preferred_period,
-            user_role="management",
-            alert_workflow=alert_workflow,
-            task_board=task_board,
-            risk_payload=risk_payload,
-            limit=8,
-        )
-        innovation_radar = self.innovation_radar()
-        data_status = self.official_data_status()
-        workspace_history = _build_industry_brain_history_snapshot(
-            self.settings,
-            report_period=preferred_period,
-            user_role="management",
-            limit=10,
-        )
-
-        live_point = {
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
-            "alerts": alert_workflow["summary"]["new"] + alert_workflow["summary"]["in_progress"],
-            "tasks": task_board["summary"]["in_progress"],
-            "watching": watchboard["summary"]["tracked_companies"],
-            "history": workspace_history["total"],
-        }
-        history_points = list(cache.get("history") or [])
-        history_points.append(live_point)
-        history_points = history_points[-8:]
-        cache["history"] = history_points
-        cache["sequence"] = int(cache.get("sequence") or 0) + 1
-
-        top_risk_companies = risk_payload["risk_board"][:8]
-        recent_records = workspace_history["records"][:10]
-        external_signal_stream = _build_external_signal_stream(
-            self.settings,
-            focus_companies=top_risk_companies,
-        )
-        kafka_signal_runtime = _build_kafka_signal_runtime(self.settings)
-        streaming_snapshot = _load_company_signal_snapshot(self.settings)
-        streaming_timeline = _load_company_signal_timeline(self.settings)
-        streaming_heatmap = _load_subindustry_signal_heatmap(self.settings)
-        streaming_anomalies = _build_streaming_anomaly_board(
-            preferred_period=preferred_period,
-            top_risk_companies=top_risk_companies,
-            signal_snapshot=streaming_snapshot,
-            signal_timeline=streaming_timeline,
-            signal_heatmap=streaming_heatmap,
-            kafka_signal_runtime=kafka_signal_runtime,
-        )
-
-        market_tape = [
-            {
-                "label": "主周期预警",
-                "value": str(alert_workflow["summary"]["new"] + alert_workflow["summary"]["in_progress"]),
-                "delta": f"+{alert_workflow['summary']['new']} 新增",
-                "tone": "risk",
-            },
-            {
-                "label": "在办任务",
-                "value": str(task_board["summary"]["in_progress"]),
-                "delta": f"{task_board['summary']['done']} 已完成",
-                "tone": "accent",
-            },
-            {
-                "label": "监测公司",
-                "value": str(watchboard["summary"]["tracked_companies"]),
-                "delta": f"{watchboard['summary']['companies_with_new_alerts']} 家新增关注",
-                "tone": "success",
-            },
-            {
-                "label": "文档升级",
-                "value": str(data_status.get("bronze_periodic_reports", {}).get("record_count", 0)),
-                "delta": f"{data_status.get('silver_financial_metrics', {}).get('record_count', 0)} 条结构化",
-                "tone": "default",
-            },
-        ]
-        market_tape.extend(_build_external_signal_market_tape(external_signal_stream))
-        market_tape.extend(_build_kafka_signal_market_tape(kafka_signal_runtime))
-        market_tape.extend(_build_streaming_anomaly_market_tape(streaming_anomalies))
-
-        execution_flash = [
-            {
-                "title": item.get("title", "系统执行"),
-                "summary": item.get("type_label", item.get("type", "任务")),
-                "status": item.get("status_label", item.get("status", "完成")),
-                "route": item.get("route"),
-            }
-            for item in recent_records[:6]
-        ]
-
-        attention_matrix = _build_streaming_attention_matrix(
-            preferred_period=preferred_period,
-            top_risk_companies=top_risk_companies,
-            signal_snapshot=streaming_snapshot,
-            signal_timeline=streaming_timeline,
-        )
-        attention_matrix = _merge_streaming_anomalies_into_attention_matrix(
-            attention_matrix,
-            streaming_anomalies,
-        )
-
-        live_events = []
-        for item in watchboard["items"][:5]:
-            live_events.append(
-                {
-                    "company_name": item["company_name"],
-                    "headline": item["top_risks"][0] if item["top_risks"] else "持续监测",
-                    "status": (
-                        "新增预警"
-                        if item["new_alerts"]
-                        else "任务处理中"
-                        if item["task_count"]
-                        else "持续监测"
-                    ),
-                    "route": {
-                        "path": "/score",
-                        "query": {"company": item["company_name"], "period": preferred_period},
-                    },
-                }
-            )
-        signal_feed = external_signal_stream.get("signals") or live_events
-
-        payload = {
-            "report_period": preferred_period,
-            "stream": {
-                "sequence": cache["sequence"],
-                "ws_connected": True,
-                "refreshed_at": _utcnow_iso(),
-            },
-            "sector_tags": [
-                {"label": item.get("subindustry"), "count": int(item.get("total_heat") or 0)}
-                for item in streaming_heatmap.get("top_subindustries", [])[:4]
-                if item.get("subindustry")
-            ],
-            "metrics": [
-                {
-                    "label": "正式公司覆盖",
-                    "value": str(health["preferred_period_companies"]),
-                    "hint": f"{preferred_period} 主周期已接入正式公司数",
-                    "tone": "accent",
-                },
-                {
-                    "label": "主周期预警",
-                    "value": str(alert_workflow["summary"]["new"] + alert_workflow["summary"]["in_progress"]),
-                    "hint": "实时来自统一预警工作流",
-                    "tone": "danger" if alert_workflow["summary"]["new"] else "default",
-                },
-                {
-                    "label": "监测板跟踪",
-                    "value": str(watchboard["summary"]["tracked_companies"]),
-                    "hint": "已进入持续监测的重点公司",
-                    "tone": "success",
-                },
-                {
-                    "label": "运行历史",
-                    "value": str(workspace_history["total"]),
-                    "hint": "统一执行总线累计记录",
-                },
-            ],
-            "charts": [
-                {
-                    "title": "主周期预警 / 任务 / 监测板实时跳动",
-                    "options": _build_industry_live_chart(history_points),
-                },
-                {
-                    "title": "子行业外部信号热度迁移",
-                    "options": _build_streaming_heat_chart(streaming_heatmap),
-                },
-            ],
-            "radar_events": innovation_radar["items"][:6],
-            "document_pipeline": {
-                "periodic_reports": data_status.get("periodic_reports", {}).get("record_count", 0),
-                "silver_metrics": data_status.get("silver_financial_metrics", {}).get("record_count", 0),
-                "bronze_reports": data_status.get("bronze_periodic_reports", {}).get("record_count", 0),
-            },
-            "market_tape": market_tape,
-            "brain_command_surface": _build_brain_command_surface(
-                preferred_period=preferred_period,
-                market_tape=market_tape,
-                attention_matrix=attention_matrix,
-                execution_flash=execution_flash,
-            ),
-            "brain_signal_tape": _build_brain_signal_tape(
-                market_tape=market_tape,
-                live_events=signal_feed,
-                history_points=history_points,
-            ),
-            "execution_flash": execution_flash,
-            "attention_matrix": attention_matrix,
-            "live_events": live_events,
-            "external_signal_stream": external_signal_stream,
-            "kafka_signal_runtime": kafka_signal_runtime,
-            "streaming_snapshot": streaming_snapshot,
-            "streaming_timeline": streaming_timeline,
-            "streaming_heatmap": streaming_heatmap,
-            "streaming_anomalies": streaming_anomalies,
-            "top_risk_companies": [
-                {
-                    "company_name": item["company_name"],
-                    "subindustry": item["subindustry"],
-                    "risk_count": item["risk_count"],
-                    "risk_labels": item["risk_labels"][:3],
-                    "route": {
-                        "path": "/score",
-                        "query": {"company": item["company_name"], "period": preferred_period},
-                    },
-                }
-                for item in top_risk_companies
-            ],
-        }
-        _append_industry_brain_snapshot(self.settings, payload)
-        cache["generated_at"] = now
-        cache["payload"] = payload
-        return payload
+        return _industry_brain_history(self.settings, limit=limit)
 
     def workspace_overview(self, user_role: str = "investor") -> dict[str, Any]:
         preferred_period = self._preferred_period()

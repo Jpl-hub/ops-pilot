@@ -33,6 +33,57 @@ const pulseSteps = computed(() => brainSignalTape.value.slice(0, 3))
 const tapeItems = computed(() => marketTape.value.slice(0, 3))
 const leadMetric = computed(() => marketTape.value[0] || null)
 const supportMetrics = computed(() => marketTape.value.slice(1, 2))
+const companyQueue = computed(() => {
+  const merged = new Map<
+    string,
+    {
+      companyName: string
+      badge: string
+      tone: string
+      detail: string
+      meta: string
+      route: { path: string; query?: Record<string, string> }
+    }
+  >()
+
+  anomalyItems.value.forEach((item: any) => {
+    if (!item?.company_name || merged.has(item.company_name)) return
+    merged.set(item.company_name, {
+      companyName: item.company_name,
+      badge: '先处理',
+      tone: anomalyTone(item.severity),
+      detail: item.summary || '先处理这一轮突发变化。',
+      meta: displayAnomalyMeta(item),
+      route: item.route,
+    })
+  })
+
+  riskCompanies.value.forEach((item: any) => {
+    if (!item?.company_name || merged.has(item.company_name)) return
+    merged.set(item.company_name, {
+      companyName: item.company_name,
+      badge: '先看风险',
+      tone: 'is-risk',
+      detail: (item.risk_labels || []).slice(0, 2).join(' · ') || item.subindustry || '先回到风险原文。',
+      meta: `${item.risk_count || 0} 个风险`,
+      route: item.route,
+    })
+  })
+
+  focusCompanies.value.forEach((item: any) => {
+    if (!item?.company_name || merged.has(item.company_name)) return
+    merged.set(item.company_name, {
+      companyName: item.company_name,
+      badge: '继续跟',
+      tone: 'is-calm',
+      detail: item.headline || '继续跟这一轮变化。',
+      meta: displayFocusMeta(item),
+      route: item.route,
+    })
+  })
+
+  return Array.from(merged.values()).slice(0, 4)
+})
 
 const signalFreshnessTone = computed(() => {
   const status = externalSignalStream.value?.status
@@ -251,12 +302,43 @@ onBeforeUnmount(() => {
             </div>
           </article>
 
-          <article class="brain-surface brain-stream">
+          <article class="brain-surface brain-queue">
             <div class="brain-section-head">
               <div>
-                <h2>今天最值得看</h2>
+                <h2>今天先处理谁</h2>
               </div>
-              <span class="brain-section-meta">今日 {{ signalCards.length }} 条</span>
+              <span class="brain-section-meta">先看这 {{ companyQueue.length }} 家</span>
+            </div>
+
+            <div v-if="companyQueue.length" class="brain-queue-list">
+              <RouterLink
+                v-for="item in companyQueue"
+                :key="item.companyName"
+                class="brain-queue-card"
+                :class="item.tone"
+                :to="{ path: item.route.path, query: item.route.query || {} }"
+              >
+                <div class="brain-queue-top">
+                  <strong>{{ item.companyName }}</strong>
+                  <span>{{ item.badge }}</span>
+                </div>
+                <p>{{ item.detail }}</p>
+                <small>{{ item.meta }}</small>
+              </RouterLink>
+            </div>
+            <div v-else class="brain-empty-state">当前没有需要立刻处理的企业。</div>
+          </article>
+        </section>
+
+        <section class="brain-grid">
+          <article class="brain-surface">
+            <div class="brain-section-head">
+              <div>
+                <h2>最新变化</h2>
+              </div>
+              <span class="brain-section-meta">
+                今天 {{ signalCards.length }} 条
+              </span>
             </div>
 
             <div v-if="signalCards.length" class="brain-stream-list">
@@ -276,122 +358,38 @@ onBeforeUnmount(() => {
                 <small>{{ displaySignalMeta(item) }}</small>
               </a>
             </div>
-            <div v-else class="brain-empty-state">当前还没有新的正式线索。</div>
-          </article>
-        </section>
-
-        <section class="brain-grid brain-grid-compact">
-          <article class="brain-surface">
-            <div class="brain-section-head">
-              <div>
-                <h2>今天需要盯紧的变化</h2>
-              </div>
-              <span class="brain-section-meta">
-                {{ streamingAnomalies?.summary?.detected_count || 0 }} 家
-              </span>
-            </div>
-
-            <div v-if="anomalyItems.length" class="brain-anomaly-list">
-              <RouterLink
-                v-for="item in anomalyItems"
-                :key="`${item.company_name}-${item.anomaly_type}`"
-                :to="{ path: item.route.path, query: item.route.query || {} }"
-                class="brain-anomaly-card"
-                :class="anomalyTone(item.severity)"
-              >
-                <div class="brain-anomaly-top">
-                  <strong>{{ item.company_name }}</strong>
-                  <span>{{ displayAnomalyLevel(item.severity) }}</span>
-                </div>
-                <p>{{ item.summary }}</p>
-                <small>{{ displayAnomalyMeta(item) }}</small>
-              </RouterLink>
-            </div>
             <div v-else class="brain-empty-state">
-              {{ streamingAnomalies?.freshness_label || '当前没有需要立刻处理的变化。' }}
+              {{ externalSignalStream?.freshness_label || '当前还没有新的正式线索。' }}
             </div>
           </article>
-        </section>
 
-        <section class="brain-grid">
-          <article class="brain-surface">
+          <article class="brain-surface brain-radar">
             <div class="brain-section-head">
               <div>
-                <h2>继续看这些企业</h2>
-              </div>
-              <span class="brain-section-meta">先看这 {{ focusCompanies.length }} 家</span>
-            </div>
-
-            <div v-if="focusCompanies.length" class="brain-company-list">
-              <RouterLink
-                v-for="item in focusCompanies"
-                :key="item.company_name"
-                :to="{ path: item.route.path, query: item.route.query || {} }"
-                class="brain-company-row"
-              >
-                <div>
-                  <strong>{{ item.company_name }}</strong>
-                  <p>{{ item.headline }}</p>
-                </div>
-                <small>{{ displayFocusMeta(item) }}</small>
-              </RouterLink>
-            </div>
-            <div v-else class="brain-empty-state">当前还没有进入观察池的公司。</div>
-          </article>
-
-          <article class="brain-surface">
-            <div class="brain-section-head">
-              <div>
-                <h2>先处理这些企业</h2>
-              </div>
-              <span class="brain-section-meta">优先处理 {{ riskCompanies.length }} 家</span>
-            </div>
-
-            <div v-if="riskCompanies.length" class="brain-risk-list">
-              <RouterLink
-                v-for="item in riskCompanies"
-                :key="item.company_name"
-                :to="{ path: item.route.path, query: item.route.query || {} }"
-                class="brain-risk-card"
-              >
-                <div class="brain-risk-top">
-                  <strong>{{ item.company_name }}</strong>
-                  <span>{{ item.risk_count }} 个风险</span>
-                </div>
-                <p>{{ item.subindustry }}</p>
-                <small>{{ (item.risk_labels || []).slice(0, 3).join(' · ') }}</small>
-              </RouterLink>
-            </div>
-            <div v-else class="brain-empty-state">当前没有需要优先处理的公司。</div>
-          </article>
-        </section>
-
-        <section class="brain-surface brain-radar">
-          <div class="brain-section-head">
-            <div>
                 <h2>政策与技术变化</h2>
-            </div>
-          </div>
-
-          <div v-if="radarCards.length" class="brain-radar-grid">
-            <a
-              v-for="item in radarCards"
-              :key="item.id"
-              class="brain-radar-card"
-              :href="item.url"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <div class="brain-radar-top">
-                <span>{{ item.domain }}</span>
-                <strong>{{ item.year }}</strong>
               </div>
-              <h3>{{ item.title }}</h3>
-              <p>{{ (item.core_points || []).slice(0, 2).join(' · ') }}</p>
-              <small>{{ displayResearchSource(item) }}</small>
-            </a>
-          </div>
-          <div v-else class="brain-empty-state">当前还没有需要重点关注的政策或技术变化。</div>
+            </div>
+
+            <div v-if="radarCards.length" class="brain-radar-grid">
+              <a
+                v-for="item in radarCards"
+                :key="item.id"
+                class="brain-radar-card"
+                :href="item.url"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <div class="brain-radar-top">
+                  <span>{{ item.domain }}</span>
+                  <strong>{{ item.year }}</strong>
+                </div>
+                <h3>{{ item.title }}</h3>
+                <p>{{ (item.core_points || []).slice(0, 2).join(' · ') }}</p>
+                <small>{{ displayResearchSource(item) }}</small>
+              </a>
+            </div>
+            <div v-else class="brain-empty-state">当前还没有需要重点关注的政策或技术变化。</div>
+          </article>
         </section>
       </template>
     </div>
@@ -642,6 +640,7 @@ onBeforeUnmount(() => {
 
 .brain-canvas,
 .brain-stream,
+.brain-queue,
 .brain-radar,
 .brain-grid > .brain-surface {
   padding: 16px;
@@ -701,6 +700,72 @@ onBeforeUnmount(() => {
 .brain-pulse-list {
   display: grid;
   gap: 8px;
+}
+
+.brain-queue-list {
+  display: grid;
+  gap: 10px;
+}
+
+.brain-queue-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.brain-queue-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(52, 211, 153, 0.18);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.brain-queue-card.is-risk {
+  border-color: rgba(251, 113, 133, 0.22);
+  background: rgba(190, 24, 93, 0.08);
+}
+
+.brain-queue-card.is-warning {
+  border-color: rgba(251, 191, 36, 0.18);
+  background: rgba(120, 53, 15, 0.08);
+}
+
+.brain-queue-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brain-queue-top strong {
+  color: #f8fafc;
+}
+
+.brain-queue-top span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(165, 179, 198, 0.8);
+}
+
+.brain-queue-card p,
+.brain-queue-card small {
+  margin: 0;
+}
+
+.brain-queue-card p {
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(197, 210, 227, 0.84);
+}
+
+.brain-queue-card small {
+  font-size: 11px;
+  color: rgba(144, 160, 181, 0.78);
 }
 
 .brain-pulse-card {
@@ -822,19 +887,14 @@ onBeforeUnmount(() => {
   color: rgba(144, 160, 181, 0.78);
 }
 
-.brain-anomaly-card.is-risk {
-  border-color: rgba(251, 113, 133, 0.22);
-  background: rgba(190, 24, 93, 0.08);
-}
-
-.brain-anomaly-card.is-warning {
-  border-color: rgba(251, 191, 36, 0.18);
-  background: rgba(120, 53, 15, 0.08);
-}
-
 .brain-radar-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.brain-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
   gap: 10px;
 }
 
