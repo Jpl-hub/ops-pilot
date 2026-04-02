@@ -10,6 +10,7 @@ import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
 import { buildEvidenceLink } from '@/lib/format'
+import { useSession } from '@/lib/session'
 
 const companies = ref<string[]>([])
 const selectedCompany = ref('')
@@ -19,6 +20,8 @@ const timelineState = useAsyncState<any>()
 const companyState = useAsyncState<any>()
 const route = useRoute()
 const syncingFromRoute = ref(false)
+const watchboardBusy = ref(false)
+const session = useSession()
 
 const scoreCommandSurface = computed(() => scoreState.data.value?.score_command_surface || null)
 const scoreSignalTape = computed(() => scoreState.data.value?.score_signal_tape || [])
@@ -36,6 +39,62 @@ const availablePeriods = computed(() =>
     .map((period: any) => normalizePeriodOption(period))
     .filter((period: { value: string; label: string }) => period.value),
 )
+const activeRole = computed(() => session.activeRole.value || 'investor')
+const activeRoleLabel = computed(() => {
+  const map: Record<string, string> = {
+    investor: '投资者视角',
+    management: '管理层视角',
+    regulator: '监管风控视角',
+  }
+  return map[activeRole.value] || '投资者视角'
+})
+const companyWorkspace = computed(() => companyState.data.value || null)
+const companyWatchboard = computed(() => companyWorkspace.value?.watchboard || null)
+const companyResearch = computed(() => companyWorkspace.value?.research || null)
+const companyAlertSummary = computed(() => companyWorkspace.value?.alerts?.summary || {})
+const companyTaskSummary = computed(() => companyWorkspace.value?.tasks?.summary || {})
+const companyRuntimeSummary = computed(() => companyWorkspace.value?.intelligence_runtime?.summary || null)
+const companyRuntimePulses = computed(
+  () => companyWorkspace.value?.intelligence_runtime?.module_pulses?.slice(0, 4) || [],
+)
+const documentStageSummary = computed(() => companyWorkspace.value?.document_upgrades?.stage_summary || {})
+const documentStageItems = computed(() =>
+  Object.entries(documentStageSummary.value || {})
+    .map(([stage, count]) => ({ stage, count: Number(count) || 0 }))
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 3),
+)
+const workflowStatCards = computed(() => {
+  const taskSummary = companyTaskSummary.value || {}
+  const alertSummary = companyAlertSummary.value || {}
+  const activeTasks = Number(taskSummary.queued || 0) + Number(taskSummary.in_progress || 0)
+  return [
+    {
+      label: '监测状态',
+      value: companyWatchboard.value?.tracked ? '已跟踪' : '未跟踪',
+      detail: companyWatchboard.value?.tracked ? '持续进入监测板' : '还没纳入重点监测',
+      tone: companyWatchboard.value?.tracked ? 'success' : 'default',
+    },
+    {
+      label: '新增预警',
+      value: `${Number(alertSummary.new || 0)}项`,
+      detail: `${Number(alertSummary.in_progress || 0)} 项正在处理`,
+      tone: Number(alertSummary.new || 0) > 0 ? 'risk' : 'default',
+    },
+    {
+      label: '在办任务',
+      value: `${activeTasks}项`,
+      detail: `${Number(taskSummary.done || 0)} 项已完成`,
+      tone: activeTasks > 0 ? 'warning' : 'default',
+    },
+    {
+      label: '文档升级',
+      value: `${Number(companyWorkspace.value?.document_upgrades?.count || 0)}项`,
+      detail: documentStageItems.value.length ? '可继续回到页块证据' : '当前无升级产物',
+      tone: Number(companyWorkspace.value?.document_upgrades?.count || 0) > 0 ? 'accent' : 'default',
+    },
+  ]
+})
 
 function normalizePeriodOption(period: any) {
   if (typeof period === 'string') {
@@ -60,6 +119,44 @@ function normalizePeriodValue(period: any) {
     return String(period.value || period.report_period || period.period || period.label || '')
   }
   return ''
+}
+
+function displayPulseStatus(status?: string) {
+  const map: Record<string, string> = {
+    ready: '已就绪',
+    idle: '待运行',
+    completed: '已完成',
+    running: '运行中',
+    blocked: '已阻断',
+  }
+  return map[status || ''] || status || '待运行'
+}
+
+function pulseTone(status?: string) {
+  const normalized = (status || '').toLowerCase()
+  if (normalized === 'ready' || normalized === 'completed') return 'success'
+  if (normalized === 'running') return 'accent'
+  if (normalized === 'blocked') return 'risk'
+  return 'default'
+}
+
+function pulseIntensity(value: unknown) {
+  const numeric = Number(value || 0)
+  if (!Number.isFinite(numeric) || numeric <= 0) return 14
+  return Math.max(14, Math.min(100, Math.round(numeric)))
+}
+
+function displayResearchTone(status?: string): 'default' | 'success' {
+  return status === 'ready' ? 'success' : 'default'
+}
+
+function displayStageLabel(stage: string) {
+  const map: Record<string, string> = {
+    cross_page_merge: '跨页拼接',
+    title_hierarchy: '标题层级',
+    cell_trace: '单元格溯源',
+  }
+  return map[stage] || stage
 }
 
 async function loadCompanies() {
@@ -101,13 +198,46 @@ async function loadCompanyWorkspace() {
     companyState.loading.value = false
     return
   }
-  const query = new URLSearchParams({ company_name: selectedCompany.value })
+  const query = new URLSearchParams({
+    company_name: selectedCompany.value,
+    user_role: activeRole.value,
+  })
   if (selectedPeriod.value) {
     query.set('report_period', selectedPeriod.value)
   }
-  await companyState.execute(() =>
-    get<any>(`/company/workspace?${query.toString()}`),
-  )
+  try {
+    await companyState.execute(() =>
+      get<any>(`/company/workspace?${query.toString()}`),
+    )
+  } catch {
+    // 错误状态已写入 companyState，页面继续展示评分主体。
+  }
+}
+
+async function toggleWatchboardTracking() {
+  if (!selectedCompany.value || watchboardBusy.value) return
+  watchboardBusy.value = true
+  try {
+    const reportPeriod =
+      selectedPeriod.value || normalizePeriodValue(scoreState.data.value?.report_period) || null
+    if (companyWatchboard.value?.tracked) {
+      await post('/watchboard/remove', {
+        company_name: selectedCompany.value,
+        user_role: activeRole.value,
+        report_period: reportPeriod,
+      })
+    } else {
+      await post('/watchboard/add', {
+        company_name: selectedCompany.value,
+        user_role: activeRole.value,
+        report_period: reportPeriod,
+        note: `${activeRoleLabel.value}持续跟踪`,
+      })
+    }
+    await loadCompanyWorkspace()
+  } finally {
+    watchboardBusy.value = false
+  }
 }
 
 function applyQuerySelection() {
@@ -187,6 +317,14 @@ watch(
     }
   },
 )
+
+watch(
+  () => session.activeRole.value,
+  async (value, oldValue) => {
+    if (!selectedCompany.value || !value || value === oldValue) return
+    await loadCompanyWorkspace()
+  },
+)
 </script>
 
 <template>
@@ -201,6 +339,7 @@ watch(
             <h3 class="company-name text-gradient">{{ selectedCompany || '经营诊断' }}</h3>
             <p class="control-meta">{{ scoreCommandSurface?.headline || '先看这次判断' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
           </div>
+          <span class="role-pill">{{ activeRoleLabel }}</span>
         </div>
         
         <div class="graph-context-bar inline-context">
@@ -397,6 +536,157 @@ watch(
               </div>
             </article>
           </div>
+
+          <div v-if="companyWorkspace || companyState.error.value" class="workflow-row">
+            <article class="glass-panel details-panel workflow-panel">
+              <div class="workflow-head">
+                <div class="workflow-copy">
+                  <h3 class="workflow-title">执行闭环</h3>
+                  <p class="workflow-caption">把这次经营判断直接连到监测、任务和文档链路。</p>
+                </div>
+                <button
+                  class="workflow-action"
+                  type="button"
+                  :disabled="watchboardBusy || !!companyState.error.value"
+                  @click="toggleWatchboardTracking"
+                >
+                  {{
+                    watchboardBusy
+                      ? '处理中...'
+                      : companyWatchboard?.tracked
+                        ? '移出重点监测'
+                        : '加入重点监测'
+                  }}
+                </button>
+              </div>
+
+              <ErrorState v-if="companyState.error.value" :message="companyState.error.value" />
+
+              <template v-else>
+                <div class="monitor-banner" :class="companyWatchboard?.tracked ? 'is-tracked' : 'is-idle'">
+                  <div class="monitor-copy">
+                    <strong>{{ companyWatchboard?.tracked ? '已纳入重点监测' : '尚未纳入重点监测' }}</strong>
+                    <p>
+                      {{
+                        companyWatchboard?.tracked
+                          ? companyWatchboard?.note || '当前公司已经进入持续跟踪。'
+                          : '需要连续跟踪时，可以直接从这里加入监测板。'
+                      }}
+                    </p>
+                  </div>
+                  <TagPill
+                    :label="companyWatchboard?.tracked ? '监测中' : '待加入'"
+                    :tone="companyWatchboard?.tracked ? 'success' : 'default'"
+                  />
+                </div>
+
+                <div class="workflow-stat-grid">
+                  <article
+                    v-for="item in workflowStatCards"
+                    :key="item.label"
+                    class="workflow-stat-card"
+                    :class="`tone-${item.tone}`"
+                  >
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                    <small>{{ item.detail }}</small>
+                  </article>
+                </div>
+
+                <div v-if="documentStageItems.length" class="document-stage-row">
+                  <span
+                    v-for="item in documentStageItems"
+                    :key="item.stage"
+                    class="document-stage-chip"
+                  >
+                    {{ displayStageLabel(item.stage) }} {{ item.count }}
+                  </span>
+                </div>
+
+                <div class="workflow-links">
+                  <RouterLink
+                    class="inline-glass-link"
+                    :to="{ path: '/workspace', query: { company: selectedCompany, period: selectedPeriod, role: activeRole } }"
+                  >
+                    进入协同分析
+                  </RouterLink>
+                  <RouterLink
+                    class="inline-glass-link"
+                    :to="{ path: '/graph', query: { company: selectedCompany, period: selectedPeriod } }"
+                  >
+                    查看图谱链路
+                  </RouterLink>
+                </div>
+              </template>
+            </article>
+
+            <article v-if="companyWorkspace" class="glass-panel details-panel workflow-panel">
+              <div class="workflow-head">
+                <div class="workflow-copy">
+                  <h3 class="workflow-title">原文与运行</h3>
+                  <p class="workflow-caption">{{ companyRuntimeSummary?.latest_label || '继续回看最新运行脉冲。' }}</p>
+                </div>
+                <TagPill
+                  v-if="companyResearch"
+                  :label="companyResearch.status === 'ready' ? '研报已核验' : '研报缺失'"
+                  :tone="displayResearchTone(companyResearch.status)"
+                />
+              </div>
+
+              <div class="research-banner" :class="`tone-${displayResearchTone(companyResearch?.status)}`">
+                <div class="research-copy">
+                  <strong>
+                    {{
+                      companyResearch?.status === 'ready'
+                        ? companyResearch.report_title || '最新研报核验已就绪'
+                        : '当前没有可直接核验的研报'
+                    }}
+                  </strong>
+                  <p>
+                    {{
+                      companyResearch?.status === 'ready'
+                        ? `${companyResearch.institution || '机构未披露'} · 匹配 ${companyResearch.claim_matches || 0} 条 / 偏差 ${companyResearch.claim_mismatches || 0} 条`
+                        : companyResearch?.detail || '需要先补齐正式研报，再回到原文核验。'
+                    }}
+                  </p>
+                </div>
+                <RouterLink
+                  class="inline-glass-link"
+                  :to="{ path: '/verify', query: { company: selectedCompany } }"
+                >
+                  进入原文核验
+                </RouterLink>
+              </div>
+
+              <div v-if="companyRuntimePulses.length" class="runtime-pulse-list">
+                <article
+                  v-for="pulse in companyRuntimePulses"
+                  :key="pulse.module_key"
+                  class="runtime-pulse-card"
+                >
+                  <div class="runtime-pulse-head">
+                    <strong>{{ pulse.label }}</strong>
+                    <span :class="`tone-${pulseTone(pulse.status)}`">{{ displayPulseStatus(pulse.status) }}</span>
+                  </div>
+                  <p>{{ pulse.headline }}</p>
+                  <small>{{ pulse.signal }}</small>
+                  <div class="runtime-pulse-meter">
+                    <i :style="{ width: `${pulseIntensity(pulse.intensity)}%` }"></i>
+                  </div>
+                  <RouterLink
+                    class="inline-glass-link"
+                    :to="{ path: pulse.route?.path || '/workspace', query: pulse.route?.query || {} }"
+                  >
+                    打开 {{ pulse.label }}
+                  </RouterLink>
+                </article>
+              </div>
+
+              <div v-else class="workflow-empty-state">
+                当前还没有新的运行记录，先从协同分析或图谱检索发起一轮判断。
+              </div>
+            </article>
+          </div>
         </div>
       </div>
     </div>
@@ -465,6 +755,19 @@ watch(
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--muted);
+}
+
+.role-pill {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: #bfdbfe;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .inline-context {
@@ -736,6 +1039,12 @@ watch(
   gap: 16px;
 }
 
+.workflow-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .details-panel {
   flex: 1;
   padding: 16px;
@@ -743,14 +1052,214 @@ watch(
   min-height: 200px;
 }
 .details-panel::-webkit-scrollbar { width: 4px; }
-
-@media (max-width: 1100px) {
-  .watch-grid { grid-template-columns: 1fr; }
-  .metrics-grid-compact { grid-template-columns: 1fr; }
-}
 .details-panel::-webkit-scrollbar-track { background: transparent; }
 .details-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 .flex-2 { flex: 2; }
+
+.workflow-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.workflow-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.workflow-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.workflow-title {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.workflow-caption,
+.monitor-copy p,
+.research-copy p,
+.workflow-empty-state,
+.workflow-stat-card small,
+.runtime-pulse-card p,
+.runtime-pulse-card small {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.workflow-action {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  background: rgba(16, 185, 129, 0.1);
+  color: #86efac;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.workflow-action:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.monitor-banner,
+.research-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.monitor-banner.is-tracked {
+  border-color: rgba(16, 185, 129, 0.22);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.monitor-banner.is-idle {
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.research-banner.tone-success {
+  border-color: rgba(59, 130, 246, 0.22);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.monitor-copy,
+.research-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.monitor-copy strong,
+.research-copy strong,
+.runtime-pulse-head strong {
+  color: #f8fafc;
+}
+
+.workflow-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.workflow-stat-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.workflow-stat-card span,
+.document-stage-chip,
+.runtime-pulse-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.workflow-stat-card strong {
+  color: #f8fafc;
+  font-size: 20px;
+}
+
+.workflow-stat-card.tone-risk {
+  border-color: rgba(251, 113, 133, 0.22);
+  background: rgba(251, 113, 133, 0.08);
+}
+
+.workflow-stat-card.tone-warning {
+  border-color: rgba(245, 158, 11, 0.22);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.workflow-stat-card.tone-success {
+  border-color: rgba(16, 185, 129, 0.22);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.workflow-stat-card.tone-accent {
+  border-color: rgba(59, 130, 246, 0.22);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.document-stage-row,
+.workflow-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.document-stage-chip {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.runtime-pulse-list {
+  display: grid;
+  gap: 12px;
+}
+
+.runtime-pulse-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.runtime-pulse-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.runtime-pulse-head span.tone-success {
+  color: #86efac;
+}
+
+.runtime-pulse-head span.tone-accent {
+  color: #93c5fd;
+}
+
+.runtime-pulse-head span.tone-risk {
+  color: #fda4af;
+}
+
+.runtime-pulse-meter {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.runtime-pulse-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.9), rgba(59, 130, 246, 0.9));
+}
+
+.workflow-empty-state {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+}
 
 .timeline-stack { display: flex; flex-direction: column; gap: 8px; }
 .timeline-card {
@@ -799,4 +1308,43 @@ watch(
   color: #10b981;
 }
 .mg-links { display: flex; gap: 6px; margin-top: auto; }
+
+@media (max-width: 1180px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .details-row {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 1100px) {
+  .watch-grid,
+  .metrics-grid-compact,
+  .workflow-stat-grid,
+  .workflow-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 960px) {
+  .control-bar,
+  .control-fields {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .glass-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workflow-head,
+  .monitor-banner,
+  .research-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
 </style>
