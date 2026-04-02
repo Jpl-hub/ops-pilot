@@ -228,10 +228,7 @@ function selectPreset(item: string) {
 
       <section v-else class="stress-layout">
         <aside class="scenario-panel">
-          <div class="panel-head">
-            <strong>先说会发生什么</strong>
-            <span>直接写下这次冲击。</span>
-          </div>
+          <h2>先说会发生什么</h2>
 
           <div class="scenario-shell">
             <textarea
@@ -246,7 +243,7 @@ function selectPreset(item: string) {
           </div>
 
           <div class="preset-strip">
-            <span class="preset-strip-label">可直接试</span>
+            <span class="preset-strip-label">直接试这几种</span>
             <button
               v-for="item in presetScenarios"
               :key="item"
@@ -284,9 +281,8 @@ function selectPreset(item: string) {
 
           <div class="result-body">
             <article class="chain-panel" v-if="focusedPropagationSteps.length">
-              <div class="panel-head">
+              <div class="section-head">
                 <strong>冲击会先传到哪里</strong>
-                <span>这里只保留这一轮最关键的三步。</span>
               </div>
 
               <div class="chain-steps">
@@ -306,9 +302,8 @@ function selectPreset(item: string) {
             </article>
 
             <article class="action-panel">
-              <div class="panel-head">
+              <div class="section-head">
                 <strong>这一轮先做什么</strong>
-                <span>先把最需要立刻做的事说清楚。</span>
               </div>
 
               <div v-if="primaryRecoveryAction" class="action-focus">
@@ -467,17 +462,22 @@ function selectPreset(item: string) {
 }
 
 .scenario-panel {
+  display: grid;
   gap: 14px;
 }
 
-.panel-head {
-  gap: 4px;
+.scenario-panel h2,
+.section-head strong {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 16px;
+  letter-spacing: -0.02em;
 }
 
-.panel-head strong {
-  color: #f8fafc;
-  font-size: 14px;
-  letter-spacing: -0.02em;
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .scenario-shell {
@@ -518,10 +518,8 @@ function selectPreset(item: string) {
 }
 
 .preset-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+  display: grid;
+  gap: 10px;
 }
 
 .preset-strip-label,
@@ -538,14 +536,16 @@ function selectPreset(item: string) {
 }
 
 .preset-chip {
+  width: 100%;
   min-height: 34px;
   padding: 0 12px;
-  border-radius: 999px;
+  border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.025);
   color: #dbe7f3;
   cursor: pointer;
   line-height: 1;
+  text-align: left;
 }
 
 .result-panel {
@@ -632,19 +632,19 @@ function selectPreset(item: string) {
 .chain-panel,
 .action-panel {
   min-height: 0;
-  padding: 14px;
+  padding: 16px;
   gap: 12px;
 }
 
 .chain-steps {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .chain-step {
   grid-template-columns: 36px minmax(0, 1fr);
   gap: 12px;
-  padding: 12px;
+  padding: 14px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.025);
@@ -681,7 +681,7 @@ function selectPreset(item: string) {
 .action-focus,
 .reason-focus {
   gap: 8px;
-  padding: 14px;
+  padding: 16px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.025);

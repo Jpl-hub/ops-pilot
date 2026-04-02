@@ -114,36 +114,32 @@ const analysisStages = computed(() => {
   return [
     {
       index: '01',
-      meta: '先明确问题',
-      title: '锁定这次要判断什么',
+      title: '先明确问题',
       detail: latestUserMessage.value
-        ? `围绕 ${selectedCompany.value || '目标企业'} 发起判断`
-        : '锁定问题和对象',
+        ? `${selectedCompany.value || '目标企业'}`
+        : '锁定对象',
       status: latestUserMessage.value ? 'completed' : 'pending',
     },
     {
       index: '02',
-      meta: '再拉关键数据',
-      title: '把真正需要的数据拉出来',
-      detail: '只拉这一轮真正需要的数据',
+      title: '再拉关键数据',
+      detail: '回到真实数字',
       status: latestAnswer.value || loadingTurn.value ? 'completed' : 'pending',
     },
     {
       index: '03',
-      meta: '再回到原文',
-      title: '把证据和风险对上',
+      title: '再回到原文',
       detail: latestEvidenceGroups.value.length
-        ? `已挂接 ${latestEvidenceGroups.value.length} 组证据`
-        : '回到原文核对判断依据',
+        ? `${latestEvidenceGroups.value.length} 组证据`
+        : '核对判断依据',
       status: latestEvidenceGroups.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
     },
     {
       index: '04',
-      meta: '最后落到动作',
-      title: '给出下一步做法',
+      title: '最后落到动作',
       detail: latestActionCards.value.length
-        ? `输出 ${roleLabel.value} 的下一步动作`
-        : `按 ${roleLabel.value} 视角生成动作`,
+        ? `${roleLabel.value}动作`
+        : `${roleLabel.value}视角`,
       status: latestActionCards.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
     },
   ]
@@ -356,7 +352,6 @@ watch(selectedCompany, async (company, previous) => {
           >
             <div class="flow-meta">
               <span>{{ stage.index }}</span>
-              <em>{{ stage.meta }}</em>
             </div>
             <strong>{{ stage.title }}</strong>
             <p>{{ stage.detail }}</p>
@@ -424,13 +419,12 @@ watch(selectedCompany, async (company, previous) => {
 
             <div v-if="latestAnswer" class="rail-body">
               <section class="rail-section summary-card">
-                <span class="rail-label">结论</span>
                 <p>{{ latestAnswer.summary || '已生成当前结论。' }}</p>
                 <p v-if="latestUserMessage?.text" class="rail-question">{{ latestUserMessage.text }}</p>
               </section>
 
               <section v-if="insightNumbers.length" class="rail-section">
-                <span class="rail-label">关键数字</span>
+                <span class="rail-label">这轮最关键</span>
                 <div class="metric-grid">
                   <article v-for="item in insightNumbers" :key="item.label" class="metric-row">
                     <span>{{ item.label }}</span>
@@ -440,7 +434,7 @@ watch(selectedCompany, async (company, previous) => {
               </section>
 
               <section v-if="latestActionCards.length" class="rail-section">
-                <span class="rail-label">先做什么</span>
+                <span class="rail-label">现在先做什么</span>
                 <div class="action-list">
                   <article v-for="item in latestActionCards" :key="item.title" class="action-row">
                     <em>{{ item.priority || '动作' }}</em>
@@ -662,15 +656,15 @@ watch(selectedCompany, async (company, previous) => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
-  padding: 8px 14px 10px;
+  padding: 10px 14px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .flow-card {
   display: grid;
-  gap: 6px;
-  min-height: 76px;
-  padding: 10px 11px 9px;
+  gap: 4px;
+  min-height: 64px;
+  padding: 10px 11px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
@@ -686,8 +680,7 @@ watch(selectedCompany, async (company, previous) => {
 
 .flow-meta {
   display: flex;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: flex-start;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -697,11 +690,6 @@ watch(selectedCompany, async (company, previous) => {
   color: #73f0c7;
 }
 
-.flow-meta em {
-  color: rgba(120, 143, 172, 0.8);
-  font-style: normal;
-}
-
 .flow-card strong {
   font-size: 14px;
 }
@@ -709,7 +697,7 @@ watch(selectedCompany, async (company, previous) => {
 .flow-card p {
   margin: 0;
   color: rgba(161, 174, 193, 0.88);
-  line-height: 1.45;
+  line-height: 1.4;
   font-size: 11px;
 }
 
@@ -920,14 +908,15 @@ watch(selectedCompany, async (company, previous) => {
   min-height: 0;
   overflow-y: auto;
   padding: 14px;
-  display: grid;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .rail-section {
   display: grid;
   gap: 8px;
-  padding-bottom: 12px;
+  padding-bottom: 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -937,7 +926,7 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .summary-card {
-  gap: 10px;
+  gap: 12px;
 }
 
 .rail-question {
@@ -969,8 +958,8 @@ watch(selectedCompany, async (company, previous) => {
 }
 
 .metric-row {
-  min-height: 52px;
-  padding: 10px 12px;
+  min-height: 60px;
+  padding: 12px 14px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.05);
