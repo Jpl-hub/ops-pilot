@@ -3,24 +3,24 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 from typing import Any
-from datetime import UTC, date, datetime
+from datetime import datetime
 import json
-import re
 import time
 
 from opspilot.config import Settings
 from opspilot.domain.audit import build_audit
-from opspilot.domain.catalog import METRIC_BY_CODE
-from opspilot.domain.routing import detect_query_type
-from opspilot.domain.rules import evaluate_opportunity_labels, evaluate_risk_labels
-from opspilot.domain.scoring import score_company
+from opspilot.domain.rules import evaluate_risk_labels
 # 域服务 — 拆分后的模块化架构
 from opspilot.application.alert_runtime import (
     _build_alert_board,
     _build_workspace_alert_queue,
     _get_company_periods,
 )
-from opspilot.application.scoring_service import ScoringService
+from opspilot.application.scoring_service import (
+    ScoringService,
+    _build_evidence_groups,
+    _build_label_cards,
+)
 from opspilot.application.admin_delivery import (
     _append_document_pipeline_run_record,
     _build_acceptance_checklist,
@@ -29,12 +29,9 @@ from opspilot.application.admin_delivery import (
     _build_delivery_readiness,
     _build_document_pipeline_execution_feedback,
     _build_document_pipeline_overview,
-    _build_ocr_cell_trace_contract_audit,
     _build_runtime_readiness,
-    _bus_type_label,
     _delivery_stage_label,
     _document_stage_label,
-    _period_order_key,
     _resolve_document_contract_status,
     _status_label,
     _summarize_contract_statuses,
@@ -45,10 +42,7 @@ from opspilot.application.research_claims import (
     _infer_report_period_from_text,
 )
 from opspilot.application.research_reports import (
-    _build_forecast_cards,
     _build_research_report_insight,
-    _extract_research_body,
-    _extract_research_payload,
     _research_report_bucket,
     _research_report_content_score,
     _select_research_report,
@@ -59,7 +53,6 @@ from opspilot.application.research_review import (
     _build_claim_evidence_groups,
     _build_research_compare_chart,
     _format_rating_text,
-    _format_target_price,
     _render_claim_answer,
     _summarize_forecast_cards,
 )
@@ -80,7 +73,6 @@ from opspilot.application.document_review import (
     _build_document_consumable_sections,
     _build_document_evidence_navigation,
     _build_document_navigation_unavailable,
-    _filter_document_results_for_company,
     _load_company_document_upgrade_items,
     _load_document_artifact_payload,
 )
@@ -94,35 +86,23 @@ from opspilot.application.industry_signals import (
     _build_streaming_anomaly_market_tape,
     _build_streaming_attention_matrix,
     _build_streaming_heat_chart,
-    _describe_external_signal_freshness,
     _gold_data_root,
     _load_company_signal_snapshot,
     _load_company_signal_timeline,
-    _load_manifest_generated_at,
     _merge_streaming_anomalies_into_attention_matrix,
     _load_subindustry_signal_heatmap,
-    _parse_calendar_date,
-    _parse_iso_timestamp,
 )
 from opspilot.application.document_pipeline import (
     DocumentPipelineBlockedError,
-    _document_pipeline_artifact_path,
-    _infer_heading_level,
-    _is_valid_standard_ocr_cells,
-    _is_valid_standard_ocr_tables,
-    _normalize_report_period,
     _run_document_pipeline_job,
     _settings_ocr_runtime,
-    _standard_ocr_artifact_path,
     _utcnow_iso,
     _write_json,
 )
 from opspilot.application.runtime_manifests import (
     _append_industry_brain_snapshot,
     _build_alert_id,
-    _build_document_pipeline_run_id,
     _build_graph_query_run_id,
-    _build_stress_test_run_id,
     _build_task_id,
     _build_vision_run_id,
     _build_watchboard_run_id,
@@ -134,21 +114,15 @@ from opspilot.application.runtime_manifests import (
     _load_document_pipeline_job_manifest,
     _load_document_pipeline_run_manifest,
     _load_industry_brain_manifest,
-    _load_json_if_possible,
-    _load_stress_test_run_manifest,
     _load_task_board_manifest,
     _load_vision_run_manifest,
     _load_watchboard_manifest,
     _load_watchboard_runs_manifest,
     _load_workspace_run_manifest,
-    _stress_test_run_detail_path,
     _vision_run_detail_path,
     _workspace_run_detail_path,
     _write_alert_board_manifest,
     _write_document_pipeline_job_manifest,
-    _write_document_pipeline_run_manifest,
-    _write_industry_brain_manifest,
-    _write_stress_test_run_manifest,
     _write_task_board_manifest,
     _write_vision_run_manifest,
     _write_watchboard_manifest,
@@ -182,25 +156,16 @@ from opspilot.application.graph_runtime import (
     _retrieve_graph_paths,
 )
 from opspilot.application.workspace_service import ROLE_PROFILES, WorkspaceService
-from opspilot.application.stress_runtime import (
-    _build_stress_affected_dimensions,
-    _build_stress_command_surface,
-    _build_stress_evidence_links,
-    _build_stress_impact_tape,
-    _build_stress_propagation_steps,
-    _build_stress_recovery_sequence,
-    _build_stress_simulation_log,
-    _build_stress_test_chart,
-    _build_stress_transmission_matrix,
-    _build_stress_wavefront,
-    _classify_stress_severity,
-)
 from opspilot.application.vision_runtime import (
     _build_vision_analysis_log,
     _build_vision_extraction_stream,
     _build_vision_phase_track,
     _build_vision_quality_summary,
     _vision_selected_item_priority,
+)
+from opspilot.application.verify_runtime import (
+    _build_verify_command_surface,
+    _build_verify_delta_tape,
 )
 from opspilot.application.stress_service import StressService
 
@@ -4009,324 +3974,6 @@ class OpsPilotService:
         return self.repository.get_company(company_name, None)
 
 
-def _collect_evidence_ids(company: dict[str, Any], score_result: dict[str, Any], risks: list[dict[str, Any]], opportunities: list[dict[str, Any]]) -> list[str]:
-    chunk_ids: list[str] = []
-    for metric in score_result["strengths"] + score_result["weaknesses"]:
-        chunk_ids.extend(company.get("metric_evidence", {}).get(metric["code"], []))
-    for metric_code in ("C3", "S3"):
-        chunk_ids.extend(company.get("metric_evidence", {}).get(metric_code, []))
-    for label in risks + opportunities:
-        chunk_ids.extend(label["evidence_refs"])
-    deduped: list[str] = []
-    for chunk_id in chunk_ids:
-        if chunk_id not in deduped:
-            deduped.append(chunk_id)
-    return deduped
-
-
-def _render_score_answer(company: dict[str, Any], score_result: dict[str, Any], risks: list[dict[str, Any]], opportunities: list[dict[str, Any]]) -> str:
-    strong_names = "、".join(item["name"] for item in score_result["strengths"])
-    weak_names = "、".join(item["name"] for item in score_result["weaknesses"])
-    risk_names = "、".join(item["name"] for item in risks) or "暂无高风险标签"
-    opportunity_names = "、".join(item["name"] for item in opportunities) or "暂无显著机会标签"
-    return (
-        f"### {company['company_name']} 运营评估\n"
-        f"- 总分：**{score_result['total_score']}**（等级 **{score_result['grade']}**）\n"
-        f"- 分位：**{score_result['subindustry_percentile']}pct**，对标范围：{score_result['peer_scope']}\n"
-        f"- 强项 Top3：{strong_names}\n"
-        f"- 弱项 Top3：{weak_names}\n"
-        f"- 风险标签：{risk_names}\n"
-        f"- 机会标签：{opportunity_names}"
-    )
-
-
-def _build_action_cards(
-    company: dict[str, Any],
-    score_result: dict[str, Any],
-    risks: list[dict[str, Any]],
-    opportunities: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    cards: list[dict[str, Any]] = []
-    metrics = company.get("metrics", {})
-    risk_map = {item["code"]: item for item in risks}
-    opportunity_map = {item["code"]: item for item in opportunities}
-
-    if "R1" in risk_map:
-        cards.append(
-            {
-                "priority": "P1",
-                "title": "优先修复现金回款链",
-                "reason": f"经营现金流/净利润仅为 {metrics.get('C1')}，利润兑现没有跟上现金回流。",
-                "action": "复盘应收回款节奏、压缩赊销账期，并把大额订单回款节点纳入月度经营例会。",
-            }
-        )
-    if "R2" in risk_map:
-        cards.append(
-            {
-                "priority": "P1",
-                "title": "压降应收扩张速度",
-                "reason": f"应收增速-收入增速差达到 {metrics.get('C3')}，应收扩张快于业务增长。",
-                "action": "按客户分层重做信用政策，停止低质量放量，先把存量应收回款和坏账边界看清。",
-            }
-        )
-    if "R4" in risk_map:
-        cards.append(
-            {
-                "priority": "P1",
-                "title": "重排短债与现金储备",
-                "reason": f"现金短债比/流动比率承压，当前 S4={metrics.get('S4')}，S1={metrics.get('S1')}。",
-                "action": "把未来 12 个月债务到期结构和可动用现金池拉成一张表，优先处理高成本短债续作。",
-            }
-        )
-    if "R8" in risk_map:
-        cards.append(
-            {
-                "priority": "P1",
-                "title": "复核减值与异常资产",
-                "reason": "系统识别到重大减值/关联交易风险，当前资产质量判断需要更谨慎。",
-                "action": "对减值资产逐项做成因复盘，拆分一次性冲击和持续性压力，避免后续继续侵蚀利润。",
-            }
-        )
-    if "R6" in risk_map or "R7" in risk_map:
-        cards.append(
-            {
-                "priority": "P2",
-                "title": "治理与合规事项闭环",
-                "reason": "审计、处罚或诉讼信号已经进入评分链，会持续压制外部信任。",
-                "action": "建立专项整改台账，明确责任部门、关闭时间和对外披露口径，避免事件持续发酵。",
-            }
-        )
-    if "O1" in opportunity_map or "O2" in opportunity_map:
-        cards.append(
-            {
-                "priority": "P3",
-                "title": "放大盈利与现金改善窗口",
-                "reason": "系统识别到毛利或现金质量改善信号，这部分正向变化值得继续验证并扩大。",
-                "action": "把改善来源拆到产品、客户和区域三层，确认是结构性修复还是短期波动，再决定资源倾斜。",
-            }
-        )
-
-    if not cards:
-        weakest_metric = score_result["weaknesses"][0]["name"] if score_result["weaknesses"] else "关键弱项"
-        cards.append(
-            {
-                "priority": "P2",
-                "title": "围绕最弱指标做季度整改",
-                "reason": f"当前最弱项集中在 {weakest_metric}，需要把指标问题转成经营动作。",
-                "action": "把该指标拆成业务责任项、月度跟踪项和结果验收项，连续两个经营周期跟踪闭环。",
-            }
-        )
-    return cards[:3]
-
-
-def _build_company_charts(company: dict[str, Any], score_result: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "type": "radar",
-            "title": "五维运营雷达",
-            "options": {
-                "radar": {"indicator": [{"name": name, "max": 100} for name in score_result["dimension_scores"].keys()]},
-                "series": [{"type": "radar", "data": [{"value": list(score_result["dimension_scores"].values()), "name": company["company_name"]}]}],
-            },
-        },
-        {
-            "type": "line",
-            "title": "历史营收与净利润",
-            "options": {
-                "tooltip": {"trigger": "axis"},
-                "legend": {"data": ["营收", "净利润"]},
-                "xAxis": {"type": "category", "data": [row["period"] for row in company["history"]]},
-                "yAxis": {"type": "value"},
-                "series": [
-                    {"name": "营收", "type": "line", "data": [row["revenue"] for row in company["history"]]},
-                    {"name": "净利润", "type": "line", "data": [row["net_profit"] for row in company["history"]]},
-                ],
-            },
-        },
-    ]
-
-
-def _build_formula_cards(company: dict[str, Any]) -> list[dict[str, Any]]:
-    cards = []
-    for metric_code in ("C3", "S3"):
-        if formula_card := _build_formula_card(company, metric_code):
-            cards.append(formula_card)
-    return cards
-
-
-def _build_formula_card(company: dict[str, Any], metric_code: str) -> dict[str, Any] | None:
-    context = company.get("formula_context", {}).get(metric_code)
-    if not context:
-        return None
-    metric_def = METRIC_BY_CODE[metric_code]
-    if metric_code == "C3":
-        return {
-            "metric_code": metric_code,
-            "title": metric_def.name,
-            "formula": context["formula"],
-            "value": context["value"],
-            "lines": [
-                f"当前应收账款：{_format_number(context.get('current_receivable'))}",
-                f"去年同期应收账款（{context.get('prior_period')}）：{_format_number(context.get('prior_receivable'))}",
-                f"应收账款同比：{_format_pct(context.get('receivable_yoy'))}",
-                f"营业收入同比：{_format_pct(context.get('revenue_yoy'))}",
-                f"结果：{_format_pct(context.get('value'))}",
-            ],
-            "evidence_refs": company.get("metric_evidence", {}).get(metric_code, []),
-            "anchor_terms": _anchor_terms_for_metrics((metric_code,)),
-        }
-    if metric_code == "S3":
-        return {
-            "metric_code": metric_code,
-            "title": metric_def.name,
-            "formula": context["formula"],
-            "value": context["value"],
-            "lines": [
-                f"利润总额：{_format_number(context.get('profit_total'))}",
-                f"利息费用：{_format_number(context.get('interest_expense'))}",
-                f"结果：{_format_number(context.get('value'))}",
-            ],
-            "evidence_refs": company.get("metric_evidence", {}).get(metric_code, []),
-            "anchor_terms": _anchor_terms_for_metrics((metric_code,)),
-        }
-    return None
-
-
-def _build_formula_calculations(formula_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    calculations = []
-    for card in formula_cards:
-        calculations.append(
-            {
-                "step": f"{card['metric_code']} 公式回放",
-                "detail": {
-                    "formula": card["formula"],
-                    "value": card["value"],
-                    "lines": card["lines"],
-                },
-            }
-        )
-    return calculations
-
-
-def _build_label_cards(
-    company: dict[str, Any],
-    risks: list[dict[str, Any]],
-    opportunities: list[dict[str, Any]],
-    formula_cards: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    formula_card_by_metric = {card["metric_code"]: card for card in formula_cards}
-    label_cards = []
-    for label in risks + opportunities:
-        metric_rows = []
-        linked_formula_cards = []
-        for metric_code in LABEL_METRIC_CODES.get(label["code"], ()):
-            metric_rows.append(
-                {
-                    "metric_code": metric_code,
-                    "metric_name": METRIC_BY_CODE[metric_code].name,
-                    "value": company["metrics"].get(metric_code),
-                }
-            )
-            if metric_code in formula_card_by_metric:
-                linked_formula_cards.append(metric_code)
-        label_cards.append(
-            {
-                "code": label["code"],
-                "name": label["name"],
-                "kind": "risk" if label["code"].startswith("R") else "opportunity",
-                "signal_values": label["signal_values"],
-                "evidence_refs": label["evidence_refs"],
-                "metrics": metric_rows,
-                "formula_metric_codes": linked_formula_cards,
-                "anchor_terms": _anchor_terms_for_metrics(LABEL_METRIC_CODES.get(label["code"], ())),
-            }
-        )
-    return label_cards
-
-
-def _build_evidence_groups(
-    label_cards: list[dict[str, Any]],
-    formula_cards: list[dict[str, Any]],
-    evidence: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    evidence_by_id = {item["chunk_id"]: item for item in evidence}
-    groups: list[dict[str, Any]] = []
-
-    for card in label_cards:
-        items = [
-            evidence_by_id[chunk_id]
-            for chunk_id in card["evidence_refs"]
-            if chunk_id in evidence_by_id
-        ]
-        if not items:
-            continue
-        groups.append(
-            {
-                "group_type": "label",
-                "code": card["code"],
-                "title": f"{card['code']} {card['name']}",
-                "subtitle": "标签触发证据",
-                "anchor_terms": card.get("anchor_terms", []),
-                "items": items,
-            }
-        )
-
-    for card in formula_cards:
-        items = [
-            evidence_by_id[chunk_id]
-            for chunk_id in card["evidence_refs"]
-            if chunk_id in evidence_by_id
-        ]
-        if not items:
-            continue
-        groups.append(
-            {
-                "group_type": "formula",
-                "code": card["metric_code"],
-                "title": f"{card['metric_code']} {card['title']}",
-                "subtitle": "公式输入证据",
-                "anchor_terms": card.get("anchor_terms", []),
-                "items": items,
-            }
-        )
-
-    if evidence:
-        groups.append(
-            {
-                "group_type": "all",
-                "code": "ALL",
-                "title": "全部证据",
-                "subtitle": "当前评分结果涉及的完整证据包",
-                "anchor_terms": [],
-                "items": evidence,
-            }
-        )
-    return groups
-
-
-def _anchor_terms_for_metrics(metric_codes: tuple[str, ...] | list[str]) -> list[str]:
-    terms: list[str] = []
-    for metric_code in metric_codes:
-        for term in METRIC_ANCHOR_TERMS.get(metric_code, (METRIC_BY_CODE[metric_code].name,)):
-            if term not in terms:
-                terms.append(term)
-    return terms
-
-
-def _format_number(value: float | None) -> str:
-    if value is None:
-        return "N/A"
-    if abs(value) >= 1e8:
-        return f"{value / 1e8:.2f} 亿元"
-    return f"{value:.4f}" if abs(value) < 100 else f"{value:.2f}"
-
-
-def _format_pct(value: float | None) -> str:
-    if value is None:
-        return "N/A"
-    return f"{value:.2f}%"
-
-
 def _load_research_reports(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -4384,77 +4031,6 @@ def _build_industry_risk_chart(rows: list[dict[str, Any]]) -> dict[str, Any]:
             }
         ],
     }
-
-
-def _build_verify_command_surface(
-    *,
-    company: dict[str, Any],
-    research_meta: dict[str, Any],
-    claim_cards: list[dict[str, Any]],
-    forecast_cards: list[dict[str, Any]],
-) -> dict[str, Any]:
-    match_count = sum(1 for item in claim_cards if item["status"] == "match")
-    mismatch_count = sum(1 for item in claim_cards if item["status"] == "mismatch")
-    dominant = next((item for item in claim_cards if item["status"] != "match"), None) or (claim_cards[0] if claim_cards else None)
-    return {
-        "title": f"{company['company_name']} 研报核验",
-        "headline": dominant["label"] if dominant else research_meta["title"],
-        "metric": f"{match_count} 匹配 / {mismatch_count} 偏差",
-        "intensity": min(100, 34 + mismatch_count * 22 + match_count * 8),
-        "institution": research_meta.get("source_name") or "未披露",
-        "watch_items": [
-            {"label": "匹配", "value": str(match_count)},
-            {"label": "偏差", "value": str(mismatch_count)},
-            {"label": "预测", "value": str(len(forecast_cards))},
-        ],
-        "dominant_signal": {
-            "label": "当前核验焦点",
-            "value": dominant["status"] if dominant else "等待核验",
-            "tone": "risk" if dominant and dominant["status"] == "mismatch" else "success",
-        },
-    }
-
-
-def _build_verify_delta_tape(
-    *,
-    claim_cards: list[dict[str, Any]],
-    forecast_cards: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    tape: list[dict[str, Any]] = []
-    for index, card in enumerate(claim_cards[:4]):
-        status = card["status"]
-        tone = "success" if status == "match" else "risk" if status == "mismatch" else "warning"
-        intensity = 30 if status == "match" else 86 if status == "mismatch" else 58
-        tape.append(
-            {
-                "step": index + 1,
-                "label": card["metric_key"],
-                "value": card["label"],
-                "tone": tone,
-                "intensity": intensity,
-            }
-        )
-    if forecast_cards:
-        tape.append(
-            {
-                "step": len(tape) + 1,
-                "label": "预测",
-                "value": f"{len(forecast_cards)} 个年度",
-                "tone": "accent",
-                "intensity": 44,
-            }
-        )
-    if not tape:
-        tape.append(
-            {
-                "step": 1,
-                "label": "等待核验",
-                "value": "暂无观点卡",
-                "tone": "accent",
-                "intensity": 0,
-            }
-        )
-    return tape
 
 
 def _read_manifest(path: Path) -> dict[str, Any]:
