@@ -45,6 +45,7 @@ const propagationSteps = computed(() => stressState.data.value?.propagation_step
 const stressWavefront = computed(() => stressState.data.value?.stress_wavefront || [])
 const stressCommandSurface = computed(() => stressState.data.value?.stress_command_surface || null)
 const recoverySequence = computed(() => stressState.data.value?.stress_recovery_sequence || [])
+const affectedDimensions = computed(() => (stressState.data.value?.affected_dimensions || []).slice(0, 3))
 const canRunStress = computed(() => !!selectedCompany.value && !!scenarioDraft.value.trim())
 const focusedPropagationSteps = computed(() => propagationSteps.value.slice(0, 3))
 const primaryRecoveryAction = computed(() => recoverySequence.value[0] || null)
@@ -244,11 +245,12 @@ function selectPreset(item: string) {
             </button>
           </div>
 
-          <div class="preset-list">
+          <div class="preset-strip">
+            <span class="preset-strip-label">可直接试</span>
             <button
-              v-for="item in presetScenarios.slice(0, 2)"
+              v-for="item in presetScenarios"
               :key="item"
-              class="preset-card"
+              class="preset-chip"
               :disabled="!selectedCompany"
               @click="selectPreset(item)"
             >
@@ -268,11 +270,23 @@ function selectPreset(item: string) {
             </div>
           </div>
 
+          <div v-if="affectedDimensions.length" class="impact-strip">
+            <div
+              v-for="item in affectedDimensions"
+              :key="item.label"
+              class="impact-chip"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+              <small>{{ item.hint }}</small>
+            </div>
+          </div>
+
           <div class="result-body">
             <article class="chain-panel" v-if="focusedPropagationSteps.length">
               <div class="panel-head">
-                <strong>先看这条传导链</strong>
-                <span>这次冲击会按这个顺序传下去。</span>
+                <strong>冲击会先传到哪里</strong>
+                <span>这里只保留这一轮最关键的三步。</span>
               </div>
 
               <div class="chain-steps">
@@ -301,6 +315,11 @@ function selectPreset(item: string) {
                 <span>优先动作</span>
                 <strong>{{ localizeStressText(primaryRecoveryAction.title) }}</strong>
                 <p>{{ localizeStressText(primaryRecoveryAction.detail) }}</p>
+              </div>
+              <div v-else class="action-focus">
+                <span>优先动作</span>
+                <strong>先把冲击路径说清楚</strong>
+                <p>当前还没有收敛出明确动作，先看传导链和最先受影响的环节。</p>
               </div>
 
               <div class="reason-focus">
@@ -493,25 +512,40 @@ function selectPreset(item: string) {
 }
 
 .scenario-submit:disabled,
-.preset-card:disabled {
+.preset-chip:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.preset-list {
-  display: grid;
-  gap: 10px;
+.preset-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
-.preset-card {
-  padding: 12px 14px;
-  border-radius: 16px;
+.preset-strip-label,
+.impact-chip span,
+.impact-chip small {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.preset-strip-label {
+  color: rgba(120, 143, 172, 0.78);
+}
+
+.preset-chip {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.025);
   color: #dbe7f3;
-  text-align: left;
   cursor: pointer;
-  line-height: 1.6;
+  line-height: 1;
 }
 
 .result-panel {
@@ -562,10 +596,36 @@ function selectPreset(item: string) {
   border: 1px solid rgba(16, 185, 129, 0.24);
 }
 
+.impact-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.impact-chip {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.impact-chip span,
+.impact-chip small {
+  color: rgba(120, 143, 172, 0.78);
+}
+
+.impact-chip strong {
+  color: #f8fafc;
+  font-size: 18px;
+  line-height: 1.1;
+}
+
 .result-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 336px;
   gap: 14px;
 }
 
@@ -633,6 +693,7 @@ function selectPreset(item: string) {
 }
 
 @media (max-width: 1120px) {
+  .impact-strip,
   .stress-layout,
   .result-body {
     grid-template-columns: 1fr;
