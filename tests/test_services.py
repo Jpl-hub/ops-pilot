@@ -3164,7 +3164,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                     },
                 ),
                 patch(
-                    "opspilot.application.services._build_company_signal_graph_context",
+                    "opspilot.application.workspace_company_runtime._build_company_signal_graph_context",
                     return_value={"event_available": False},
                 ),
             ):
