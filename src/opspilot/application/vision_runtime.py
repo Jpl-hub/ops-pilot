@@ -1,9 +1,35 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
-from opspilot.application.admin_delivery import _document_stage_label, _status_label
+from opspilot.application.admin_delivery import (
+    _document_stage_label,
+    _resolve_document_contract_status,
+    _status_label,
+)
 from opspilot.application.document_review import _artifact_source_label
+from opspilot.application.document_review import (
+    _build_document_artifact_preview,
+    _load_company_document_upgrade_items,
+    _load_document_artifact_payload,
+)
+from opspilot.application.document_pipeline import (
+    DocumentPipelineBlockedError,
+    _run_document_pipeline_job,
+    _settings_ocr_runtime,
+    _utcnow_iso,
+    _write_json,
+)
+from opspilot.application.runtime_manifests import (
+    _build_vision_run_id,
+    _load_document_pipeline_job_manifest,
+    _load_vision_run_manifest,
+    _vision_run_detail_path,
+    _write_document_pipeline_job_manifest,
+    _write_vision_run_manifest,
+)
 
 def _build_vision_phase_track(
     *,
@@ -313,3 +339,418 @@ def _build_vision_quality_summary(
         "blockers": blockers[:5],
         "artifact_locations": detail.get("artifact_locations", []) if detail else [],
     }
+
+
+def _company_vision_analyze(
+    service: Any,
+    company_name: str,
+    report_period: str | None = None,
+    *,
+    user_role: str = "management",
+) -> dict[str, Any]:
+    period = report_period or service._preferred_period()
+    ocr_runtime = _settings_ocr_runtime(service.settings)
+    upgrade_items = _load_company_document_upgrade_items(service.settings, company_name, period)
+    selected_item = max(
+        upgrade_items,
+        key=_vision_selected_item_priority,
+        default=None,
+    )
+    if selected_item is None:
+        return {
+            "company_name": company_name,
+            "report_period": period,
+            "user_role": user_role,
+            "result": {
+                "company_name": company_name,
+                "headline": "暂无可用解析结果",
+                "status_label": "等待解析",
+                "quality_summary": _build_vision_quality_summary(
+                    detail=None,
+                    selected_item={},
+                    ocr_runtime=ocr_runtime,
+                ),
+                "items": [],
+                "sections": [],
+                "evidence_navigation": {"links": []},
+            },
+        }
+
+    detail = None
+    selected_artifact = _load_document_artifact_payload(selected_item)
+    if selected_artifact is not None:
+        selected_item = {
+            **selected_item,
+            "artifact_summary": selected_item.get("artifact_summary")
+            or selected_artifact.get("summary"),
+            "artifact_source": selected_item.get("artifact_source")
+            or selected_artifact.get("source"),
+            "artifact_preview": _build_document_artifact_preview(selected_artifact),
+        }
+    try:
+        detail = service.document_pipeline_result_detail(
+            selected_item["stage"],
+            selected_item["report_id"],
+        )
+    except ValueError:
+        detail = None
+
+    section_items = []
+    if detail is not None:
+        for section in detail.get("consumable_sections", []):
+            section_items.append(
+                {
+                    "section_type": section.get("section_type"),
+                    "title": section.get("title"),
+                    "count": section.get("count", 0),
+                    "items": section.get("items", [])[:6],
+                }
+            )
+
+    result_items = [
+        {
+            "kind": item["stage"],
+            "stage_label": _document_stage_label(item["stage"]),
+            "title": item.get("artifact_summary") or _document_stage_label(item["stage"]),
+            "summary": f"{item.get('report_period') or period} · {_status_label(item.get('status'))}",
+        }
+        for item in upgrade_items[:8]
+    ]
+    phase_track = _build_vision_phase_track(
+        company_name=company_name,
+        report_period=period,
+        selected_item=selected_item,
+        detail=detail,
+    )
+    extraction_stream = _build_vision_extraction_stream(
+        detail=detail,
+        selected_item=selected_item,
+    )
+    analysis_log = _build_vision_analysis_log(
+        company_name=company_name,
+        report_period=period,
+        selected_item=selected_item,
+        detail=detail,
+    )
+    quality_summary = _build_vision_quality_summary(
+        detail=detail,
+        selected_item=selected_item,
+        ocr_runtime=ocr_runtime,
+    )
+    return {
+        "company_name": company_name,
+        "report_period": period,
+        "user_role": user_role,
+        "result": {
+            "company_name": company_name,
+            "headline": selected_item.get("artifact_summary")
+            or selected_item.get("report_id")
+            or "解析结果",
+            "status_label": "已生成"
+            if detail is not None
+            or selected_item.get("artifact_summary")
+            or selected_item.get("artifact_preview")
+            else "处理中",
+            "phase_track": phase_track,
+            "quality_summary": quality_summary,
+            "extraction_stream": extraction_stream,
+            "analysis_log": analysis_log,
+            "source_preview": selected_item.get("artifact_preview"),
+            "items": result_items,
+            "sections": section_items,
+            "evidence_navigation": (
+                detail.get("evidence_navigation")
+                if detail is not None
+                else selected_item.get("evidence_navigation") or {"links": []}
+            ),
+        },
+    }
+
+
+def _company_vision_runtime(
+    service: Any,
+    company_name: str,
+    report_period: str | None = None,
+    *,
+    user_role: str = "management",
+) -> dict[str, Any]:
+    period = report_period or service._preferred_period()
+    upgrade_items = _load_company_document_upgrade_items(service.settings, company_name, period)
+    jobs_manifest = _load_document_pipeline_job_manifest(service.settings)
+    ocr_runtime = _settings_ocr_runtime(service.settings)
+    stages: list[dict[str, Any]] = []
+    latest_jobs: list[dict[str, Any]] = []
+    for stage in ("cross_page_merge", "title_hierarchy", "cell_trace"):
+        stage_jobs = [
+            item
+            for item in jobs_manifest["records"]
+            if item.get("stage") == stage
+            and item.get("company_name") == company_name
+            and item.get("report_period") == period
+        ]
+        stage_jobs.sort(
+            key=lambda item: item.get("completed_at") or item.get("created_at") or "",
+            reverse=True,
+        )
+        job = stage_jobs[0] if stage_jobs else None
+        if job and job.get("status") == "completed":
+            artifact_payload = _load_document_artifact_payload(job)
+            if artifact_payload is not None:
+                job = {
+                    **job,
+                    "artifact_summary": job.get("artifact_summary") or artifact_payload.get("summary"),
+                    "artifact_source": job.get("artifact_source") or artifact_payload.get("source"),
+                }
+        if job:
+            latest_jobs.append(job)
+        status = job.get("status", "missing") if job else "missing"
+        contract_status = _resolve_document_contract_status(service.settings, job) if job else None
+        stages.append(
+            {
+                "stage": stage,
+                "label": _document_stage_label(stage),
+                "status": status,
+                "status_label": _status_label(status),
+                "artifact_source": job.get("artifact_source") if job else None,
+                "artifact_source_label": _artifact_source_label(
+                    job.get("artifact_source") if job else None
+                ),
+                "contract_status": contract_status,
+                "summary": (
+                    job.get("artifact_summary")
+                    or job.get("completed_at")
+                    or "等待运行"
+                )
+                if job
+                else "等待运行",
+                "report_id": job.get("report_id") if job else None,
+            }
+        )
+
+    latest_jobs.sort(
+        key=lambda item: item.get("completed_at") or item.get("created_at") or "",
+        reverse=True,
+    )
+    vision = _company_vision_analyze(
+        service,
+        company_name,
+        period,
+        user_role=user_role,
+    )
+    stage_status_counts: dict[str, int] = {}
+    for item in stages:
+        stage_status_counts[item["status"]] = stage_status_counts.get(item["status"], 0) + 1
+    cell_trace_stage = next((item for item in stages if item["stage"] == "cell_trace"), None)
+    if (
+        cell_trace_stage
+        and cell_trace_stage.get("status") == "completed"
+        and cell_trace_stage.get("contract_status") in {"missing", "invalid"}
+    ):
+        next_action = "补齐标准 OCR 结构契约后重新运行单元格溯源"
+    elif ocr_runtime["runtime_enabled"] and ocr_runtime["mode"] == "service" and not ocr_runtime["service_url"]:
+        next_action = "配置 PaddleOCR-VL 服务地址后再运行财报扫描"
+    elif not ocr_runtime["runtime_enabled"]:
+        next_action = "接通正式 OCR 运行时后再执行财报扫描"
+    elif stage_status_counts.get("pending"):
+        next_action = "继续运行文档升级作业"
+    elif stage_status_counts.get("completed"):
+        next_action = "进入结果核验与证据回放"
+    else:
+        next_action = "初始化解析链路"
+    return {
+        "company_name": company_name,
+        "report_period": period,
+        "user_role": user_role,
+        "runtime": {
+            "provider": ocr_runtime["provider"],
+            "model": ocr_runtime["model"],
+            "mode": ocr_runtime["mode"],
+            "service_url": ocr_runtime["service_url"],
+            "runtime_enabled": ocr_runtime["runtime_enabled"],
+            "layout_engine": ocr_runtime["layout_engine"],
+            "next_action": next_action,
+        },
+        "stages": stages,
+        "document_upgrades": {
+            "count": len(upgrade_items),
+            "stage_summary": {
+                key: sum(1 for item in upgrade_items if item["stage"] == key)
+                for key in {item["stage"] for item in upgrade_items}
+            },
+        },
+        "latest_jobs": latest_jobs[:3],
+        "vision": vision["result"],
+    }
+
+
+def _run_company_vision_pipeline(
+    service: Any,
+    company_name: str,
+    report_period: str | None = None,
+    *,
+    user_role: str = "management",
+) -> dict[str, Any]:
+    period = report_period or service._preferred_period()
+    jobs_manifest = _load_document_pipeline_job_manifest(service.settings)
+    requested_stages = ["cross_page_merge", "title_hierarchy", "cell_trace"]
+    executed: list[dict[str, Any]] = []
+    for stage in requested_stages:
+        pending_jobs = [
+            item
+            for item in jobs_manifest["records"]
+            if item.get("stage") == stage
+            and item.get("company_name") == company_name
+            and item.get("report_period") == period
+            and item.get("status") == "pending"
+        ]
+        if not pending_jobs:
+            continue
+        for job in pending_jobs[:1]:
+            try:
+                artifact_payload, artifact_path = _run_document_pipeline_job(stage, job, service.settings)
+            except DocumentPipelineBlockedError as exc:
+                job["status"] = "blocked"
+                job["artifact_path"] = ""
+                job["completed_at"] = _utcnow_iso()
+                job["artifact_summary"] = str(exc)
+                job["artifact_source"] = None
+                executed.append(
+                    {
+                        "stage": stage,
+                        "report_id": job.get("report_id"),
+                        "summary": str(exc),
+                        "artifact_path": "",
+                        "status": "blocked",
+                        "source": None,
+                    }
+                )
+                continue
+            job["status"] = "completed"
+            job["artifact_path"] = str(artifact_path)
+            job["completed_at"] = _utcnow_iso()
+            job["artifact_summary"] = artifact_payload.get("summary")
+            job["artifact_source"] = artifact_payload.get("source")
+            executed.append(
+                {
+                    "stage": stage,
+                    "report_id": job.get("report_id"),
+                    "summary": artifact_payload.get("summary"),
+                    "artifact_path": str(artifact_path),
+                    "status": "completed",
+                    "source": artifact_payload.get("source"),
+                }
+            )
+    if executed:
+        _write_document_pipeline_job_manifest(service.settings, jobs_manifest)
+    vision_payload = _run_company_vision_analyze(
+        service,
+        company_name,
+        period,
+        user_role=user_role,
+    )
+    runtime_payload = _company_vision_runtime(
+        service,
+        company_name,
+        period,
+        user_role=user_role,
+    )
+    return {
+        "company_name": company_name,
+        "report_period": period,
+        "user_role": user_role,
+        "executed": executed,
+        "vision_run_id": vision_payload.get("run_id"),
+        "runtime": runtime_payload,
+    }
+
+
+def _run_company_vision_analyze(
+    service: Any,
+    company_name: str,
+    report_period: str | None = None,
+    *,
+    user_role: str = "management",
+) -> dict[str, Any]:
+    payload = _company_vision_analyze(
+        service,
+        company_name,
+        report_period,
+        user_role=user_role,
+    )
+    run_id = _build_vision_run_id(company_name)
+    detail_path = _vision_run_detail_path(service.settings, run_id)
+    _write_json(detail_path, payload)
+    manifest = _load_vision_run_manifest(service.settings)
+    records = [item for item in manifest["records"] if item.get("run_id") != run_id]
+    records.insert(
+        0,
+        {
+            "run_id": run_id,
+            "company_name": company_name,
+            "report_period": payload.get("report_period"),
+            "user_role": user_role,
+            "headline": payload.get("result", {}).get("headline"),
+            "status_label": payload.get("result", {}).get("status_label"),
+            "created_at": _utcnow_iso(),
+            "detail_path": str(detail_path),
+        },
+    )
+    manifest["records"] = records[:200]
+    _write_vision_run_manifest(service.settings, manifest)
+    payload["run_id"] = run_id
+    return payload
+
+
+def _vision_runs(
+    service: Any,
+    *,
+    company_name: str | None = None,
+    report_period: str | None = None,
+    user_role: str = "management",
+    limit: int = 20,
+) -> dict[str, Any]:
+    records = [
+        item
+        for item in _load_vision_run_manifest(service.settings)["records"]
+        if item.get("user_role") == user_role
+        and (report_period is None or item.get("report_period") == report_period)
+        and (company_name is None or item.get("company_name") == company_name)
+    ]
+    return {
+        "company_name": company_name,
+        "report_period": report_period,
+        "user_role": user_role,
+        "total": len(records),
+        "runs": records[:limit],
+    }
+
+
+def _vision_run_detail(service: Any, run_id: str) -> dict[str, Any]:
+    record = next(
+        (
+            item
+            for item in _load_vision_run_manifest(service.settings)["records"]
+            if item.get("run_id") == run_id
+        ),
+        None,
+    )
+    if record is None:
+        raise ValueError(f"未找到多模态运行：{run_id}")
+    detail_path = Path(record["detail_path"])
+    if not detail_path.exists():
+        raise ValueError(f"未找到多模态详情：{run_id}")
+    try:
+        with detail_path.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"多模态运行记录损坏：{run_id}") from exc
+    payload["run_meta"] = {
+        "run_id": run_id,
+        "created_at": record.get("created_at"),
+        "company_name": record.get("company_name"),
+        "report_period": record.get("report_period"),
+        "user_role": record.get("user_role"),
+        "headline": record.get("headline"),
+        "status_label": record.get("status_label"),
+    }
+    return payload
