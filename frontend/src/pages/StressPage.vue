@@ -201,23 +201,6 @@ function selectPreset(item: string) {
           <h1>压力推演</h1>
           <p>{{ primaryScenarioLabel }} · {{ scenarioStatusLine }}</p>
         </div>
-
-        <div class="stress-controls">
-          <label class="stress-select">
-            <span>公司</span>
-            <select v-model="selectedCompany">
-              <option v-if="!companies.length" value="">暂无公司</option>
-              <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-            </select>
-          </label>
-          <label class="stress-select">
-            <span>报期</span>
-            <select v-model="selectedPeriod">
-              <option value="">默认主周期</option>
-              <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
-            </select>
-          </label>
-        </div>
       </section>
 
       <LoadingState v-if="overviewState.loading.value || stressState.loading.value" class="stress-state" />
@@ -228,7 +211,27 @@ function selectPreset(item: string) {
 
       <section v-else class="stress-layout">
         <aside class="scenario-panel">
-          <h2>先说会发生什么</h2>
+          <div class="scenario-panel-head">
+            <h2>给一个冲击假设</h2>
+            <p>先定对象，再说这轮会发生什么。</p>
+          </div>
+
+          <div class="scenario-context">
+            <label class="stress-select">
+              <span>公司</span>
+              <select v-model="selectedCompany">
+                <option v-if="!companies.length" value="">暂无公司</option>
+                <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+              </select>
+            </label>
+            <label class="stress-select">
+              <span>报期</span>
+              <select v-model="selectedPeriod">
+                <option value="">默认主周期</option>
+                <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
+              </select>
+            </label>
+          </div>
 
           <div class="scenario-shell">
             <textarea
@@ -342,10 +345,8 @@ function selectPreset(item: string) {
 }
 
 .stress-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 18px;
+  display: grid;
+  gap: 8px;
   padding-bottom: 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -402,19 +403,12 @@ function selectPreset(item: string) {
   font-size: 13px;
 }
 
-.stress-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
 .stress-select {
   gap: 8px;
 }
 
 .stress-select select {
-  min-width: 180px;
+  width: 100%;
   min-height: 44px;
   padding: 0 14px;
   border-radius: 14px;
@@ -466,12 +460,30 @@ function selectPreset(item: string) {
   gap: 14px;
 }
 
+.scenario-panel-head {
+  display: grid;
+  gap: 6px;
+}
+
 .scenario-panel h2,
 .section-head strong {
   margin: 0;
   color: #f8fafc;
   font-size: 16px;
   letter-spacing: -0.02em;
+}
+
+.scenario-panel-head p {
+  margin: 0;
+  color: rgba(148, 163, 184, 0.82);
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+.scenario-context {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .section-head {
@@ -696,6 +708,10 @@ function selectPreset(item: string) {
   .impact-strip,
   .stress-layout,
   .result-body {
+    grid-template-columns: 1fr;
+  }
+
+  .scenario-context {
     grid-template-columns: 1fr;
   }
 }
