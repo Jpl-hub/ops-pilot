@@ -4,6 +4,17 @@ from pathlib import Path
 from typing import Any
 import json
 
+from opspilot.config import Settings
+from opspilot.application.admin_delivery import _resolve_document_contract_status
+from opspilot.application.runtime_manifests import _load_document_pipeline_job_manifest
+
+
+def _artifact_source_label(source: str | None) -> str:
+    return {
+        "standard_ocr": "正式结构产物",
+        "geometric_fallback": "历史结构产物",
+    }.get(source or "", source or "来源未识别")
+
 
 def _filter_document_results_for_company(
     results: list[dict[str, Any]],
@@ -80,6 +91,32 @@ def _load_document_artifact_payload(record: dict[str, Any]) -> dict[str, Any] | 
     except json.JSONDecodeError:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _load_company_document_upgrade_items(
+    settings: Settings, company_name: str, report_period: str
+) -> list[dict[str, Any]]:
+    jobs_manifest = _load_document_pipeline_job_manifest(settings)
+    return _filter_document_results_for_company(
+        [
+            {
+                "stage": item["stage"],
+                "report_id": item["report_id"],
+                "company_name": item["company_name"],
+                "security_code": item["security_code"],
+                "report_period": item.get("report_period"),
+                "status": item["status"],
+                "artifact_path": item.get("artifact_path"),
+                "artifact_summary": item.get("artifact_summary"),
+                "artifact_source": item.get("artifact_source"),
+                "contract_status": _resolve_document_contract_status(settings, item),
+                "completed_at": item.get("completed_at"),
+            }
+            for item in jobs_manifest["records"]
+        ],
+        company_name,
+        report_period,
+    )
 
 
 def _build_document_consumable_sections(artifact: dict[str, Any]) -> list[dict[str, Any]]:

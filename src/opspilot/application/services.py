@@ -15,6 +15,11 @@ from opspilot.domain.routing import detect_query_type
 from opspilot.domain.rules import evaluate_opportunity_labels, evaluate_risk_labels
 from opspilot.domain.scoring import score_company
 # 域服务 — 拆分后的模块化架构
+from opspilot.application.alert_runtime import (
+    _build_alert_board,
+    _build_workspace_alert_queue,
+    _get_company_periods,
+)
 from opspilot.application.scoring_service import ScoringService
 from opspilot.application.admin_delivery import (
     _append_document_pipeline_run_record,
@@ -68,6 +73,7 @@ from opspilot.application.research_compare import (
     _sort_research_compare_rows,
 )
 from opspilot.application.document_review import (
+    _artifact_source_label,
     _build_document_artifact_locations,
     _build_document_artifact_preview,
     _build_document_artifact_remediation,
@@ -75,6 +81,7 @@ from opspilot.application.document_review import (
     _build_document_evidence_navigation,
     _build_document_navigation_unavailable,
     _filter_document_results_for_company,
+    _load_company_document_upgrade_items,
     _load_document_artifact_payload,
 )
 from opspilot.application.industry_signals import (
@@ -5060,247 +5067,6 @@ def _build_vision_quality_summary(
         "blockers": blockers[:5],
         "artifact_locations": detail.get("artifact_locations", []) if detail else [],
     }
-
-
-def _artifact_source_label(source: str | None) -> str:
-    return {
-        "standard_ocr": "正式结构产物",
-        "geometric_fallback": "历史结构产物",
-    }.get(source or "", source or "来源未识别")
-
-
-def _get_company_periods(repository: Any, company_name: str) -> set[str]:
-    if hasattr(repository, "list_company_periods"):
-        return set(repository.list_company_periods(company_name))
-    return {
-        company.get("report_period")
-        for company in repository.list_companies()
-        if company.get("company_name") == company_name and company.get("report_period")
-    }
-
-
-def _list_company_periods(repository: Any, company_name: str) -> list[str]:
-    periods = _get_company_periods(repository, company_name)
-    return sorted(periods, key=_period_order_key, reverse=True)
-
-
-
-def _build_alert_board(repository: Any, companies: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    alerts: list[dict[str, Any]] = []
-    for company in companies:
-        periods = _list_company_periods(repository, company["company_name"])
-        current_period = company["report_period"]
-        if current_period not in periods:
-            periods = [current_period, *periods]
-        current_index = periods.index(current_period) if current_period in periods else 0
-        previous_period = periods[current_index + 1] if current_index + 1 < len(periods) else None
-        previous_company = (
-            repository.get_company(company["company_name"], previous_period)
-            if previous_period is not None
-            else None
-        )
-        current_risks = evaluate_risk_labels(company)
-        previous_risks = evaluate_risk_labels(previous_company) if previous_company is not None else []
-        current_codes = {item["code"] for item in current_risks}
-        previous_codes = {item["code"] for item in previous_risks}
-        new_codes = sorted(current_codes - previous_codes)
-        risk_delta = len(current_risks) - len(previous_risks)
-        growth_metric = company.get("metrics", {}).get("G1")
-        profit_metric = company.get("metrics", {}).get("G2")
-        if risk_delta <= 0 and not new_codes and not (
-            (growth_metric is not None and growth_metric < 0)
-            or (profit_metric is not None and profit_metric < 0)
-        ):
-            continue
-        highlights = [item["name"] for item in current_risks if item["code"] in new_codes]
-        if growth_metric is not None and growth_metric < 0:
-            highlights.append(f"营收同比 {growth_metric}%")
-        if profit_metric is not None and profit_metric < 0:
-            highlights.append(f"扣非净利润同比 {profit_metric}%")
-        alerts.append(
-            {
-                "company_name": company["company_name"],
-                "subindustry": company["subindustry"],
-                "report_period": current_period,
-                "previous_period": previous_period,
-                "risk_count": len(current_risks),
-                "risk_delta": risk_delta,
-                "new_labels": highlights[:3],
-                "summary": _build_alert_summary(company, risk_delta, previous_period, highlights),
-            }
-        )
-    alerts.sort(key=lambda item: (item["risk_delta"], item["risk_count"]), reverse=True)
-    return alerts[:12]
-
-
-def _build_alert_summary(
-    company: dict[str, Any],
-    risk_delta: int,
-    previous_period: str | None,
-    highlights: list[str],
-) -> str:
-    company_name = company["company_name"]
-    current_period = company["report_period"]
-    if risk_delta > 0 and previous_period:
-        return f"{company_name} 在 {current_period} 新增 {risk_delta} 个风险信号，较 {previous_period} 明显抬升。"
-    if highlights:
-        return f"{company_name} 在 {current_period} 出现重点异常：{'、'.join(highlights[:2])}。"
-    return f"{company_name} 在 {current_period} 风险暴露继续抬升。"
-
-
-def _build_workspace_alert_queue(alerts: list[dict[str, Any]], user_role: str) -> list[dict[str, Any]]:
-    queue: list[dict[str, Any]] = []
-    for item in alerts[:8]:
-        if user_role == "management":
-            title = f"{item['company_name']} 经营整改优先级上升"
-            summary = item["summary"]
-            route = {
-                "path": "/score",
-                "query": {
-                    "company": item["company_name"],
-                    "period": item["report_period"],
-                },
-                "label": "进入企业体检",
-            }
-        elif user_role == "regulator":
-            title = f"{item['company_name']} 风险信号需要跟踪"
-            summary = item["summary"]
-            route = {
-                "path": "/risk",
-                "query": {
-                    "company": item["company_name"],
-                },
-                "label": "进入行业风险",
-            }
-        else:
-            title = f"{item['company_name']} 出现新的关注点"
-            summary = item["summary"]
-            route = {
-                "path": "/verify",
-                "query": {
-                    "company": item["company_name"],
-                },
-                "label": "进入研报核验",
-            }
-        queue.append(
-            {
-                "alert_id": item["alert_id"],
-                "company_name": item["company_name"],
-                "report_period": item["report_period"],
-                "title": title,
-                "summary": summary,
-                "status": item["status"],
-                "note": item.get("note"),
-                "risk_delta": item["risk_delta"],
-                "risk_count": item["risk_count"],
-                "new_labels": item["new_labels"],
-                "route": route,
-            }
-        )
-    return queue
-
-
-def _filter_document_results_for_company(
-    results: list[dict[str, Any]],
-    company_name: str,
-    report_period: str | None,
-) -> list[dict[str, Any]]:
-    filtered: list[dict[str, Any]] = []
-    for item in results:
-        if item["company_name"] != company_name:
-            continue
-        if report_period and item.get("report_period") not in (None, report_period):
-            continue
-        filtered.append(item)
-    filtered.sort(
-        key=lambda item: (
-            item.get("completed_at") or "",
-            item.get("stage") or "",
-            item.get("report_id") or "",
-        ),
-        reverse=True,
-    )
-    return filtered
-
-
-def _build_document_artifact_preview(artifact: dict[str, Any]) -> dict[str, Any]:
-    preview: dict[str, Any] = {}
-    if source := artifact.get("source"):
-        preview["source"] = source
-    if summary := artifact.get("summary"):
-        preview["summary"] = summary
-    if headings := artifact.get("headings"):
-        preview["headings"] = [
-            {
-                "text": item.get("text"),
-                "level": item.get("level"),
-                "page": item.get("page"),
-            }
-            for item in headings[:5]
-        ]
-    if merges := artifact.get("merged_sections"):
-        preview["merged_sections"] = [
-            {
-                "title": item.get("title"),
-                "page_range": item.get("page_range"),
-                "page_start": item.get("page_start"),
-                "page_end": item.get("page_end"),
-            }
-            for item in merges[:5]
-        ]
-    if cells := artifact.get("cells"):
-        preview["cells"] = cells[:5]
-    if tables := artifact.get("tables"):
-        preview["tables"] = [
-            {
-                "title": item.get("title"),
-                "page": item.get("page"),
-                "continued": item.get("continued"),
-            }
-            for item in tables[:5]
-        ]
-    return preview
-
-
-def _load_document_artifact_payload(record: dict[str, Any]) -> dict[str, Any] | None:
-    artifact_path = record.get("artifact_path")
-    if not artifact_path:
-        return None
-    path = Path(artifact_path)
-    if not path.exists():
-        return None
-    try:
-        with path.open("r", encoding="utf-8") as file:
-            payload = json.load(file)
-    except json.JSONDecodeError:
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-def _load_company_document_upgrade_items(
-    settings: Settings, company_name: str, report_period: str
-) -> list[dict[str, Any]]:
-    jobs_manifest = _load_document_pipeline_job_manifest(settings)
-    return _filter_document_results_for_company(
-        [
-            {
-                "stage": item["stage"],
-                "report_id": item["report_id"],
-                "company_name": item["company_name"],
-                "security_code": item["security_code"],
-                "report_period": item.get("report_period"),
-                "status": item["status"],
-                "artifact_path": item.get("artifact_path"),
-                "artifact_summary": item.get("artifact_summary"),
-                "artifact_source": item.get("artifact_source"),
-                "contract_status": _resolve_document_contract_status(settings, item),
-                "completed_at": item.get("completed_at"),
-            }
-            for item in jobs_manifest["records"]
-        ],
-        company_name,
-        report_period,
-    )
 
 
 _GRAPH_QUERY_TERM_EXPANSIONS = {
