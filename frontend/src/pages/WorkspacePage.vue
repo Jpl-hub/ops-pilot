@@ -44,9 +44,6 @@ const { roleCopy } = useWorkspaceRole(() => session.activeRole.value || 'investo
 const starterQueries = computed(
   () => overview.value?.role_profile?.starter_queries || latestPayload.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries,
 )
-const roleFocusTitle = computed(
-  () => overview.value?.role_profile?.focus_title || roleCopy.value.title,
-)
 
 const roleLabel = computed(() => {
   const map: Record<string, string> = {
@@ -113,28 +110,14 @@ const companySelectPlaceholder = computed(() => {
   return '选择公司'
 })
 
-const consoleSyncLabel = computed(() => {
-  if (loadingCompanies.value) return '公司池载入中'
-  if (loadingOverview.value) return '协同面同步中'
-  if (loadingCompanyWorkspace.value) return '企业状态刷新中'
-  if (pageLoadError.value) return '数据载入异常'
-  if (selectedCompany.value && controlPlane.value?.report_period) return `${roleLabel.value} · ${controlPlane.value.report_period}`
-  if (selectedCompany.value) return roleLabel.value
-  return roleLabel.value
-})
-
 const analysisStages = computed(() => {
-  const sourceLine = controlPlane.value?.data_sources?.length
-    ? controlPlane.value.data_sources.slice(0, 2).join('、')
-    : '评分、图谱等真实服务'
-  const riskLine = companyTopRisks.value[0] || '风险与证据'
   return [
     {
       index: '01',
       meta: '先明确问题',
       title: '锁定这次要判断什么',
       detail: latestUserMessage.value
-        ? `锁定 ${selectedCompany.value || '目标企业'} 的判断问题`
+        ? `围绕 ${selectedCompany.value || '目标企业'} 发起判断`
         : '锁定问题和对象',
       status: latestUserMessage.value ? 'completed' : 'pending',
     },
@@ -142,7 +125,7 @@ const analysisStages = computed(() => {
       index: '02',
       meta: '再拉关键数据',
       title: '把真正需要的数据拉出来',
-      detail: `调取 ${sourceLine}`,
+      detail: '只拉这一轮真正需要的数据',
       status: latestAnswer.value || loadingTurn.value ? 'completed' : 'pending',
     },
     {
@@ -151,7 +134,7 @@ const analysisStages = computed(() => {
       title: '把证据和风险对上',
       detail: latestEvidenceGroups.value.length
         ? `已挂接 ${latestEvidenceGroups.value.length} 组证据`
-        : `围绕 ${riskLine} 回放原文`,
+        : '回到原文核对判断依据',
       status: latestEvidenceGroups.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
     },
     {
@@ -349,9 +332,7 @@ watch(selectedCompany, async (company, previous) => {
       <section v-else class="console-board">
         <header class="board-topbar">
           <div class="board-title">
-            <div class="board-mark" aria-hidden="true"></div>
             <strong>协同分析</strong>
-            <span class="board-subtitle">{{ roleFocusTitle }}</span>
           </div>
 
           <div class="board-topbar-meta">
@@ -391,7 +372,7 @@ watch(selectedCompany, async (company, previous) => {
               </div>
               <div class="canvas-head-meta">
                 <span>{{ selectedCompany || '未选择公司' }}</span>
-                <span>{{ consoleSyncLabel }}</span>
+                <span>{{ roleLabel }}</span>
               </div>
             </header>
 
@@ -444,7 +425,6 @@ watch(selectedCompany, async (company, previous) => {
             <div v-if="latestAnswer" class="rail-body">
               <section class="rail-section summary-card">
                 <span class="rail-label">结论</span>
-                <strong>{{ selectedCompany || '未选择公司' }}</strong>
                 <p>{{ latestAnswer.summary || '已生成当前结论。' }}</p>
                 <p v-if="latestUserMessage?.text" class="rail-question">{{ latestUserMessage.text }}</p>
               </section>
@@ -492,7 +472,6 @@ watch(selectedCompany, async (company, previous) => {
                     class="evidence-link"
                   >
                     <span>{{ link.label }}</span>
-                    <strong>进入</strong>
                   </RouterLink>
                 </div>
               </section>
@@ -612,18 +591,9 @@ watch(selectedCompany, async (company, previous) => {
 .board-title {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
   flex-wrap: wrap;
-}
-
-.board-mark {
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  background: #73f0c7;
-  box-shadow: 0 0 0 5px rgba(23, 50, 39, 0.78);
-  flex-shrink: 0;
 }
 
 .board-title strong,
@@ -643,11 +613,6 @@ watch(selectedCompany, async (company, previous) => {
 .board-title strong {
   font-size: 24px;
   letter-spacing: -0.04em;
-}
-
-.board-subtitle {
-  color: rgba(120, 143, 172, 0.88);
-  font-size: 12px;
 }
 
 .board-topbar-meta {
@@ -971,12 +936,6 @@ watch(selectedCompany, async (company, previous) => {
 
 .summary-card {
   gap: 10px;
-}
-
-.summary-card strong {
-  font-size: 20px;
-  letter-spacing: -0.04em;
-  color: #f8fafc;
 }
 
 .rail-question {

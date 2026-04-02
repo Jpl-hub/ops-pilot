@@ -42,12 +42,10 @@ const presetScenarios = [
 ]
 
 const propagationSteps = computed(() => stressState.data.value?.propagation_steps || [])
-const transmissionMatrix = computed(() => stressState.data.value?.transmission_matrix || [])
 const stressWavefront = computed(() => stressState.data.value?.stress_wavefront || [])
 const stressCommandSurface = computed(() => stressState.data.value?.stress_command_surface || null)
 const recoverySequence = computed(() => stressState.data.value?.stress_recovery_sequence || [])
 const canRunStress = computed(() => !!selectedCompany.value && !!scenarioDraft.value.trim())
-const focusedTransmissionMatrix = computed(() => transmissionMatrix.value.slice(0, 3))
 const focusedPropagationSteps = computed(() => propagationSteps.value.slice(0, 3))
 const primaryRecoveryAction = computed(() => recoverySequence.value[0] || null)
 const activeWavefront = computed(() => stressWavefront.value[activeStressStep.value] || stressWavefront.value[0] || null)
@@ -58,9 +56,7 @@ const selectedPeriodLabel = computed(() => {
   if (typeof selectedPeriod.value === 'string') return selectedPeriod.value
   return ''
 })
-const scenarioStatusLine = computed(() =>
-  selectedPeriodLabel.value ? `${selectedPeriodLabel.value} · 从一个明确冲击假设开始` : '默认主周期 · 从一个明确冲击假设开始',
-)
+const scenarioStatusLine = computed(() => selectedPeriodLabel.value || '默认主周期')
 const focusExplanation = computed(
   () =>
     localizeStressText(
@@ -201,7 +197,6 @@ function selectPreset(item: string) {
     <div class="stress-console">
       <section class="stress-header">
         <div class="stress-heading">
-          <span class="stress-kicker">冲击推演</span>
           <h1>压力推演</h1>
           <p>{{ primaryScenarioLabel }} · {{ scenarioStatusLine }}</p>
         </div>
@@ -234,7 +229,7 @@ function selectPreset(item: string) {
         <aside class="scenario-panel">
           <div class="panel-head">
             <strong>先说会发生什么</strong>
-            <span>不用懂模型，直接说你担心哪种冲击。</span>
+            <span>直接写下这次冲击。</span>
           </div>
 
           <div class="scenario-shell">
@@ -265,7 +260,6 @@ function selectPreset(item: string) {
         <section class="result-panel" v-if="stressCommandSurface">
           <div class="result-head">
             <div>
-              <span class="result-kicker">本轮判断</span>
               <h2>{{ localizeStressText(stressCommandSurface.headline) }}</h2>
               <p>{{ scenario }}</p>
             </div>
@@ -274,24 +268,11 @@ function selectPreset(item: string) {
             </div>
           </div>
 
-          <div class="impact-grid" v-if="focusedTransmissionMatrix.length">
-            <article
-              v-for="item in focusedTransmissionMatrix"
-              :key="item.stage"
-              class="impact-card"
-              :class="`tone-${item.tone || 'warning'}`"
-            >
-              <span>{{ displayStageName(item.stage) }}</span>
-              <strong>{{ localizeStressText(item.headline) }}</strong>
-              <p>{{ localizeStressText(item.impact_label) }}</p>
-            </article>
-          </div>
-
           <div class="result-body">
             <article class="chain-panel" v-if="focusedPropagationSteps.length">
               <div class="panel-head">
                 <strong>先看这条传导链</strong>
-                <span>冲击会按这个顺序传下去。</span>
+                <span>这次冲击会按这个顺序传下去。</span>
               </div>
 
               <div class="chain-steps">
@@ -313,7 +294,7 @@ function selectPreset(item: string) {
             <article class="action-panel">
               <div class="panel-head">
                 <strong>这一轮先做什么</strong>
-                <span>先把最需要立刻做的动作说清楚。</span>
+                <span>先把最需要立刻做的事说清楚。</span>
               </div>
 
               <div v-if="primaryRecoveryAction" class="action-focus">
@@ -361,8 +342,7 @@ function selectPreset(item: string) {
 .scenario-shell,
 .action-focus,
 .reason-focus,
-.impact-card,
-.chain-step {
+ .chain-step {
   display: grid;
 }
 
@@ -370,10 +350,7 @@ function selectPreset(item: string) {
   gap: 8px;
 }
 
-.stress-kicker,
 .stress-select span,
-.result-kicker,
-.impact-card span,
 .chain-step em,
 .action-focus span,
 .reason-focus span {
@@ -386,7 +363,6 @@ function selectPreset(item: string) {
 
 .stress-heading h1,
 .result-head h2,
-.impact-card strong,
 .chain-step strong,
 .action-focus strong,
 .reason-focus strong {
@@ -402,7 +378,6 @@ function selectPreset(item: string) {
 
 .stress-heading p,
 .result-head p,
-.impact-card p,
 .chain-step p,
 .action-focus p,
 .reason-focus p,
@@ -587,26 +562,6 @@ function selectPreset(item: string) {
   border: 1px solid rgba(16, 185, 129, 0.24);
 }
 
-.impact-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.impact-card {
-  gap: 8px;
-  min-height: 144px;
-  padding: 14px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.impact-card strong {
-  font-size: 15px;
-  line-height: 1.45;
-}
-
 .result-body {
   min-height: 0;
   display: grid;
@@ -679,7 +634,6 @@ function selectPreset(item: string) {
 
 @media (max-width: 1120px) {
   .stress-layout,
-  .impact-grid,
   .result-body {
     grid-template-columns: 1fr;
   }
