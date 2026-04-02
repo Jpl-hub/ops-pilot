@@ -39,11 +39,9 @@ const periodOptions = computed(() =>
 
 const resultItems = computed(() => visionState.data.value?.result?.items || runtimeState.data.value?.vision?.items || [])
 const selectedResult = computed(() => visionState.data.value?.result || runtimeState.data.value?.vision || null)
-const phaseTrack = computed(() => selectedResult.value?.phase_track || runtimeState.data.value?.stages || [])
 const analysisLog = computed(() => selectedResult.value?.analysis_log || [])
 const qualitySummary = computed(() => selectedResult.value?.quality_summary || null)
 const qualityMetrics = computed(() => qualitySummary.value?.metrics?.slice(0, 2) || [])
-const qualityDimensions = computed(() => qualitySummary.value?.dimensions?.slice(0, 2) || [])
 const qualityBlockers = computed(() => qualitySummary.value?.blockers?.slice(0, 1) || [])
 const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 2))
 const visibleAnalysisLog = computed(() => analysisLog.value.slice(0, 3))
@@ -144,10 +142,6 @@ async function openVisionRun(runId: string) {
   await visionState.execute(() => get(`/vision-analyze/runs/${encodeURIComponent(runId)}`))
 }
 
-function selectJob(job: any) {
-  selectedJobKey.value = `${job.stage}-${job.report_id}`
-}
-
 onMounted(async () => {
   bootstrapping.value = true
   try {
@@ -202,7 +196,7 @@ watch(
             <div class="control-copy">
               <span class="control-kicker">财报复核</span>
               <h3 class="company-name text-gradient">{{ selectedCompany || '文档复核' }}</h3>
-              <p class="control-meta">{{ activeJob ? displayPipelineStage(activeJob.stage) : '选择公司后开始复核' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+              <p class="control-meta">{{ selectedPeriod || '选择公司后开始复核' }}</p>
             </div>
           </div>
         <div class="inline-context">
@@ -243,7 +237,7 @@ watch(
           <!-- Status Hero -->
           <article class="glass-panel hero-panel">
             <div class="hero-top">
-              <div class="eyebrow">当前文档</div>
+              <div class="eyebrow">当前结果</div>
               <h2 class="hero-title compact">{{ selectedResult?.headline || '等待解析结果' }}</h2>
               <p class="hero-text text-sm muted">{{ runtimeSummary?.next_action || selectedResult?.status_label || '就绪' }}</p>
             </div>
@@ -254,28 +248,11 @@ watch(
             <p v-if="sourcePreviewText" class="hero-preview muted">
               {{ sourcePreviewText }}
             </p>
-
-            <!-- Phase Track -->
-            <div class="phase-track" v-if="phaseTrack.length">
-              <div
-                v-for="(phase, idx) in phaseTrack"
-                :key="phase.phase || phase.stage || idx"
-                class="phase-step"
-                :class="{ done: phase.status === 'done' || phase.status === 'completed', active: idx === 0 }"
-              >
-                <div class="phase-dot"></div>
-                <div class="phase-body">
-                  <span class="phase-label">{{ phase.phase || phase.stage || phase.label }}</span>
-                  <strong class="phase-headline">{{ phase.headline || displayPipelineStage(phase.stage) || phase.summary || '等待运行' }}</strong>
-                  <small class="muted">{{ phase.metric || displayJobStatus(phase.status) }}</small>
-                </div>
-              </div>
-            </div>
           </article>
 
           <article class="glass-panel quality-panel" v-if="qualitySummary">
             <div class="panel-head-compact">
-            <h3 class="panel-sm-title">先看质量</h3>
+            <h3 class="panel-sm-title">这次能不能直接用</h3>
               <TagPill :label="displayQualityStatus(qualitySummary.status)" :tone="qualityTone(qualitySummary.status)" />
             </div>
             <div class="quality-summary-copy">
@@ -293,20 +270,6 @@ watch(
                 <strong class="chip-val">{{ item.value }}</strong>
               </div>
             </div>
-            <div class="quality-dimension-list">
-              <div
-                v-for="item in qualityDimensions"
-                :key="item.key"
-                class="quality-dimension-card"
-                :class="`is-${item.status}`"
-              >
-                <div class="quality-dimension-head">
-                  <strong>{{ item.label }}</strong>
-                  <span class="quality-status-text">{{ displayQualityStatus(item.status) }}</span>
-                </div>
-                <p class="muted">{{ item.summary }}</p>
-              </div>
-            </div>
             <div v-if="qualityBlockers.length" class="quality-blocker-list">
               <div
                 v-for="item in qualityBlockers"
@@ -321,7 +284,7 @@ watch(
 
           <!-- History Runs -->
           <article class="glass-panel runs-panel" v-if="recentRuns.length">
-            <h3 class="panel-sm-title">最近两次</h3>
+            <h3 class="panel-sm-title">最近两次复核</h3>
             <div class="runs-list">
               <div
                 v-for="item in recentRuns"
@@ -342,40 +305,19 @@ watch(
         <!-- Right Col -->
         <div class="dashboard-col right-col">
 
-          <!-- Pipeline Jobs -->
-          <article class="glass-panel jobs-panel" v-if="pipelineJobs.length">
-            <h3 class="panel-sm-title">这次复核到了哪一步</h3>
-            <div class="jobs-grid">
-              <div
-                v-for="job in pipelineJobs.slice(0, 3)"
-                :key="`${job.stage}-${job.report_id}`"
-                class="job-card glass-panel-hover"
-                :class="{ 'is-active': activeJob && `${job.stage}-${job.report_id}` === `${activeJob.stage}-${activeJob.report_id}` }"
-                @click="selectJob(job)"
-              >
-                <div class="job-head">
-                  <span class="job-stage">{{ displayPipelineStage(job.stage) }}</span>
-                  <span class="job-status" :class="job.status === 'done' || job.status === 'completed' ? 'text-accent' : 'muted'">{{ displayJobStatus(job.status) }}</span>
-                </div>
-                <strong class="job-company">{{ job.company_name }}</strong>
-                <p class="job-summary muted">{{ job.artifact_summary || '等待摘要' }}</p>
-              </div>
-            </div>
-          </article>
-
           <article class="glass-panel artifact-panel" v-if="activeJob">
-            <h3 class="panel-sm-title">这次能直接用什么</h3>
+            <h3 class="panel-sm-title">当前可用内容</h3>
             <div class="artifact-grid">
               <div class="artifact-kv">
-                <span class="muted">步骤</span>
+                <span class="muted">当前阶段</span>
                 <strong>{{ displayPipelineStage(activeJob.stage) }}</strong>
               </div>
               <div class="artifact-kv">
-                <span class="muted">文档</span>
+                <span class="muted">原文</span>
                 <strong>{{ activeJob.report_id }}</strong>
               </div>
               <div class="artifact-kv">
-                <span class="muted">状态</span>
+                <span class="muted">结果</span>
                 <strong>{{ displayJobStatus(activeJob.status) }}</strong>
               </div>
             </div>
@@ -384,7 +326,7 @@ watch(
 
           <!-- Analysis Log -->
           <article class="glass-panel log-panel scroll-area flex-1" v-if="analysisLog.length">
-            <h3 class="panel-sm-title">这次提炼出了什么</h3>
+            <h3 class="panel-sm-title">这次看到了什么</h3>
             <div class="log-list">
               <div
                 v-for="item in visibleAnalysisLog"
@@ -402,7 +344,7 @@ watch(
 
           <!-- Sections from Result -->
           <article class="glass-panel sections-panel scroll-area flex-1" v-else-if="visibleSections.length">
-            <h3 class="panel-sm-title">页块与表格</h3>
+            <h3 class="panel-sm-title">抽出来的页块</h3>
             <div class="sections-grid">
               <div
                 v-for="section in visibleSections"
@@ -425,7 +367,7 @@ watch(
 
           <!-- Result Items -->
           <article class="glass-panel items-panel scroll-area flex-1" v-else-if="visibleResultItems.length">
-            <h3 class="panel-sm-title">已识别条目</h3>
+            <h3 class="panel-sm-title">抽出来的条目</h3>
             <div class="items-list">
               <div v-for="item in visibleResultItems" :key="`${item.kind}-${item.title}`" class="item-row glass-panel-hover">
                 <strong>{{ item.title }}</strong>
@@ -438,7 +380,7 @@ watch(
           <article v-else class="glass-panel empty-panel">
             <div class="empty-content">
             <h3 class="text-gradient mb-2">等待文档结果</h3>
-              <p class="muted">选择公司后点击「重新复核」，直接回看页块、表格和原文证据。</p>
+              <p class="muted">选择公司后点击「重新复核」，直接回看原文和表格。</p>
             </div>
           </article>
 
@@ -507,17 +449,6 @@ watch(
 .text-sm { font-size: 13px; }
 .text-accent { color: #10b981; }
 
-/* Phase Track */
-.phase-track { display: flex; flex-direction: column; gap: 0; border-left: 2px solid rgba(168,85,247,0.2); margin-left: 8px; padding-left: 16px; }
-.phase-step { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; position: relative; }
-.phase-dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(168,85,247,0.3); border: 2px solid rgba(168,85,247,0.5); flex-shrink: 0; margin-top: 4px; position: absolute; left: -22px; }
-.phase-step.done .phase-dot { background: #a855f7; border-color: #a855f7; box-shadow: 0 0 8px rgba(168,85,247,0.5); }
-.phase-step.active .phase-dot { background: rgba(168,85,247,0.6); border-color: #a855f7; }
-.phase-body { display: flex; flex-direction: column; gap: 2px; }
-.phase-label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
-.phase-headline { font-size: 13px; color: #fff; }
-
-/* Stream */
 .stream-panel { padding: 20px; border-radius: 20px; flex-shrink: 0; }
 .quality-panel { padding: 20px; border-radius: 20px; display: flex; flex-direction: column; gap: 14px; }
 .quality-summary-copy { display: flex; flex-direction: column; gap: 4px; }
@@ -530,15 +461,6 @@ watch(
 .stream-chip.tone-warning { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); }
 .chip-label { font-size: 11px; color: var(--muted); }
 .chip-val { font-size: 14px; font-weight: 600; color: #fff; }
-.quality-dimension-list { display: grid; grid-template-columns: 1fr; gap: 10px; }
-.quality-dimension-card { padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); }
-.quality-dimension-card.is-ready { border-color: rgba(59,130,246,0.25); background: rgba(59,130,246,0.08); }
-.quality-dimension-card.is-warning { border-color: rgba(245,158,11,0.25); background: rgba(245,158,11,0.08); }
-.quality-dimension-card.is-blocked { border-color: rgba(239,68,68,0.25); background: rgba(239,68,68,0.08); }
-.quality-dimension-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 6px; }
-.quality-dimension-head strong { font-size: 13px; color: #fff; }
-.quality-status-text { font-size: 11px; color: var(--muted); white-space: nowrap; }
-.quality-dimension-card p { margin: 0; font-size: 12px; line-height: 1.6; }
 .quality-blocker-list { display: flex; flex-direction: column; gap: 8px; }
 .quality-blocker-card { padding: 12px; border-radius: 12px; border: 1px solid rgba(239,68,68,0.18); background: rgba(239,68,68,0.08); }
 .quality-blocker-card strong { display: block; margin-bottom: 4px; color: #fff; font-size: 13px; }
@@ -552,15 +474,6 @@ watch(
 .run-company { font-size: 14px; color: #fff; }
 .run-summary { font-size: 12px; margin: 0; }
 
-/* Jobs Grid */
-.jobs-panel { padding: 20px; border-radius: 20px; flex-shrink: 0; }
-.jobs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.job-card { padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); }
-.job-card.is-active { border-color: rgba(168,85,247,0.35); background: rgba(168,85,247,0.08); }
-.job-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
-.job-stage { color: #818cf8; font-family: 'JetBrains Mono', monospace; }
-.job-status { }
-.job-company { font-size: 14px; color: #fff; display: block; margin-bottom: 4px; }
 .job-summary { font-size: 12px; margin: 0; line-height: 1.5; }
 
 .artifact-panel { padding: 20px; border-radius: 20px; flex-shrink: 0; }
@@ -608,7 +521,7 @@ watch(
 .inline-glass-link:hover { background: rgba(168,85,247,0.1); border-color: rgba(168,85,247,0.3); color: #a855f7; }
 
 /* Common */
-.panel-sm-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.panel-sm-title { font-size: 13px; letter-spacing: 0; color: var(--muted); margin: 0 0 14px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
 
 @media (max-width: 1180px) {
   .dashboard-wrapper { overflow: auto; }
@@ -624,6 +537,6 @@ watch(
   .glass-select { width: 100%; }
   .dashboard-grid { gap: 12px; }
   .artifact-grid { grid-template-columns: 1fr; }
-  .jobs-grid, .sections-grid, .quality-dimension-list { grid-template-columns: 1fr; }
+  .sections-grid { grid-template-columns: 1fr; }
 }
 </style>

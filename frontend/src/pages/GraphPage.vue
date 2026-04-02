@@ -9,7 +9,6 @@ import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
 
 type GraphInferenceStep = { step: number; title: string; detail: string; type?: string }
-type GraphSignal = { label: string; value: string; tone?: string }
 type GraphFocalNode = { id: string; label: string; type: string }
 type GraphNode = { id: string; label: string; type: string; meta?: Record<string, unknown> }
 type GraphEdge = { source: string; target: string; label: string }
@@ -53,7 +52,6 @@ const inferencePath = computed<GraphInferenceStep[]>(() => (graphState.data.valu
 const activePathId = computed(() => inferencePath.value[activePathStep.value]?.step ?? null)
 const rawGraphNodes = computed<GraphNode[]>(() => graphState.data.value?.graph?.nodes || [])
 const rawGraphEdges = computed<GraphEdge[]>(() => graphState.data.value?.graph?.edges || [])
-const signalStream = computed<GraphSignal[]>(() => graphState.data.value?.signal_stream || [])
 const evidenceNavigation = computed(() => graphState.data.value?.evidence_navigation?.links || [])
 const graphCommandSurface = computed(() => graphState.data.value?.graph_command_surface || null)
 const graphLiveFrames = computed(() => graphState.data.value?.graph_live_frames || [])
@@ -267,13 +265,6 @@ function beginDrag(nodeId: string, event: PointerEvent) {
   window.addEventListener('pointerup', upHandler)
 }
 
-function toneClass(tone?: string) {
-  if (tone === 'risk' || tone === 'warning') return 'is-risk'
-  if (tone === 'success') return 'is-success'
-  if (tone === 'accent') return 'is-accent'
-  return 'is-default'
-}
-
 onMounted(async () => {
   await overviewState.execute(() => get('/workspace/companies'))
   selectedCompany.value =
@@ -314,9 +305,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
     <div class="graph-console">
       <section class="graph-header">
         <div class="graph-heading">
-          <span class="graph-kicker">沿主链继续追</span>
           <h1>图谱检索</h1>
-          <p>{{ selectedCompany || '选择公司' }} · {{ graphCommandSurface?.focus_label || '沿证据和风险链继续追下去' }}</p>
+          <p>{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
         </div>
 
         <div class="graph-controls">
@@ -339,10 +329,9 @@ watch(selectedPeriod, async () => { await loadGraph() })
 
       <section class="graph-query-strip">
           <div class="query-strip-main">
-            <div class="query-strip-icon">图</div>
             <div>
               <h2>{{ graphIntent }}</h2>
-              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '先看主链，再决定下一步沿哪一处证据继续追。' }}</p>
+              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '直接沿这条链继续追下去。' }}</p>
             </div>
           </div>
 
@@ -369,20 +358,8 @@ watch(selectedPeriod, async () => { await loadGraph() })
       <template v-else>
         <section class="graph-stage" ref="graphStageRef">
           <div class="stage-summary">
-            <span>当前主链</span>
             <strong>{{ currentFrame?.headline || graphCommandSurface?.title || '关键证据链路' }}</strong>
-            <p>{{ graphCommandSurface?.headline || '只留下这一轮真正相关的节点、链路和证据。' }}</p>
-          </div>
-
-          <div v-if="signalStream.length" class="stage-signal-row">
-            <span
-              v-for="item in signalStream.slice(0, 1)"
-              :key="`${item.label}-${item.value}`"
-              class="stage-signal"
-              :class="toneClass(item.tone)"
-            >
-              {{ item.label }} · {{ item.value }}
-            </span>
+            <p>{{ graphCommandSurface?.headline || '只留下这一轮最相关的节点和链路。' }}</p>
           </div>
 
           <svg class="graph-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -430,7 +407,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
           </button>
 
           <div v-if="selectedNode" class="selected-node-panel">
-            <span>{{ displayNodeType(selectedNode.type) }}</span>
             <strong>{{ selectedNode.label }}</strong>
             <p>{{ selectedNode.detail }}</p>
             <div v-if="pathEvidenceLinks.length" class="selected-node-links">
@@ -446,13 +422,13 @@ watch(selectedPeriod, async () => { await loadGraph() })
           </div>
 
           <div v-if="!graphCanvasNodes.length" class="stage-empty">
-            <p>输入检索意图后点击“开始检索”生成真实图谱。</p>
+            <p>输入问题后开始检索。</p>
           </div>
         </section>
 
         <section class="path-dock">
           <div class="path-dock-head">
-            <strong>沿这条主链继续往下看</strong>
+            <strong>继续看这三步</strong>
           </div>
 
           <div class="path-track">
@@ -463,7 +439,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
               :class="{ 'is-active': item.step === activePathId || idx <= activePathStep }"
               @click="activePathStep = idx"
             >
-              <em>{{ item.step }}</em>
               <strong>{{ item.title }}</strong>
               <p>{{ item.detail }}</p>
             </button>
@@ -500,20 +475,12 @@ watch(selectedPeriod, async () => { await loadGraph() })
   gap: 8px;
 }
 
-.graph-kicker,
 .graph-select span,
-.stage-summary span,
-.bottom-head span,
-.selected-node-panel span,
-.path-step em {
+.bottom-head span {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-}
-
-.graph-kicker {
-  color: rgba(96, 165, 250, 0.78);
 }
 
 .graph-heading h1,
@@ -553,9 +520,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .graph-select span,
-.path-step em,
-.bottom-head span,
-.selected-node-panel span {
+.bottom-head span {
   color: rgba(120, 143, 172, 0.84);
 }
 
@@ -591,25 +556,13 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .query-strip-main {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
 }
 
 .query-strip-main h2 {
   font-size: clamp(16px, 1.6vw, 18px);
   line-height: 1.12;
-}
-
-.query-strip-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  color: #60a5fa;
-  border: 1px solid rgba(96, 165, 250, 0.26);
-  background: rgba(27, 43, 108, 0.48);
-  font-weight: 700;
 }
 
 .graph-intent-dock {
@@ -668,7 +621,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
 }
 
 .stage-summary,
-.stage-signal-row,
 .selected-node-panel {
   position: absolute;
   z-index: 3;
@@ -679,7 +631,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   top: 18px;
   max-width: 248px;
   display: grid;
-  gap: 7px;
+  gap: 5px;
   padding: 10px 12px;
   border-radius: 16px;
   background: rgba(9, 11, 16, 0.82);
@@ -689,46 +641,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
 .stage-summary strong {
   font-size: 16px;
   line-height: 1.06;
-}
-
-.stage-signal-row {
-  right: 18px;
-  top: 18px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  max-width: 180px;
-}
-
-.stage-signal {
-  min-height: 34px;
-  padding: 0 12px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 12px;
-}
-
-.stage-signal.is-risk {
-  background: rgba(69, 10, 10, 0.76);
-  color: #fecaca;
-}
-
-.stage-signal.is-success {
-  background: rgba(6, 78, 59, 0.76);
-  color: #bbf7d0;
-}
-
-.stage-signal.is-accent {
-  background: rgba(8, 47, 73, 0.62);
-  color: #bfdbfe;
-}
-
-.stage-signal.is-default {
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(203, 213, 225, 0.9);
 }
 
 .selected-node-panel {
@@ -961,7 +873,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
   text-align: left;
   cursor: pointer;
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .path-step strong {
@@ -1005,7 +917,6 @@ watch(selectedPeriod, async () => { await loadGraph() })
   }
 
   .stage-summary,
-  .stage-signal-row,
   .selected-node-panel {
     position: static;
     margin: 16px;
