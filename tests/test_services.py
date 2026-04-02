@@ -617,8 +617,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
                     self.silver_data_path = root / "silver" / "official"
                     self.gold_data_path = root / "gold" / "official"
 
-            with patch("opspilot.application.services.KafkaConsumer", FakeKafkaConsumer), patch(
-                "opspilot.application.services.TopicPartition",
+            with patch("opspilot.application.industry_signals.KafkaConsumer", FakeKafkaConsumer), patch(
+                "opspilot.application.industry_signals.TopicPartition",
                 FakeTopicPartition,
             ):
                 service = OpsPilotService(StubRepository(), StubSettings())
@@ -3550,8 +3550,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             for prefix in ("raw", "bronze", "silver", "gold"):
                 (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
 
-            with patch("opspilot.application.services.KafkaConsumer", FakeKafkaConsumer), patch(
-                "opspilot.application.services.TopicPartition",
+            with patch("opspilot.application.industry_signals.KafkaConsumer", FakeKafkaConsumer), patch(
+                "opspilot.application.industry_signals.TopicPartition",
                 FakeTopicPartition,
             ):
                 service = OpsPilotService(StubRepository(), StubSettings(root))
