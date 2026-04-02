@@ -42,7 +42,7 @@ const selectedResult = computed(() => visionState.data.value?.result || runtimeS
 const analysisLog = computed(() => selectedResult.value?.analysis_log || [])
 const qualitySummary = computed(() => selectedResult.value?.quality_summary || null)
 const qualityMetrics = computed(() => qualitySummary.value?.metrics?.slice(0, 2) || [])
-const qualityBlockers = computed(() => qualitySummary.value?.blockers?.slice(0, 1) || [])
+const qualityBlockers = computed(() => qualitySummary.value?.blockers?.slice(0, 2) || [])
 const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 2))
 const visibleAnalysisLog = computed(() => analysisLog.value.slice(0, 3))
 const visibleSections = computed(() => selectedResult.value?.sections?.slice(0, 3) || [])
@@ -98,15 +98,6 @@ function qualityTone(status?: string): 'default' | 'risk' | 'success' {
   if (status === 'ready') return 'success'
   if (status === 'blocked') return 'risk'
   return 'default'
-}
-
-function displayQualityStatus(status?: string) {
-  const map: Record<string, string> = {
-    ready: '已达标',
-    warning: '需补强',
-    blocked: '待补齐',
-  }
-  return map[status || ''] || status || '-'
 }
 
 async function loadVision() {
@@ -188,36 +179,21 @@ watch(
 
 <template>
   <AppShell title="">
-    <div class="vision-page">
+    <div class="page-shell">
       <section class="glass-panel control-bar">
-        <div class="control-left">
-          <div class="glow-icon">文</div>
-          <div class="control-copy">
-            <span class="control-kicker">文档复核</span>
-            <h3 class="company-name text-gradient">{{ selectedCompany || '文档复核' }}</h3>
-            <p class="control-meta">{{ selectedPeriod || '选定公司后开始查看结果' }}</p>
-          </div>
+        <div class="control-copy">
+          <h1>{{ selectedCompany || '文档复核' }}</h1>
+          <p>{{ selectedPeriod || '选定公司后开始查看结果' }}</p>
         </div>
-
-        <div class="inline-context">
-          <label class="inline-field">
-            <span class="subtle-label">公司</span>
-            <select v-model="selectedCompany" class="glass-select">
-              <option v-for="c in companies" :key="c" :value="c">{{ c }}</option>
-            </select>
-          </label>
-          <label class="inline-field">
-            <span class="subtle-label">报期</span>
-            <select v-model="selectedPeriod" class="glass-select">
-              <option value="">默认主周期</option>
-              <option v-for="p in periodOptions" :key="p.value" :value="p.value">{{ p.label }}</option>
-            </select>
-          </label>
-          <button
-            class="button-primary glow-button"
-            :disabled="!canRunPipeline || pipelineRunning"
-            @click="runPipeline"
-          >
+        <div class="control-fields">
+          <select v-model="selectedCompany" class="glass-select">
+            <option v-for="c in companies" :key="c" :value="c">{{ c }}</option>
+          </select>
+          <select v-model="selectedPeriod" class="glass-select">
+            <option value="">默认主周期</option>
+            <option v-for="p in periodOptions" :key="p.value" :value="p.value">{{ p.label }}</option>
+          </select>
+          <button class="button-primary action-button" :disabled="!canRunPipeline || pipelineRunning" @click="runPipeline">
             {{ pipelineRunning ? '复核中…' : '重新复核' }}
           </button>
         </div>
@@ -230,537 +206,424 @@ watch(
         class="state-container"
       />
 
-      <div v-else class="vision-grid">
-        <aside class="vision-sidebar">
-          <article class="glass-panel sidebar-section">
-            <div class="section-headline">
-              <span class="section-kicker">当前结果</span>
+      <template v-else>
+        <section class="glass-panel summary-panel">
+          <div class="summary-head">
+            <div>
               <h2>{{ selectedResult?.headline || '等待当前结果' }}</h2>
-              <p class="muted">{{ runtimeSummary?.next_action || selectedResult?.status_label || '等待复核' }}</p>
+              <p>{{ runtimeSummary?.next_action || selectedResult?.status_label || '等待复核' }}</p>
             </div>
-
-            <div v-if="selectedResult" class="status-row">
+            <div class="status-row" v-if="selectedResult">
               <TagPill :label="selectedResult.status_label || '就绪'" tone="success" />
               <TagPill v-if="qualitySummary" :label="qualitySummary.label" :tone="qualityTone(qualitySummary.status)" />
             </div>
+          </div>
 
-            <p v-if="sourcePreviewText" class="context-copy">{{ sourcePreviewText }}</p>
-          </article>
+          <p v-if="sourcePreviewText" class="summary-copy">{{ sourcePreviewText }}</p>
 
-          <article v-if="qualitySummary" class="glass-panel sidebar-section">
-            <div class="section-headline">
-              <span class="section-kicker">先看质量</span>
-              <h3>这次能不能直接用</h3>
-            </div>
-            <p class="context-copy"><strong>{{ qualitySummary.headline }}</strong></p>
-            <p class="muted">{{ qualitySummary.summary }}</p>
-
-            <div class="metric-strip">
-              <div v-for="item in qualityMetrics" :key="`${item.label}-${item.value}`" class="metric-pill">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </div>
-
-            <div v-if="qualityBlockers.length" class="blocker-list">
-              <div v-for="item in qualityBlockers" :key="item.title" class="blocker-row">
-                <strong>{{ item.title }}</strong>
-                <p class="muted">{{ item.detail }}</p>
-              </div>
-            </div>
-          </article>
-
-          <article v-if="recentRuns.length" class="glass-panel sidebar-section">
-            <div class="section-headline">
-              <span class="section-kicker">最近结果</span>
-              <h3>最近两次复核</h3>
-            </div>
-            <div class="run-list">
-              <div v-for="item in recentRuns" :key="item.run_id" class="run-row" @click="openVisionRun(item.run_id)">
-                <div class="run-row-head">
-                  <strong>{{ item.company_name }}</strong>
-                  <TagPill :label="item.status_label || displayJobStatus(item.status) || '已完成'" tone="success" />
+          <div class="summary-grid">
+            <div v-if="qualitySummary" class="summary-card">
+              <strong>{{ qualitySummary.headline }}</strong>
+              <p>{{ qualitySummary.summary }}</p>
+              <div class="metric-row">
+                <div v-for="item in qualityMetrics" :key="`${item.label}-${item.value}`" class="metric-card">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
                 </div>
-                <p class="muted">{{ item.headline || item.status_label || '-' }}</p>
+              </div>
+              <div v-if="qualityBlockers.length" class="blocker-list">
+                <div v-for="item in qualityBlockers" :key="item.title" class="blocker-item">
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.detail }}</p>
+                </div>
               </div>
             </div>
-          </article>
-        </aside>
 
-        <section class="vision-main">
-          <article v-if="activeJob" class="glass-panel main-section">
-            <div class="section-headline">
-              <span class="section-kicker">当前产物</span>
-              <h3>现在能直接看什么</h3>
+            <div v-if="recentRuns.length" class="summary-card">
+              <strong>最近两次复核</strong>
+              <div class="run-list">
+                <div v-for="item in recentRuns" :key="item.run_id" class="run-item" @click="openVisionRun(item.run_id)">
+                  <div class="run-item-head">
+                    <span>{{ item.company_name }}</span>
+                    <TagPill :label="item.status_label || displayJobStatus(item.status) || '已完成'" tone="success" />
+                  </div>
+                  <p>{{ item.headline || item.status_label || '-' }}</p>
+                </div>
+              </div>
             </div>
-            <div class="artifact-strip">
-              <div class="artifact-pill">
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <article v-if="activeJob" class="glass-panel side-section">
+            <h3>现在能直接看什么</h3>
+            <div class="artifact-list">
+              <div class="artifact-item">
                 <span>环节</span>
                 <strong>{{ displayPipelineStage(activeJob.stage) }}</strong>
               </div>
-              <div class="artifact-pill">
+              <div class="artifact-item">
                 <span>原文</span>
                 <strong>{{ activeJob.report_id }}</strong>
               </div>
-              <div class="artifact-pill">
+              <div class="artifact-item">
                 <span>状态</span>
                 <strong>{{ displayJobStatus(activeJob.status) }}</strong>
               </div>
             </div>
-            <p class="context-copy">{{ activeJob.artifact_summary || '当前产物尚无结构摘要。' }}</p>
+            <p class="side-copy">{{ activeJob.artifact_summary || '当前产物尚无结构摘要。' }}</p>
           </article>
 
-          <article v-if="analysisLog.length" class="glass-panel main-section">
-            <div class="section-headline">
-              <span class="section-kicker">提炼结果</span>
-              <h3>这次提炼出了什么</h3>
+          <article class="glass-panel main-section">
+            <div class="main-head">
+              <div>
+                <h3>这次提炼出了什么</h3>
+                <p>先看结果，再顺着页块和原文继续往下追。</p>
+              </div>
             </div>
-            <div class="flow-list">
-              <div v-for="item in visibleAnalysisLog" :key="`log-${item.step}`" class="flow-row">
+
+            <div v-if="analysisLog.length" class="flow-list">
+              <div v-for="item in visibleAnalysisLog" :key="`log-${item.step}`" class="flow-item">
                 <div class="flow-step">{{ item.step }}</div>
                 <div class="flow-body">
                   <strong>{{ item.title }}</strong>
-                  <p class="muted">{{ item.detail }}</p>
+                  <p>{{ item.detail }}</p>
                 </div>
               </div>
             </div>
-          </article>
 
-          <article v-if="visibleSections.length" class="glass-panel main-section">
-            <div class="section-headline">
-              <span class="section-kicker">页块结果</span>
-              <h3>这次抽出来的页块</h3>
-            </div>
-            <div class="result-list">
-              <div v-for="section in visibleSections" :key="section.section_type" class="result-row">
-                <div class="result-row-head">
+            <div v-else-if="visibleSections.length" class="result-list">
+              <div v-for="section in visibleSections" :key="section.section_type" class="result-item">
+                <div class="result-item-head">
                   <strong>{{ section.title }}</strong>
-                  <span class="muted">{{ section.count }} 条</span>
+                  <span>{{ section.count }} 条</span>
                 </div>
                 <div class="result-sublist">
                   <div v-for="it in section.items.slice(0, 3)" :key="JSON.stringify(it)" class="result-subrow">
                     <span>{{ it.text || it.title || it.reason || '条目' }}</span>
-                    <span class="muted">P{{ it.page || it.to_page || '-' }}</span>
+                    <span>P{{ it.page || it.to_page || '-' }}</span>
                   </div>
                 </div>
               </div>
             </div>
-          </article>
 
-          <article v-else-if="visibleResultItems.length" class="glass-panel main-section">
-            <div class="section-headline">
-              <span class="section-kicker">提取条目</span>
-              <h3>这次抽出来了什么</h3>
-            </div>
-            <div class="result-list">
-              <div v-for="item in visibleResultItems" :key="`${item.kind}-${item.title}`" class="result-row">
+            <div v-else-if="visibleResultItems.length" class="result-list">
+              <div v-for="item in visibleResultItems" :key="`${item.kind}-${item.title}`" class="result-item">
                 <strong>{{ item.title }}</strong>
-                <p class="muted">{{ item.summary }}</p>
+                <p>{{ item.summary }}</p>
+              </div>
+            </div>
+
+            <div v-if="selectedResult?.evidence_navigation?.links?.length" class="evidence-block">
+              <h4>回到原文</h4>
+              <div class="evidence-links">
+                <RouterLink
+                  v-for="link in selectedResult.evidence_navigation.links"
+                  :key="link.label + link.path"
+                  class="inline-link"
+                  :to="{ path: link.path, query: link.query || {} }"
+                >
+                  {{ link.label }}
+                </RouterLink>
               </div>
             </div>
           </article>
-
-          <article v-if="selectedResult?.evidence_navigation?.links?.length" class="glass-panel main-section">
-            <div class="section-headline">
-              <span class="section-kicker">回到原文</span>
-              <h3>继续顺着原文和页块往下看</h3>
-            </div>
-            <div class="evidence-links">
-              <RouterLink
-                v-for="link in selectedResult.evidence_navigation.links"
-                :key="link.label + link.path"
-                class="inline-glass-link"
-                :to="{ path: link.path, query: link.query || {} }"
-              >
-                {{ link.label }}
-              </RouterLink>
-            </div>
-          </article>
-
-          <article v-if="!selectedResult && !activeJob" class="glass-panel empty-panel">
-            <div class="empty-content">
-              <h3 class="text-gradient">等待文档结果</h3>
-              <p class="muted">选择公司后点击「重新复核」，直接回看原文和表格。</p>
-            </div>
-          </article>
         </section>
-      </div>
+
+        <section v-if="!selectedResult && !activeJob" class="glass-panel empty-panel">
+          <div class="empty-content">
+            <h2>等待文档结果</h2>
+            <p>选择公司后点击「重新复核」，直接回看原文和表格。</p>
+          </div>
+        </section>
+      </template>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-.vision-page {
+.page-shell {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  height: 100%;
+  gap: 20px;
   width: 100%;
-  max-width: 1280px;
+  max-width: 1320px;
   margin: 0 auto;
-  overflow: hidden;
 }
 
 .control-bar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  border-radius: 16px;
-  flex-shrink: 0;
-}
-
-.control-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.control-copy {
-  display: grid;
-  gap: 4px;
-}
-
-.glow-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: rgba(168, 85, 247, 0.15);
-  border: 1px solid rgba(168, 85, 247, 0.4);
-  color: #c084fc;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.control-kicker {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.company-name {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.text-gradient {
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-image: linear-gradient(to right, #a855f7, #60a5fa);
-}
-
-.control-meta {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.inline-context {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.inline-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.subtle-label {
-  font-size: 12px;
-  color: var(--muted);
-  text-transform: uppercase;
-}
-
-.glass-select {
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
-}
-
-.glow-button {
-  min-height: 36px;
-  border-radius: 10px;
-}
-
-.glow-button:disabled {
-  opacity: 0.56;
-  cursor: not-allowed;
-}
-
-.state-container {
-  flex: 1;
-}
-
-.vision-grid {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 16px;
-  min-height: 0;
-  flex: 1;
-}
-
-.vision-sidebar,
-.vision-main {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.vision-sidebar {
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.vision-sidebar::-webkit-scrollbar {
-  width: 4px;
-}
-
-.vision-sidebar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-}
-
-.sidebar-section,
-.main-section {
-  padding: 18px;
+  gap: 24px;
+  padding: 18px 20px;
   border-radius: 20px;
 }
 
-.section-headline {
+.control-copy,
+.summary-head > div,
+.main-head > div {
   display: grid;
   gap: 6px;
 }
 
-.section-kicker {
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.section-headline h2,
-.section-headline h3 {
+.control-copy h1,
+.summary-head h2,
+.side-section h3,
+.main-head h3,
+.empty-content h2 {
   margin: 0;
-  font-size: 18px;
-  line-height: 1.28;
   color: #f8fafc;
 }
 
+.control-copy h1 {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.control-copy p,
+.summary-head p,
+.main-head p,
+.summary-copy,
+.side-copy,
+.run-item p,
+.blocker-item p,
+.flow-body p,
+.result-item p,
+.empty-content p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.control-fields {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.glass-select {
+  min-width: 160px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+}
+
+.action-button {
+  min-height: 40px;
+  border-radius: 12px;
+}
+
+.state-container {
+  min-height: 420px;
+}
+
+.summary-panel,
+.side-section,
+.main-section,
+.empty-panel {
+  padding: 24px;
+  border-radius: 24px;
+}
+
+.summary-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
 .status-row,
-.context-links,
 .evidence-links {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.context-copy,
-.muted {
-  color: var(--muted);
-}
-
-.context-copy {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.metric-strip,
-.artifact-strip {
+.summary-grid,
+.content-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 20px;
+  margin-top: 18px;
 }
 
-.metric-pill,
-.artifact-pill {
+.summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.content-grid {
+  grid-template-columns: 360px minmax(0, 1fr);
+}
+
+.summary-card,
+.artifact-item {
   display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  gap: 10px;
+}
+
+.summary-card strong,
+.artifact-item strong,
+.flow-body strong,
+.result-item strong,
+.blocker-item strong,
+.run-item-head span {
+  color: #f8fafc;
+}
+
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metric-card,
+.artifact-item {
+  padding: 16px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.metric-pill span,
-.artifact-pill span {
-  font-size: 11px;
+.metric-card span,
+.artifact-item span,
+.result-item-head span,
+.result-subrow span:last-child {
   color: var(--muted);
 }
 
-.metric-pill strong,
-.artifact-pill strong {
-  font-size: 15px;
+.metric-card strong {
+  font-size: 20px;
   color: #f8fafc;
 }
 
 .blocker-list,
 .run-list,
+.artifact-list,
 .flow-list,
 .result-list {
   display: grid;
-  gap: 10px;
+  gap: 14px;
 }
 
-.blocker-row,
-.run-row,
-.flow-row,
-.result-row {
-  padding-top: 10px;
+.blocker-item,
+.run-item,
+.flow-item,
+.result-item {
+  padding-top: 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.blocker-row strong,
-.run-row-head strong,
-.flow-body strong,
-.result-row strong {
-  color: #f8fafc;
+.blocker-item:first-child,
+.run-item:first-child,
+.flow-item:first-child,
+.result-item:first-child {
+  padding-top: 0;
+  border-top: none;
 }
 
-.blocker-row p,
-.run-row p,
-.flow-body p,
-.result-row p {
-  margin: 4px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.run-row {
+.run-item {
   cursor: pointer;
 }
 
-.run-row-head {
+.run-item-head,
+.result-item-head,
+.result-subrow {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-}
-
-.vision-main {
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.vision-main::-webkit-scrollbar {
-  width: 4px;
-}
-
-.vision-main::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-}
-
-.flow-row {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
   gap: 12px;
   align-items: flex-start;
 }
 
+.flow-item {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 16px;
+}
+
 .flow-step {
-  width: 32px;
-  height: 32px;
-  border-radius: 12px;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
   display: grid;
   place-items: center;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #c084fc;
   background: rgba(168, 85, 247, 0.12);
   border: 1px solid rgba(168, 85, 247, 0.28);
 }
 
-.result-row-head,
-.result-subrow {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-}
-
 .result-sublist {
   display: grid;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
-.result-subrow {
-  font-size: 12px;
+.evidence-block {
+  display: grid;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.inline-glass-link {
-  padding: 6px 12px;
+.evidence-block h4 {
+  margin: 0;
+  color: #f8fafc;
+}
+
+.inline-link {
+  padding: 7px 14px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.04);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-decoration: none;
   transition: all 0.2s ease;
 }
 
-.inline-glass-link:hover {
+.inline-link:hover {
   color: #c084fc;
   background: rgba(168, 85, 247, 0.1);
   border-color: rgba(168, 85, 247, 0.3);
 }
 
 .empty-panel {
+  min-height: 360px;
   display: grid;
   place-items: center;
-  flex: 1;
-  border-radius: 20px;
 }
 
 .empty-content {
   text-align: center;
   display: grid;
-  gap: 8px;
-}
-
-.empty-content h3 {
-  margin: 0;
+  gap: 10px;
 }
 
 @media (max-width: 1180px) {
-  .vision-grid {
+  .summary-grid,
+  .content-grid {
     grid-template-columns: 1fr;
-  }
-
-  .vision-sidebar,
-  .vision-main {
-    overflow: visible;
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 960px) {
   .control-bar,
-  .inline-context {
+  .control-fields,
+  .summary-head {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .inline-field,
   .glass-select {
     width: 100%;
+    min-width: 0;
   }
 
-  .metric-strip,
-  .artifact-strip {
+  .metric-row {
     grid-template-columns: 1fr;
   }
 }

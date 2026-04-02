@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
-import ChartPanel from '@/components/ChartPanel.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import TagPill from '@/components/TagPill.vue'
@@ -20,7 +19,6 @@ const state = useAsyncState<any>()
 const route = useRoute()
 const syncingFromRoute = ref(false)
 const verifyCommandSurface = ref<any | null>(null)
-const verifyDeltaTape = ref<any[]>([])
 const availablePeriods = ref<any[]>([])
 const reportStatusMessage = ref('')
 const reportCatalogReady = ref(false)
@@ -30,8 +28,6 @@ const verifyDominantSignal = computed(() => verifyCommandSurface.value?.dominant
 const verifyPrimaryClaims = computed(() => state.data.value?.claim_cards?.slice(0, 4) || [])
 const verifyPrimaryInsights = computed(() => state.data.value?.research_compare?.insights?.slice(0, 3) || [])
 const verifyCompareRows = computed(() => state.data.value?.research_compare?.rows?.slice(0, 3) || [])
-const verifyCharts = computed(() => state.data.value?.charts?.slice(0, 1) || state.data.value?.research_compare?.charts?.slice(0, 1) || [])
-const verifyDeltaItems = computed(() => verifyDeltaTape.value.slice(0, 2))
 
 const periodOptions = computed(() =>
   (availablePeriods.value || [])
@@ -117,7 +113,6 @@ async function loadVerify() {
     }),
   )
   verifyCommandSurface.value = state.data.value?.verify_command_surface || null
-  verifyDeltaTape.value = state.data.value?.verify_delta_tape || []
 }
 
 function applyQuerySelection() {
@@ -195,38 +190,24 @@ watch(
 
 <template>
   <AppShell title="">
-    <div class="verify-page">
+    <div class="page-shell">
       <section class="glass-panel control-bar">
-        <div class="control-left">
-          <div class="glow-icon">核</div>
-          <div class="control-copy">
-            <span class="control-kicker">观点核对</span>
-            <h3 class="company-name text-gradient">{{ selectedCompany || '观点核验' }}</h3>
-            <p class="control-meta">{{ selectedReportTitle || '选择一篇研报开始核对' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
-          </div>
+        <div class="control-copy">
+          <h1>{{ selectedCompany || '观点核验' }}</h1>
+          <p>{{ selectedReportTitle || '选一篇研报，直接和财报原文对照。' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
         </div>
-
-        <div class="inline-context">
-          <label class="inline-field">
-            <span class="subtle-label">公司</span>
-            <select v-model="selectedCompany" class="glass-select">
-              <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-            </select>
-          </label>
-          <label class="inline-field">
-            <span class="subtle-label">报期</span>
-            <select v-model="selectedPeriod" class="glass-select">
-              <option value="">默认主周期</option>
-              <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
-            </select>
-          </label>
-          <label class="inline-field">
-            <span class="subtle-label">研报</span>
-            <select v-model="selectedReportTitle" class="glass-select report-select">
-              <option v-for="report in reports" :key="report.title" :value="report.title">{{ report.title }} | {{ report.publish_date }}</option>
-            </select>
-          </label>
-          <button class="button-primary glow-button" @click="loadVerify">重新核对</button>
+        <div class="control-fields">
+          <select v-model="selectedCompany" class="glass-select">
+            <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+          </select>
+          <select v-model="selectedPeriod" class="glass-select">
+            <option value="">默认主周期</option>
+            <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
+          </select>
+          <select v-model="selectedReportTitle" class="glass-select report-select">
+            <option v-for="report in reports" :key="report.title" :value="report.title">{{ report.title }} | {{ report.publish_date }}</option>
+          </select>
+          <button class="button-primary action-button" @click="loadVerify">重新核对</button>
         </div>
       </section>
 
@@ -235,57 +216,30 @@ watch(
 
       <section v-else-if="!selectedCompany" class="glass-panel empty-panel">
         <div class="empty-content">
-          <h3 class="text-gradient">公司池为空</h3>
-          <p class="muted">当前环境还没有可核对的企业，请先完成正式公司池和研报数据接入。</p>
+          <h2>公司池为空</h2>
+          <p>当前环境还没有可核对的企业，请先完成正式公司池和研报数据接入。</p>
         </div>
       </section>
 
       <section v-else-if="reportCatalogReady && reports.length === 0" class="glass-panel empty-panel">
         <div class="empty-content">
-          <h3 class="text-gradient">研报缺失</h3>
-          <p class="muted">{{ reportStatusMessage || '当前公司没有可供核对的研报。' }}</p>
+          <h2>研报缺失</h2>
+          <p>{{ reportStatusMessage || '当前公司没有可供核对的研报。' }}</p>
         </div>
       </section>
 
-      <div v-else-if="state.data.value" class="verify-grid">
-        <aside class="verify-sidebar">
-          <article class="glass-panel sidebar-section">
-            <div class="section-headline">
-              <span class="section-kicker">当前研报</span>
+      <template v-else-if="state.data.value">
+        <section class="glass-panel summary-panel">
+          <div class="summary-head">
+            <div>
               <h2>{{ state.data.value.report_meta.title }}</h2>
-              <p class="muted">{{ state.data.value.report_meta.publish_date }} · {{ state.data.value.report_meta.source_name }}</p>
+              <p>{{ state.data.value.report_meta.publish_date }} · {{ state.data.value.report_meta.source_name }}</p>
             </div>
-
-            <div v-if="verifyCommandSurface" class="metric-strip">
-              <div class="metric-pill">
-                <span>核验度</span>
-                <strong>{{ verifyCommandSurface.metric }}</strong>
-              </div>
-              <div class="metric-pill">
-                <span>核对条目</span>
-                <strong>{{ state.data.value.claim_cards.length }} 项</strong>
-              </div>
-              <div class="metric-pill">
-                <span>有分歧</span>
-                <strong class="risk-text">{{ state.data.value.key_numbers[1].value }}</strong>
-              </div>
-            </div>
-
-            <p v-if="verifyCommandSurface?.headline" class="context-copy">{{ verifyCommandSurface.headline }}</p>
-            <p v-if="verifyDominantSignal" class="context-copy muted">当前先看：{{ verifyDominantSignal.value }}</p>
-
-            <div v-if="verifyWatchItems.length" class="watch-lines">
-              <div v-for="item in verifyWatchItems" :key="item.label" class="watch-line">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </div>
-
-            <div class="context-links">
-              <a class="inline-glass-link" :href="state.data.value.report_meta.source_url" target="_blank" rel="noreferrer">查看原文</a>
+            <div class="summary-links">
+              <a class="inline-link" :href="state.data.value.report_meta.source_url" target="_blank" rel="noreferrer">查看原文</a>
               <a
                 v-if="state.data.value.report_meta.attachment_url"
-                class="inline-glass-link"
+                class="inline-link"
                 :href="state.data.value.report_meta.attachment_url"
                 target="_blank"
                 rel="noreferrer"
@@ -293,89 +247,94 @@ watch(
                 原文附件
               </a>
             </div>
-          </article>
+          </div>
 
-          <article class="glass-panel sidebar-section">
-            <div class="section-headline">
-              <span class="section-kicker">先看分歧</span>
-              <h3>这一轮先核哪几处</h3>
+          <div class="metric-row" v-if="verifyCommandSurface">
+            <div class="metric-card">
+              <span>核验度</span>
+              <strong>{{ verifyCommandSurface.metric }}</strong>
             </div>
-            <div v-if="verifyPrimaryInsights.length" class="simple-list">
-              <div v-for="insight in verifyPrimaryInsights" :key="insight.title" class="simple-row">
+            <div class="metric-card">
+              <span>核对条目</span>
+              <strong>{{ state.data.value.claim_cards.length }} 项</strong>
+            </div>
+            <div class="metric-card">
+              <span>有分歧</span>
+              <strong class="risk-text">{{ state.data.value.key_numbers[1].value }}</strong>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <div class="summary-copy">
+              <strong>{{ verifyCommandSurface?.headline || '先把这篇研报的主要说法和财报原文放在一起看。' }}</strong>
+              <p v-if="verifyDominantSignal">{{ verifyDominantSignal.value }}</p>
+            </div>
+            <div v-if="verifyWatchItems.length" class="watch-list">
+              <div v-for="item in verifyWatchItems" :key="item.label" class="watch-item">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <article class="glass-panel side-section">
+            <h3>先看哪几处不一致</h3>
+            <div v-if="verifyPrimaryInsights.length" class="insight-list">
+              <div v-for="insight in verifyPrimaryInsights" :key="insight.title" class="insight-item">
                 <strong>{{ insight.title }}</strong>
-                <p class="muted">{{ insight.detail || '这条说法需要回到财报原文继续核对。' }}</p>
+                <p>{{ insight.detail || '这条说法需要回到财报原文继续核对。' }}</p>
               </div>
             </div>
-            <p v-else class="muted">这篇研报暂时没有明显分歧，继续逐条回看关键数据即可。</p>
-          </article>
+            <p v-else class="muted-copy">这篇研报暂时没有明显分歧，继续逐条回看关键数据即可。</p>
 
-          <article v-if="verifyCompareRows.length" class="glass-panel sidebar-section">
-            <div class="section-headline">
-              <span class="section-kicker">同类研报</span>
-              <h3>最近还可以顺手看哪几篇</h3>
-            </div>
-            <div class="report-list">
-              <div v-for="row in verifyCompareRows" :key="row.title + row.publish_date" class="report-row">
-                <div class="report-row-head">
-                  <strong>{{ row.source_name }}</strong>
-                  <span class="muted">{{ row.publish_date }}</span>
-                </div>
+            <div v-if="verifyCompareRows.length" class="related-list">
+              <h4>最近还可以顺手看哪几篇</h4>
+              <div v-for="row in verifyCompareRows" :key="row.title + row.publish_date" class="related-item">
+                <strong>{{ row.source_name }}</strong>
                 <p>{{ row.title }}</p>
-                <div class="report-row-meta muted">
-                  <span>评级 {{ row.rating_text }}</span>
-                  <span>目标价 {{ row.target_price ?? '--' }}</span>
-                </div>
+                <span>{{ row.publish_date }} · 评级 {{ row.rating_text }} · 目标价 {{ row.target_price ?? '--' }}</span>
               </div>
             </div>
           </article>
-        </aside>
 
-        <section class="verify-main">
-          <article v-if="verifyCharts.length" class="glass-panel verify-chart">
-            <ChartPanel :title="verifyCharts[0].title" :options="verifyCharts[0].options" />
-          </article>
-
-          <article class="glass-panel verify-claims">
-            <div class="section-headline claim-header">
+          <article class="glass-panel main-section">
+            <div class="main-head">
               <div>
-                <span class="section-kicker">逐条对照</span>
-                <h3>把研报写法和财报原文一条条放在一起看</h3>
-              </div>
-              <div v-if="verifyDeltaItems.length" class="delta-inline">
-                <span>{{ verifyDeltaItems[0].label }}</span>
-                <strong>{{ verifyDeltaItems[0].value }}</strong>
+                <h3>逐条对照</h3>
+                <p>把研报写法和财报原文放在一起看，顺着出处继续追。</p>
               </div>
             </div>
 
             <div class="claim-list">
-              <article v-for="(card, idx) in verifyPrimaryClaims" :key="card.claim_id" class="claim-row">
-                <div class="claim-row-head">
+              <article v-for="(card, idx) in verifyPrimaryClaims" :key="card.claim_id" class="claim-item">
+                <div class="claim-top">
                   <div class="claim-index">{{ String(idx + 1).padStart(2, '0') }}</div>
-                  <div class="claim-title-block">
+                  <div class="claim-title">
                     <strong>{{ card.label }}</strong>
-                    <span class="muted">{{ displayClaimStatus(card.status) }}</span>
+                    <span>{{ displayClaimStatus(card.status) }}</span>
                   </div>
                   <TagPill :label="displayClaimStatus(card.status)" :tone="claimTone(card.status)" />
                 </div>
 
                 <div class="claim-compare">
                   <div class="claim-col">
-                    <span class="muted">研报写法</span>
-                    <strong class="text-accent">{{ card.claimed_value }}</strong>
+                    <span>研报写法</span>
+                    <strong class="accent-text">{{ card.claimed_value }}</strong>
                   </div>
-                  <div class="claim-divider">对照</div>
-                  <div class="claim-col align-right">
-                    <span class="muted">财报原文</span>
-                    <strong :class="card.status === 'match' ? 'text-accent' : 'risk-text'">{{ card.actual_value }}</strong>
+                  <div class="claim-col">
+                    <span>财报原文</span>
+                    <strong :class="card.status === 'match' ? 'accent-text' : 'risk-text'">{{ card.actual_value }}</strong>
                   </div>
                 </div>
 
                 <div class="claim-links">
-                  <RouterLink class="inline-glass-link" :to="buildEvidenceLink(card.research_chunk_id, card.label, [card.label])">研报原文</RouterLink>
+                  <RouterLink class="inline-link" :to="buildEvidenceLink(card.research_chunk_id, card.label, [card.label])">研报原文</RouterLink>
                   <RouterLink
                     v-for="item in card.evidence_refs"
                     :key="item"
-                    class="inline-glass-link"
+                    class="inline-link"
                     :to="buildEvidenceLink(item, card.label, [card.label])"
                   >
                     财报出处
@@ -385,498 +344,364 @@ watch(
             </div>
           </article>
         </section>
-      </div>
+      </template>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-.verify-page {
+.page-shell {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  height: 100%;
+  gap: 20px;
   width: 100%;
-  max-width: 1280px;
+  max-width: 1320px;
   margin: 0 auto;
-  overflow: hidden;
 }
 
 .control-bar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  border-radius: 16px;
-  flex-shrink: 0;
-}
-
-.control-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+  gap: 24px;
+  padding: 18px 20px;
+  border-radius: 20px;
 }
 
 .control-copy {
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
-.glow-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.38);
-  color: #60a5fa;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.control-kicker {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.company-name {
+.control-copy h1,
+.summary-head h2,
+.side-section h3,
+.main-head h3,
+.empty-content h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+  color: #f8fafc;
 }
 
-.control-meta {
+.control-copy h1 {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.control-copy p,
+.summary-head p,
+.main-head p,
+.muted-copy,
+.empty-content p {
   margin: 0;
-  font-size: 12px;
   color: var(--muted);
+  line-height: 1.6;
 }
 
-.text-gradient {
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-image: linear-gradient(to right, #60a5fa, #34d399);
-}
-
-.inline-context {
+.control-fields {
   display: flex;
+  gap: 12px;
   align-items: center;
-  gap: 16px;
   flex-wrap: wrap;
 }
 
-.inline-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.subtle-label {
-  font-size: 12px;
-  color: var(--muted);
-  text-transform: uppercase;
-}
-
 .glass-select {
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
+  min-width: 148px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
   color: #fff;
 }
 
 .report-select {
-  max-width: 320px;
+  min-width: 320px;
 }
 
-.glow-button {
-  min-height: 36px;
-  border-radius: 10px;
+.action-button {
+  min-height: 40px;
+  border-radius: 12px;
 }
 
 .state-container {
-  flex: 1;
+  min-height: 420px;
 }
 
 .empty-panel {
+  min-height: 360px;
   display: grid;
   place-items: center;
-  flex: 1;
-  border-radius: 20px;
+  border-radius: 24px;
 }
 
 .empty-content {
   text-align: center;
   display: grid;
-  gap: 8px;
-}
-
-.empty-content h3 {
-  margin: 0;
-}
-
-.verify-grid {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 16px;
-  min-height: 0;
-  flex: 1;
-}
-
-.verify-sidebar,
-.verify-main {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.verify-sidebar {
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.verify-sidebar::-webkit-scrollbar,
-.claim-list::-webkit-scrollbar {
-  width: 4px;
-}
-
-.verify-sidebar::-webkit-scrollbar-thumb,
-.claim-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-}
-
-.sidebar-section,
-.verify-chart,
-.verify-claims {
-  padding: 18px;
-  border-radius: 20px;
-}
-
-.section-headline {
-  display: grid;
-  gap: 6px;
-}
-
-.section-kicker {
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.section-headline h2,
-.section-headline h3 {
-  margin: 0;
-  font-size: 18px;
-  line-height: 1.28;
-  color: #f8fafc;
-}
-
-.section-headline p,
-.muted {
-  color: var(--muted);
-}
-
-.metric-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.metric-pill {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.metric-pill span {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.metric-pill strong {
-  font-size: 15px;
-  color: #f8fafc;
-}
-
-.text-accent {
-  color: #10b981;
-}
-
-.risk-text {
-  color: #fb7185;
-}
-
-.context-copy {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.watch-lines,
-.simple-list,
-.report-list {
-  display: grid;
   gap: 10px;
 }
 
-.watch-line,
-.simple-row,
-.report-row {
-  padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+.summary-panel,
+.side-section,
+.main-section {
+  padding: 24px;
+  border-radius: 24px;
 }
 
-.watch-line {
+.summary-head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-}
-
-.watch-line span {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.watch-line strong,
-.simple-row strong,
-.report-row-head strong {
-  color: #f8fafc;
-}
-
-.simple-row p,
-.report-row p {
-  margin: 4px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.report-row-head,
-.report-row-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
   align-items: flex-start;
 }
 
-.report-row-meta {
-  margin-top: 8px;
-  font-size: 12px;
-}
-
-.context-links,
+.summary-links,
 .claim-links {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.verify-main {
-  overflow: hidden;
-}
-
-.verify-chart {
-  flex: 0 0 244px;
-  min-height: 0;
-}
-
-:deep(.chart-panel) {
-  padding: 0;
-  background: transparent !important;
-  border: none !important;
-}
-
-:deep(.chart-root) {
-  min-height: 198px !important;
-}
-
-.verify-claims {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.claim-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-.delta-inline {
-  display: grid;
-  gap: 2px;
-  text-align: right;
-}
-
-.delta-inline span {
-  font-size: 11px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-
-.delta-inline strong {
-  font-size: 14px;
-  color: #f8fafc;
-}
-
-.claim-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.claim-row {
-  display: grid;
-  gap: 14px;
-  padding: 16px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.claim-row:first-child {
-  padding-top: 0;
-  border-top: none;
-}
-
-.claim-row-head {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-}
-
-.claim-index {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.claim-title-block {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.claim-title-block strong {
-  color: #f8fafc;
-  line-height: 1.45;
-}
-
-.claim-compare {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 16px;
-  align-items: center;
-  padding: 14px 16px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.claim-col {
-  display: grid;
-  gap: 6px;
-}
-
-.claim-col strong {
-  font-size: 16px;
-  color: #f8fafc;
-  word-break: break-word;
-}
-
-.claim-divider {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.24);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-}
-
-.align-right {
-  text-align: right;
-}
-
-.inline-glass-link {
-  padding: 6px 12px;
+.inline-link {
+  padding: 7px 14px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.04);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-decoration: none;
   transition: all 0.2s ease;
 }
 
-.inline-glass-link:hover {
+.inline-link:hover {
   color: #60a5fa;
   background: rgba(59, 130, 246, 0.1);
   border-color: rgba(59, 130, 246, 0.28);
 }
 
-@media (max-width: 1180px) {
-  .verify-grid {
-    grid-template-columns: 1fr;
-  }
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
 
-  .verify-sidebar,
-  .verify-main {
-    overflow: visible;
+.metric-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.metric-card span,
+.claim-col span,
+.watch-item span,
+.claim-title span,
+.related-item span {
+  color: var(--muted);
+}
+
+.metric-card strong {
+  font-size: 24px;
+  color: #f8fafc;
+}
+
+.risk-text {
+  color: #fb7185 !important;
+}
+
+.accent-text {
+  color: #10b981 !important;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 20px;
+  margin-top: 18px;
+}
+
+.summary-copy {
+  display: grid;
+  gap: 10px;
+}
+
+.summary-copy strong {
+  font-size: 20px;
+  line-height: 1.45;
+  color: #f8fafc;
+}
+
+.summary-copy p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.watch-list {
+  display: grid;
+  gap: 10px;
+}
+
+.watch-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.watch-item:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.watch-item strong {
+  color: #f8fafc;
+  text-align: right;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 20px;
+}
+
+.side-section,
+.main-section {
+  display: grid;
+  gap: 18px;
+}
+
+.insight-list,
+.related-list,
+.claim-list {
+  display: grid;
+  gap: 14px;
+}
+
+.insight-item,
+.related-item,
+.claim-item {
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.insight-item:first-child,
+.claim-item:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.insight-item strong,
+.related-item strong,
+.claim-title strong {
+  color: #f8fafc;
+}
+
+.insight-item p,
+.related-item p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.related-list {
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.related-list h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #f8fafc;
+}
+
+.main-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.claim-item {
+  display: grid;
+  gap: 14px;
+}
+
+.claim-top {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.claim-index {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.claim-title {
+  display: grid;
+  gap: 4px;
+}
+
+.claim-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.claim-col {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.claim-col strong {
+  font-size: 18px;
+  line-height: 1.45;
+  color: #f8fafc;
+  word-break: break-word;
+}
+
+@media (max-width: 1180px) {
+  .summary-grid,
+  .content-grid {
+    grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 960px) {
   .control-bar,
-  .inline-context {
+  .control-fields {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .inline-field {
-    width: 100%;
   }
 
   .glass-select,
   .report-select {
     width: 100%;
-    max-width: none;
+    min-width: 0;
   }
 
-  .metric-strip,
+  .metric-row,
   .claim-compare {
     grid-template-columns: 1fr;
   }
 
-  .claim-divider {
-    display: none;
-  }
-
-  .align-right {
-    text-align: left;
-  }
-
-  .claim-row-head {
-    grid-template-columns: 44px minmax(0, 1fr);
+  .claim-top {
+    grid-template-columns: 52px minmax(0, 1fr);
   }
 }
 </style>
