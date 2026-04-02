@@ -669,3 +669,117 @@ def _append_document_pipeline_run_record(
     manifest["records"] = records[-200:]
     _write_document_pipeline_run_manifest(settings, manifest)
     return records[-1]
+
+
+def _build_delivery_report_payload(
+    *,
+    overview: dict[str, Any],
+    app_name: str,
+    env: str,
+) -> dict[str, Any]:
+    health = overview["health"]
+    runtime_readiness = overview["runtime_readiness"]
+    delivery_readiness = overview["delivery_readiness"]
+    acceptance_checklist = overview["acceptance_checklist"]
+    quality_overview = overview["quality_overview"]
+    workspace_runtime_audit = overview["workspace_runtime_audit"]
+    contract_audit = overview["document_pipeline"]["cell_trace"]["contract_audit"]
+    runtime_blockers = [
+        {
+            "label": item["label"],
+            "summary": item["summary"],
+            "detail": item["detail"],
+            "remediation": item.get("remediation"),
+        }
+        for item in runtime_readiness.get("checks", [])
+        if item.get("status") == "blocked"
+    ]
+    acceptance_blockers = [
+        {"label": item["label"], "detail": item["detail"]}
+        for item in acceptance_checklist.get("items", [])
+        if item.get("status") == "blocked"
+    ]
+    remediation_runs = [
+        {
+            "title": item["title"],
+            "created_at": item["created_at"],
+            "headline": item.get("meta", {}).get("headline"),
+            "processed": item.get("meta", {}).get("processed"),
+            "fixed_count": item.get("meta", {}).get("fixed_count"),
+            "remaining_count": item.get("meta", {}).get("remaining_count"),
+        }
+        for item in overview.get("workspace_history", {}).get("records", [])
+        if item.get("history_type") == "document_pipeline_run"
+    ][:5]
+    issue_buckets = [
+        {
+            "label": item.get("label"),
+            "count": item.get("count", 0),
+            "companies": item.get("companies", [])[:5],
+        }
+        for item in quality_overview.get("issue_buckets", [])[:5]
+    ]
+    executive_summary = [
+        f"当前系统阶段为{_delivery_stage_label(delivery_readiness.get('stage'))}，主周期 {health.get('preferred_period') or '-'} 稳定可用 {delivery_readiness.get('ready_company_count', 0)} 家公司。",
+        f"运行阻断 {runtime_readiness.get('blocked_count', 0)} 项，关键检查通过 {acceptance_checklist.get('passed', 0)}/{acceptance_checklist.get('total', 0)} 项。",
+        f"近 {workspace_runtime_audit.get('window_size', 0)} 条智能体运行里，强支撑占比 {workspace_runtime_audit.get('summary_cards', {}).get('grounded_ratio', 0)}%，完整轨迹占比 {workspace_runtime_audit.get('summary_cards', {}).get('trace_ratio', 0)}%。",
+        f"OCR Contract 当前达标 {contract_audit.get('ready', 0)}/{contract_audit.get('total', 0)}，缺失 {contract_audit.get('missing', 0)}，不合格 {contract_audit.get('invalid', 0)}。",
+    ]
+    ready = (
+        acceptance_checklist.get("status") == "ready"
+        and runtime_readiness.get("status") == "ready"
+    )
+    return {
+        "generated_at": _utcnow_iso(),
+        "app_name": health.get("app_name", app_name),
+        "env": health.get("env", env),
+        "preferred_period": health.get("preferred_period"),
+        "overall_status": "ready" if ready else "blocked",
+        "overall_label": "稳定可用" if ready else "待治理",
+        "executive_summary": executive_summary,
+        "summary_cards": {
+            "pool_companies": quality_overview.get("coverage", {}).get("pool_companies", 0),
+            "ready_company_count": delivery_readiness.get("ready_company_count", 0),
+            "blocked_company_count": delivery_readiness.get("blocked_company_count", 0),
+            "runtime_blocked_count": runtime_readiness.get("blocked_count", 0),
+            "acceptance_passed": acceptance_checklist.get("passed", 0),
+            "acceptance_total": acceptance_checklist.get("total", 0),
+        },
+        "delivery_readiness": {
+            "stage": delivery_readiness.get("stage"),
+            "stage_label": _delivery_stage_label(delivery_readiness.get("stage")),
+            "coverage_ratio": delivery_readiness.get("coverage_ratio", 0),
+            "silver_ratio": delivery_readiness.get("silver_ratio", 0),
+            "research_ratio": delivery_readiness.get("research_ratio", 0),
+            "contract_ratio": delivery_readiness.get("contract_ratio", 0),
+            "ready_company_count": delivery_readiness.get("ready_company_count", 0),
+            "blocked_company_count": delivery_readiness.get("blocked_company_count", 0),
+            "priority_actions": delivery_readiness.get("priority_actions", []),
+        },
+        "runtime_readiness": {
+            "status": runtime_readiness.get("status"),
+            "status_label": _status_label(runtime_readiness.get("status")),
+            "blocked_count": runtime_readiness.get("blocked_count", 0),
+            "blocked_checks": runtime_blockers,
+        },
+        "acceptance_checklist": {
+            "status": acceptance_checklist.get("status"),
+            "status_label": _status_label(acceptance_checklist.get("status")),
+            "passed": acceptance_checklist.get("passed", 0),
+            "total": acceptance_checklist.get("total", 0),
+            "blocked_items": acceptance_blockers,
+            "items": acceptance_checklist.get("items", []),
+        },
+        "workspace_runtime_audit": workspace_runtime_audit,
+        "ocr_contract": {
+            "status": contract_audit.get("status"),
+            "status_label": _status_label(contract_audit.get("status")),
+            "ready": contract_audit.get("ready", 0),
+            "invalid": contract_audit.get("invalid", 0),
+            "missing": contract_audit.get("missing", 0),
+            "total": contract_audit.get("total", 0),
+            "samples": contract_audit.get("samples", []),
+        },
+        "issue_buckets": issue_buckets,
+        "recent_remediation_runs": remediation_runs,
+    }
