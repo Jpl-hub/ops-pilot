@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
@@ -7,10 +7,12 @@ import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
+import { useSession } from '@/lib/session'
 
 const overviewState = useAsyncState<any>()
 const stressState = useAsyncState<any>()
 const route = useRoute()
+const session = useSession()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
 const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
@@ -33,6 +35,15 @@ const selectedPeriod = ref('')
 const scenario = ref('欧盟对动力电池临时加征关税并限制关键材料进口')
 const scenarioDraft = ref(scenario.value)
 const activeStressStep = ref(0)
+const activeRole = computed(() => session.activeRole.value || 'investor')
+const activeRoleLabel = computed(() => {
+  const map: Record<string, string> = {
+    investor: '投资者视角',
+    management: '管理层视角',
+    regulator: '监管风控视角',
+  }
+  return map[activeRole.value] || '投资者视角'
+})
 let stressTicker: number | null = null
 
 const presetScenarios = [
@@ -156,7 +167,7 @@ async function runStress() {
     post('/company/stress-test', {
       company_name: selectedCompany.value,
       report_period: selectedPeriod.value || null,
-      user_role: 'management',
+      user_role: activeRole.value,
       scenario: scenario.value,
     }),
   )
@@ -191,6 +202,14 @@ function selectPreset(item: string) {
   scenarioDraft.value = item
   runStress()
 }
+
+watch(
+  () => session.activeRole.value,
+  async (value, oldValue) => {
+    if (!selectedCompany.value || !value || value === oldValue) return
+    await runStress()
+  },
+)
 </script>
 
 <template>
@@ -200,6 +219,7 @@ function selectPreset(item: string) {
         <div class="stress-heading">
           <h1>压力推演</h1>
           <p>{{ primaryScenarioLabel }} · {{ scenarioStatusLine }}</p>
+          <span class="stress-role-pill">{{ activeRoleLabel }}</span>
         </div>
       </section>
 
@@ -405,6 +425,19 @@ function selectPreset(item: string) {
 
 .stress-select {
   gap: 8px;
+}
+
+.stress-role-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fde68a;
+  font-size: 12px;
 }
 
 .stress-select select {

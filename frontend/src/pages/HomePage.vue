@@ -11,12 +11,32 @@ type EntryCard = {
 }
 
 const session = useSession()
+const currentRole = computed(() => session.activeRole.value || 'investor')
+const workspacePreset = computed(() => {
+  const presets: Record<string, { prompt: string }> = {
+    investor: {
+      prompt: '给我一份当前收益质量、预期偏差和还要继续核验的点。',
+    },
+    management: {
+      prompt: '给我一份当前经营体检和整改优先级。',
+    },
+    regulator: {
+      prompt: '给我一份当前风险暴露、异常信号和优先排查事项。',
+    },
+  }
+  return presets[currentRole.value] || presets.investor
+})
 
 const entryAction = computed(() => {
   if (session.isAuthenticated.value) {
     return {
       label: '进入分析台',
-      to: '/workspace',
+      to: {
+        path: '/workspace',
+        query: {
+          role: currentRole.value,
+        },
+      },
     }
   }
   return {
@@ -25,7 +45,7 @@ const entryAction = computed(() => {
   }
 })
 
-const entryCards: EntryCard[] = [
+const entryCards = computed<EntryCard[]>(() => [
   {
     label: '先看行业',
     title: '进入产业大脑',
@@ -37,8 +57,8 @@ const entryCards: EntryCard[] = [
     to: {
       path: '/workspace',
       query: {
-        role: 'management',
-        prompt: '给我一份当前经营体检和整改优先级。',
+        role: currentRole.value,
+        prompt: workspacePreset.value.prompt,
         auto_run: '1',
       },
     },
@@ -48,7 +68,7 @@ const entryCards: EntryCard[] = [
     title: '进入图谱检索',
     to: '/graph',
   },
-]
+])
 </script>
 
 <template>

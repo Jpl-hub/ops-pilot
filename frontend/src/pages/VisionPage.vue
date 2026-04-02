@@ -8,6 +8,7 @@ import LoadingState from '@/components/LoadingState.vue'
 import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
+import { useSession } from '@/lib/session'
 
 const overviewState = useAsyncState<any>()
 const visionState = useAsyncState<any>()
@@ -17,10 +18,20 @@ const pipelineRunning = ref(false)
 const actionError = ref('')
 const bootstrapping = ref(false)
 const selectedJobKey = ref('')
+const session = useSession()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
 const selectedCompany = ref('')
 const selectedPeriod = ref('')
+const activeRole = computed(() => session.activeRole.value || 'investor')
+const activeRoleLabel = computed(() => {
+  const map: Record<string, string> = {
+    investor: '投资者视角',
+    management: '管理层视角',
+    regulator: '监管风控视角',
+  }
+  return map[activeRole.value] || '投资者视角'
+})
 
 const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
 const periodOptions = computed(() =>
@@ -104,7 +115,7 @@ async function loadVision() {
   if (!selectedCompany.value) return
   actionError.value = ''
   visionState.data.value = null
-  const params = new URLSearchParams({ company_name: selectedCompany.value, user_role: 'management' })
+  const params = new URLSearchParams({ company_name: selectedCompany.value, user_role: activeRole.value })
   if (selectedPeriod.value) params.set('report_period', selectedPeriod.value)
   await Promise.all([
     runtimeState.execute(() => get(`/company/vision-runtime?${params.toString()}`)),
@@ -119,7 +130,7 @@ async function runPipeline() {
     await post('/company/vision-pipeline', {
       company_name: selectedCompany.value,
       report_period: selectedPeriod.value || null,
-      user_role: 'management',
+      user_role: activeRole.value,
     })
     await loadVision()
   } catch (error) {
@@ -175,6 +186,18 @@ watch(
   },
   { immediate: true },
 )
+
+watch(
+  () => session.activeRole.value,
+  async (value, oldValue) => {
+    if (bootstrapping.value || !selectedCompany.value || !value || value === oldValue) return
+    try {
+      await loadVision()
+    } catch {
+      // 请求错误由状态容器接管
+    }
+  },
+)
 </script>
 
 <template>
@@ -184,6 +207,7 @@ watch(
         <div class="control-copy">
           <h1>{{ selectedCompany || '文档复核' }}</h1>
           <p>{{ selectedPeriod || '查看当前结果' }}</p>
+          <span class="role-pill">{{ activeRoleLabel }}</span>
         </div>
         <div class="control-fields">
           <select v-model="selectedCompany" class="glass-select">
@@ -398,6 +422,19 @@ watch(
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.role-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  background: rgba(16, 185, 129, 0.12);
+  color: #d1fae5;
+  font-size: 12px;
 }
 
 .glass-select {

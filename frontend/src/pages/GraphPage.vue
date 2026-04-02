@@ -7,6 +7,7 @@ import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
+import { useSession } from '@/lib/session'
 
 type GraphInferenceStep = { step: number; title: string; detail: string; type?: string }
 type GraphFocalNode = { id: string; label: string; type: string }
@@ -16,6 +17,7 @@ type GraphEdge = { source: string; target: string; label: string }
 const overviewState = useAsyncState<any>()
 const graphState = useAsyncState<any>()
 const route = useRoute()
+const session = useSession()
 
 const selectedCompany = ref('')
 const selectedPeriod = ref('')
@@ -26,12 +28,22 @@ const selectedNodeId = ref<string | null>(null)
 const graphStageRef = ref<HTMLElement | null>(null)
 const nodeLayout = ref<Record<string, { x: number; y: number }>>({})
 const dragNodeId = ref<string | null>(null)
+const bootstrapping = ref(false)
 let graphTicker: number | null = null
 let moveHandler: ((event: PointerEvent) => void) | null = null
 let upHandler: ((event: PointerEvent) => void) | null = null
 
 const companies = computed(() => overviewState.data.value?.companies || [])
 const availablePeriods = computed(() => overviewState.data.value?.available_periods || [])
+const activeRole = computed(() => session.activeRole.value || 'investor')
+const activeRoleLabel = computed(() => {
+  const map: Record<string, string> = {
+    investor: '投资者视角',
+    management: '管理层视角',
+    regulator: '监管风控视角',
+  }
+  return map[activeRole.value] || '投资者视角'
+})
 const periodOptions = computed(() =>
   (availablePeriods.value || [])
     .map((item: any) => {
@@ -217,7 +229,7 @@ async function loadGraph() {
     post('/company/graph-query', {
       company_name: selectedCompany.value,
       report_period: selectedPeriod.value || null,
-      user_role: 'management',
+      user_role: activeRole.value,
       intent: graphIntent.value,
     }),
   )
@@ -266,16 +278,21 @@ function beginDrag(nodeId: string, event: PointerEvent) {
 }
 
 onMounted(async () => {
-  await overviewState.execute(() => get('/workspace/companies'))
-  selectedCompany.value =
-    (typeof route.query.company === 'string' ? route.query.company : '') || companies.value[0] || ''
-  const preferredPeriod = overviewState.data.value?.preferred_period
-  selectedPeriod.value = typeof route.query.period === 'string' && route.query.period
-    ? route.query.period
-    : typeof preferredPeriod === 'string'
-      ? preferredPeriod
-      : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
-  await loadGraph()
+  bootstrapping.value = true
+  try {
+    await overviewState.execute(() => get('/workspace/companies'))
+    selectedCompany.value =
+      (typeof route.query.company === 'string' ? route.query.company : '') || companies.value[0] || ''
+    const preferredPeriod = overviewState.data.value?.preferred_period
+    selectedPeriod.value = typeof route.query.period === 'string' && route.query.period
+      ? route.query.period
+      : typeof preferredPeriod === 'string'
+        ? preferredPeriod
+        : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
+    await loadGraph()
+  } finally {
+    bootstrapping.value = false
+  }
 
   graphTicker = window.setInterval(() => {
     if (!inferencePath.value.length) return
@@ -296,8 +313,21 @@ watch(() => graphState.data.value?.run_id, () => {
   initializeGraphLayout()
 })
 
-watch(selectedCompany, async () => { await loadGraph() })
-watch(selectedPeriod, async () => { await loadGraph() })
+watch(selectedCompany, async () => {
+  if (bootstrapping.value) return
+  await loadGraph()
+})
+watch(selectedPeriod, async () => {
+  if (bootstrapping.value) return
+  await loadGraph()
+})
+watch(
+  () => session.activeRole.value,
+  async (value, oldValue) => {
+    if (bootstrapping.value || !selectedCompany.value || !value || value === oldValue) return
+    await loadGraph()
+  },
+)
 </script>
 
 <template>
@@ -307,6 +337,7 @@ watch(selectedPeriod, async () => { await loadGraph() })
         <div class="graph-heading">
           <h1>图谱检索</h1>
           <p>{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+          <span class="graph-role-pill">{{ activeRoleLabel }}</span>
         </div>
 
         <div class="graph-controls">
@@ -509,6 +540,19 @@ watch(selectedPeriod, async () => { await loadGraph() })
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.graph-role-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  background: rgba(37, 99, 235, 0.12);
+  color: #dbeafe;
+  font-size: 12px;
 }
 
 .graph-select {
