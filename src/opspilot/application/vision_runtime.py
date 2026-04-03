@@ -11,7 +11,9 @@ from opspilot.application.admin_delivery import (
 )
 from opspilot.application.document_review import _artifact_source_label
 from opspilot.application.document_review import (
-    _build_document_artifact_preview,
+    _build_document_delivery_preview,
+    _document_delivery_guard_message,
+    _is_formal_document_result,
     _load_company_document_upgrade_items,
     _load_document_artifact_payload,
 )
@@ -71,10 +73,25 @@ def _build_vision_phase_track(
 
 
 def _vision_selected_item_priority(item: dict[str, Any]) -> tuple[int, int, int, str]:
+    stage = item.get("stage")
+    completed = item.get("status") in {"done", "completed"}
+    formal_result = _is_formal_document_result(
+        stage=stage,
+        artifact_source=item.get("artifact_source"),
+        contract_status=item.get("contract_status"),
+    )
+    if completed and stage == "cell_trace":
+        delivery_rank = 4 if formal_result else 2
+    elif completed:
+        delivery_rank = {"cross_page_merge": 1, "title_hierarchy": 3}.get(stage, 0)
+    elif item.get("artifact_summary") or item.get("artifact_preview"):
+        delivery_rank = 1
+    else:
+        delivery_rank = 0
     return (
+        delivery_rank,
         1 if item.get("artifact_summary") or item.get("artifact_preview") else 0,
-        {"cross_page_merge": 1, "title_hierarchy": 2, "cell_trace": 3}.get(item.get("stage"), 0),
-        1 if item.get("status") in {"done", "completed"} else 0,
+        1 if completed else 0,
         item.get("completed_at") or "",
     )
 
@@ -170,16 +187,26 @@ def _build_vision_quality_summary(
     contract_status = job.get("contract_status") or selected_item.get("contract_status")
     stage = job.get("stage") or selected_item.get("stage")
     stage_label = _document_stage_label(stage) if stage else "文档解析"
+    source_status = (
+        "ready"
+        if artifact_source == "standard_ocr"
+        else "blocked"
+        if stage == "cell_trace"
+        else "ready"
+    )
+    source_summary = (
+        f"当前采用 {_artifact_source_label(artifact_source)}。"
+        if artifact_source
+        else "当前阶段尚未进入正式 OCR 来源质检。"
+        if stage and stage != "cell_trace"
+        else "尚未生成可核验的解析产物。"
+    )
     dimensions = [
         {
             "key": "artifact_source",
             "label": "解析来源",
-            "status": "ready" if artifact_source == "standard_ocr" else "warning" if artifact_source else "blocked",
-            "summary": (
-                f"当前采用 {_artifact_source_label(artifact_source)}。"
-                if artifact_source
-                else "尚未生成可核验的解析产物。"
-            ),
+            "status": source_status,
+            "summary": source_summary,
         },
         {
             "key": "structure",
@@ -296,8 +323,10 @@ def _build_vision_quality_summary(
     metrics = [
         {
             "label": "解析来源",
-            "value": _artifact_source_label(artifact_source),
-            "tone": "success" if artifact_source == "standard_ocr" else "warning",
+            "value": _artifact_source_label(artifact_source)
+            if artifact_source
+            else "当前阶段不要求",
+            "tone": "success" if artifact_source == "standard_ocr" or stage != "cell_trace" else "warning",
         },
         {
             "label": "标题节点",
@@ -379,13 +408,29 @@ def _company_vision_analyze(
     detail = None
     selected_artifact = _load_document_artifact_payload(selected_item)
     if selected_artifact is not None:
+        selected_artifact_source = selected_item.get("artifact_source") or selected_artifact.get("source")
+        selected_contract_status = selected_item.get("contract_status")
+        selected_summary = selected_item.get("artifact_summary") or selected_artifact.get("summary")
+        if not _is_formal_document_result(
+            stage=selected_item.get("stage"),
+            artifact_source=selected_artifact_source,
+            contract_status=selected_contract_status,
+        ):
+            selected_summary = _document_delivery_guard_message(
+                stage=selected_item.get("stage"),
+                artifact_source=selected_artifact_source,
+                contract_status=selected_contract_status,
+            )
         selected_item = {
             **selected_item,
-            "artifact_summary": selected_item.get("artifact_summary")
-            or selected_artifact.get("summary"),
-            "artifact_source": selected_item.get("artifact_source")
-            or selected_artifact.get("source"),
-            "artifact_preview": _build_document_artifact_preview(selected_artifact),
+            "artifact_summary": selected_summary,
+            "artifact_source": selected_artifact_source,
+            "artifact_preview": _build_document_delivery_preview(
+                stage=selected_item.get("stage"),
+                artifact_source=selected_artifact_source,
+                contract_status=selected_contract_status,
+                artifact=selected_artifact,
+            ),
         }
     try:
         detail = service.document_pipeline_result_detail(
@@ -411,7 +456,19 @@ def _company_vision_analyze(
         {
             "kind": item["stage"],
             "stage_label": _document_stage_label(item["stage"]),
-            "title": item.get("artifact_summary") or _document_stage_label(item["stage"]),
+            "title": (
+                _document_delivery_guard_message(
+                    stage=item.get("stage"),
+                    artifact_source=item.get("artifact_source"),
+                    contract_status=item.get("contract_status"),
+                )
+                if not _is_formal_document_result(
+                    stage=item.get("stage"),
+                    artifact_source=item.get("artifact_source"),
+                    contract_status=item.get("contract_status"),
+                )
+                else item.get("artifact_summary") or _document_stage_label(item["stage"])
+            ),
             "summary": f"{item.get('report_period') or period} · {_status_label(item.get('status'))}",
         }
         for item in upgrade_items[:8]
@@ -496,10 +553,24 @@ def _company_vision_runtime(
         if job and job.get("status") == "completed":
             artifact_payload = _load_document_artifact_payload(job)
             if artifact_payload is not None:
+                artifact_source = job.get("artifact_source") or artifact_payload.get("source")
+                contract_status = _resolve_document_contract_status(service.settings, job)
                 job = {
                     **job,
-                    "artifact_summary": job.get("artifact_summary") or artifact_payload.get("summary"),
-                    "artifact_source": job.get("artifact_source") or artifact_payload.get("source"),
+                    "artifact_summary": (
+                        _document_delivery_guard_message(
+                            stage=stage,
+                            artifact_source=artifact_source,
+                            contract_status=contract_status,
+                        )
+                        if not _is_formal_document_result(
+                            stage=stage,
+                            artifact_source=artifact_source,
+                            contract_status=contract_status,
+                        )
+                        else job.get("artifact_summary") or artifact_payload.get("summary")
+                    ),
+                    "artifact_source": artifact_source,
                 }
         if job:
             latest_jobs.append(job)
@@ -527,10 +598,7 @@ def _company_vision_runtime(
             }
         )
 
-    latest_jobs.sort(
-        key=lambda item: item.get("completed_at") or item.get("created_at") or "",
-        reverse=True,
-    )
+    latest_jobs.sort(key=_vision_selected_item_priority, reverse=True)
     vision = _company_vision_analyze(
         service,
         company_name,

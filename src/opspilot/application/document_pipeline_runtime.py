@@ -20,10 +20,13 @@ from opspilot.application.document_pipeline import (
 )
 from opspilot.application.document_review import (
     _build_document_artifact_locations,
+    _build_document_delivery_guard_sections,
     _build_document_artifact_remediation,
     _build_document_consumable_sections,
     _build_document_evidence_navigation,
     _build_document_navigation_unavailable,
+    _document_delivery_guard_message,
+    _is_formal_document_result,
 )
 from opspilot.application.runtime_manifests import (
     _document_pipeline_run_detail_path,
@@ -154,6 +157,7 @@ def _document_pipeline_result_detail(service: Any, stage: str, report_id: str) -
     )
     if job is None:
         raise ValueError(f"未找到解析结果：{stage}/{report_id}")
+    contract_status = _resolve_document_contract_status(service.settings, job)
     artifact_path_value = str(job.get("artifact_path") or "").strip()
     artifact_path = Path(artifact_path_value) if artifact_path_value else None
     if artifact_path is not None and artifact_path.exists():
@@ -162,13 +166,33 @@ def _document_pipeline_result_detail(service: Any, stage: str, report_id: str) -
                 artifact = json.load(file)
         except json.JSONDecodeError as exc:
             raise ValueError(f"解析产物损坏：{artifact_path}") from exc
-        evidence_navigation = _build_document_evidence_navigation(
-            repository=service.repository,
-            company_name=job["company_name"],
-            report_period=job.get("report_period"),
-            artifact=artifact,
-        )
         artifact_source = job.get("artifact_source") or artifact.get("source")
+        if _is_formal_document_result(
+            stage=job["stage"],
+            artifact_source=artifact_source,
+            contract_status=contract_status,
+        ):
+            evidence_navigation = _build_document_evidence_navigation(
+                repository=service.repository,
+                company_name=job["company_name"],
+                report_period=job.get("report_period"),
+                artifact=artifact,
+            )
+            consumable_sections = _build_document_consumable_sections(artifact)
+        else:
+            evidence_navigation = _build_document_navigation_unavailable(
+                artifact,
+                message=_document_delivery_guard_message(
+                    stage=job["stage"],
+                    artifact_source=artifact_source,
+                    contract_status=contract_status,
+                ),
+            )
+            consumable_sections = _build_document_delivery_guard_sections(
+                stage=job["stage"],
+                artifact_source=artifact_source,
+                contract_status=contract_status,
+            )
     elif job.get("status") == "blocked":
         artifact = {
             "report_id": job["report_id"],
@@ -184,6 +208,7 @@ def _document_pipeline_result_detail(service: Any, stage: str, report_id: str) -
             message="当前工序已阻断，未形成可跳转的正式证据入口。",
         )
         artifact_source = job.get("artifact_source")
+        consumable_sections = []
     else:
         raise ValueError(f"未找到解析产物：{artifact_path_value or '<missing>'}")
     return {
@@ -196,7 +221,7 @@ def _document_pipeline_result_detail(service: Any, stage: str, report_id: str) -
             "report_period": job.get("report_period"),
             "status": job["status"],
             "status_label": _status_label(job["status"]),
-            "contract_status": _resolve_document_contract_status(service.settings, job),
+            "contract_status": contract_status,
             "artifact_path": job["artifact_path"],
             "completed_at": job.get("completed_at"),
             "artifact_summary": job.get("artifact_summary"),
@@ -212,7 +237,7 @@ def _document_pipeline_result_detail(service: Any, stage: str, report_id: str) -
             artifact=artifact,
         ),
         "evidence_navigation": evidence_navigation,
-        "consumable_sections": _build_document_consumable_sections(artifact),
+        "consumable_sections": consumable_sections,
     }
 
 

@@ -34,7 +34,7 @@ def main() -> None:
                     "artifact_type": "standard_ocr_cell_trace",
                     "path_pattern": "data/bronze/official/upgrades/ocr_cell_trace/<security_code>/<report_id>.json",
                     "required_fields": ["tables", "cells"],
-                    "notes": "cell_trace 会优先消费该标准 OCR 结构输出；缺失时才回退到几何恢复。",
+                    "notes": "cell_trace 只消费标准 OCR 结构输出；缺失或不合格时直接阻断，不再回退历史产物。",
                 },
                 ensure_ascii=False,
                 indent=2,

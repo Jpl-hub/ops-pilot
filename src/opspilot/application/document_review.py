@@ -12,8 +12,60 @@ from opspilot.application.runtime_manifests import _load_document_pipeline_job_m
 def _artifact_source_label(source: str | None) -> str:
     return {
         "standard_ocr": "正式结构产物",
-        "geometric_fallback": "历史结构产物",
+        "geometric_fallback": "非正式历史产物",
     }.get(source or "", source or "来源未识别")
+
+
+def _is_formal_document_result(
+    *, stage: str | None, artifact_source: str | None, contract_status: str | None
+) -> bool:
+    if stage != "cell_trace":
+        return True
+    return artifact_source == "standard_ocr" and contract_status == "ready"
+
+
+def _document_delivery_guard_message(
+    *, stage: str | None, artifact_source: str | None, contract_status: str | None
+) -> str:
+    if stage != "cell_trace":
+        return "当前阶段尚未形成最终文档交付结果。"
+    if artifact_source == "standard_ocr" and contract_status == "ready":
+        return ""
+    if artifact_source == "standard_ocr" and contract_status == "invalid":
+        return "标准 OCR 结构契约字段不合法，当前单元格结果不能作为正式复核输入。"
+    if artifact_source == "standard_ocr" and contract_status == "missing":
+        return "标准 OCR 结构契约缺失，当前单元格结果不能作为正式复核输入。"
+    if artifact_source:
+        return (
+            f"当前 cell_trace 来自{_artifact_source_label(artifact_source)}，"
+            "不能直接作为正式复核输入。请补齐标准 OCR 结构契约后重跑。"
+        )
+    return "当前尚未形成正式 OCR 单元格产物，不能作为正式复核输入。"
+
+
+def _build_document_delivery_guard_sections(
+    *, stage: str | None, artifact_source: str | None, contract_status: str | None
+) -> list[dict[str, Any]]:
+    message = _document_delivery_guard_message(
+        stage=stage,
+        artifact_source=artifact_source,
+        contract_status=contract_status,
+    )
+    if not message:
+        return []
+    return [
+        {
+            "section_type": "delivery_guard",
+            "title": "正式链路未就绪",
+            "count": 1,
+            "items": [
+                {
+                    "text": message,
+                    "source": artifact_source or "missing",
+                }
+            ],
+        }
+    ]
 
 
 def _filter_document_results_for_company(
@@ -78,6 +130,29 @@ def _build_document_artifact_preview(artifact: dict[str, Any]) -> dict[str, Any]
     return preview
 
 
+def _build_document_delivery_preview(
+    *,
+    stage: str | None,
+    artifact_source: str | None,
+    contract_status: str | None,
+    artifact: dict[str, Any],
+) -> dict[str, Any]:
+    if _is_formal_document_result(
+        stage=stage,
+        artifact_source=artifact_source,
+        contract_status=contract_status,
+    ):
+        return _build_document_artifact_preview(artifact)
+    preview = {"summary": _document_delivery_guard_message(
+        stage=stage,
+        artifact_source=artifact_source,
+        contract_status=contract_status,
+    )}
+    if artifact_source:
+        preview["source"] = artifact_source
+    return preview
+
+
 def _load_document_artifact_payload(record: dict[str, Any]) -> dict[str, Any] | None:
     artifact_path = record.get("artifact_path")
     if not artifact_path:
@@ -129,7 +204,7 @@ def _build_document_consumable_sections(artifact: dict[str, Any]) -> list[dict[s
                 "count": 1,
                 "items": [
                     {
-                        "text": "正式结构产物" if source == "standard_ocr" else "历史结构产物",
+                        "text": _artifact_source_label(source),
                         "source": source,
                         "path": artifact.get("ocr_artifact_path"),
                     }

@@ -256,7 +256,7 @@ function displayPipelineStage(stage?: string) {
 function displayArtifactSource(source?: string) {
   const map: Record<string, string> = {
     standard_ocr: '标准 OCR',
-    geometric_fallback: '几何恢复',
+    geometric_fallback: '非正式历史产物',
   }
   return map[source || ''] || source || '-'
 }

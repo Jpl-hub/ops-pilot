@@ -73,8 +73,19 @@ const sourcePreviewText = computed(() => {
 const runtimeSummary = computed(() => runtimeState.data.value?.runtime || null)
 const pipelineJobs = computed(() => runtimeState.data.value?.latest_jobs || [])
 const canRunPipeline = computed(() => !!selectedCompany.value)
+function jobDeliveryRank(item: any) {
+  if (!item || !['done', 'completed'].includes(item.status)) return 0
+  if (item.stage === 'cell_trace') {
+    return item.artifact_source === 'standard_ocr' && item.contract_status === 'ready' ? 5 : 1
+  }
+  if (item.stage === 'title_hierarchy') return 4
+  if (item.stage === 'cross_page_merge') return 3
+  return 1
+}
 const preferredJob = computed(() =>
   [...pipelineJobs.value].sort((left: any, right: any) => {
+    const deliveryDelta = jobDeliveryRank(right) - jobDeliveryRank(left)
+    if (deliveryDelta !== 0) return deliveryDelta
     const rank = (stage?: string) => ({ cross_page_merge: 1, title_hierarchy: 2, cell_trace: 3 }[stage || ''] || 0)
     return rank(right.stage) - rank(left.stage)
   })[0] || null,

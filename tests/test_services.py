@@ -3928,6 +3928,107 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(detail["artifact_locations"][1]["kind"], "ocr_artifact")
             self.assertIn("ocr_cell_trace", detail["remediation"][0]["detail"])
 
+    def test_company_vision_ignores_nonformal_cell_trace_as_primary_result(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return []
+
+            def list_company_names(self) -> list[str]:
+                return []
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+            doc_layout_engine = "PP-DocLayout-V3 + PyMuPDF"
+            ocr_provider = "PaddleOCR-VL"
+            ocr_model = "PaddleOCR-VL-1.5"
+            ocr_runtime_enabled = True
+            postgres_dsn = "postgresql+psycopg://ops_pilot:ops_pilot@localhost:5432/ops_pilot"
+            cors_allowed_origins = ("http://127.0.0.1:8080",)
+            openai_api_key = "test-key"
+            openai_base_url = "https://api.openai.com/v1"
+
+            def __init__(self, root: Path) -> None:
+                self.sample_data_path = root / "bootstrap"
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+                self.ocr_assets_path = root / "models" / "paddleocr-vl"
+                self.ocr_assets_path.mkdir(parents=True, exist_ok=True)
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "bootstrap").mkdir(parents=True, exist_ok=True)
+            for prefix in ("raw", "bronze", "silver"):
+                (root / prefix / "manifests").mkdir(parents=True, exist_ok=True)
+
+            page_json = root / "bronze" / "page_text" / "SZSE" / "000001" / "demo-vision.json"
+            page_json.parent.mkdir(parents=True, exist_ok=True)
+            page_json.write_text(
+                json.dumps({"pages": [{"page": 1, "blocks": [{"text": "占位", "bbox": [0, 0, 1, 1]}]}]}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            title_artifact = root / "bronze" / "upgrades" / "title_hierarchy" / "000001" / "demo-vision.json"
+            title_artifact.parent.mkdir(parents=True, exist_ok=True)
+            title_artifact.write_text(
+                json.dumps(
+                    {
+                        "summary": "标题层级已恢复，可继续人工复核。",
+                        "headings": [{"text": "第一节 经营情况", "level": 1, "page": 1}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            fallback_artifact = root / "bronze" / "upgrades" / "cell_trace" / "000001" / "demo-vision.json"
+            fallback_artifact.parent.mkdir(parents=True, exist_ok=True)
+            fallback_artifact.write_text(
+                json.dumps(
+                    {
+                        "source": "geometric_fallback",
+                        "summary": "历史结构恢复了 1 个表格片段。",
+                        "tables": [{"table_id": "fallback-1", "page": 2, "title": "旧表格", "continued": False}],
+                        "cells": [{"table_id": "fallback-1", "page": 2, "row_index": 1, "column_index": 1, "text": "营业收入"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "bronze" / "manifests" / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司：2025年三季度报告",
+                                "report_id": "demo-vision",
+                                "page_json_path": str(page_json),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            service = OpsPilotService(StubRepository(), StubSettings(root))
+            runtime = service.company_vision_runtime("测试公司", "2025Q3", user_role="management")
+
+            self.assertEqual(runtime["vision"]["headline"], "标题层级已恢复，可继续人工复核。")
+            self.assertEqual(runtime["vision"]["sections"][0]["title"], "标题层级")
+            self.assertTrue(
+                any(item["stage"] == "cell_trace" and item["artifact_source"] == "geometric_fallback" for item in runtime["latest_jobs"])
+            )
+            self.assertEqual(runtime["latest_jobs"][0]["stage"], "title_hierarchy")
+            cell_trace_job = next(item for item in runtime["latest_jobs"] if item["stage"] == "cell_trace")
+            self.assertIn("非正式历史产物", cell_trace_job["artifact_summary"])
+
     def test_document_pipeline_cell_trace_rejects_invalid_standard_ocr_artifact(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

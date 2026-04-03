@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from opspilot.application.document_review import (
-    _build_document_artifact_preview,
+    _build_document_delivery_preview,
     _build_document_evidence_navigation,
+    _document_delivery_guard_message,
+    _is_formal_document_result,
     _load_company_document_upgrade_items,
     _load_document_artifact_payload,
 )
@@ -664,15 +666,36 @@ def _build_company_document_upgrades(
         artifact_preview = None
         artifact_summary = item.get("artifact_summary")
         artifact_source = item.get("artifact_source")
+        contract_status = item.get("contract_status")
         artifact_payload = None
         if item.get("status") == "completed":
             artifact_payload = _load_document_artifact_payload(item)
             if artifact_payload is not None:
-                if include_preview:
-                    artifact_preview = _build_document_artifact_preview(artifact_payload)
-                artifact_summary = artifact_summary or artifact_payload.get("summary")
                 artifact_source = artifact_source or artifact_payload.get("source")
-            if include_evidence_navigation and artifact_payload is not None:
+                formal_result = _is_formal_document_result(
+                    stage=stage,
+                    artifact_source=artifact_source,
+                    contract_status=contract_status,
+                )
+                if include_preview:
+                    artifact_preview = _build_document_delivery_preview(
+                        stage=stage,
+                        artifact_source=artifact_source,
+                        contract_status=contract_status,
+                        artifact=artifact_payload,
+                    )
+                artifact_summary = artifact_summary or artifact_payload.get("summary")
+                if not formal_result:
+                    artifact_summary = _document_delivery_guard_message(
+                        stage=stage,
+                        artifact_source=artifact_source,
+                        contract_status=contract_status,
+                    )
+            if include_evidence_navigation and artifact_payload is not None and _is_formal_document_result(
+                stage=stage,
+                artifact_source=artifact_source,
+                contract_status=contract_status,
+            ):
                 evidence_navigation = _build_document_evidence_navigation(
                     repository=service.repository,
                     company_name=item["company_name"],
