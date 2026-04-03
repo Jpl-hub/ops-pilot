@@ -12,6 +12,7 @@ const router = createRouter({
     { path: '/workspace', component: () => import('@/pages/WorkspacePage.vue'), meta: { requiresAuth: true } },
     { path: '/graph', component: () => import('@/pages/GraphPage.vue'), meta: { requiresAuth: true } },
     { path: '/stress', component: () => import('@/pages/StressPage.vue'), meta: { requiresAuth: true } },
+    { path: '/risk', component: () => import('@/pages/RiskPage.vue'), meta: { requiresAuth: true } },
     { path: '/vision', component: () => import('@/pages/VisionPage.vue'), meta: { requiresAuth: true } },
     { path: '/score', component: () => import('@/pages/ScorePage.vue'), meta: { requiresAuth: true } },
     { path: '/verify', component: () => import('@/pages/VerifyPage.vue'), meta: { requiresAuth: true } },

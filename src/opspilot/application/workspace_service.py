@@ -1109,7 +1109,8 @@ def _build_agent_route(agent_name: str, payload: dict[str, Any]) -> dict[str, An
         return {"label": "进入企业体检", "path": "/score",
                 "query": {"company": company_name, "period": report_period}}
     if agent_name == "signal_analyst" and query_type == "risk_scan":
-        return {"label": "进入行业风险", "path": "/risk", "query": {}}
+        return {"label": "进入行业风险", "path": "/risk",
+                "query": {"period": report_period} if report_period else {}}
     if agent_name == "evidence_auditor":
         evidence_groups = payload.get("evidence_groups", [])
         first_group = evidence_groups[0] if evidence_groups else None
@@ -1134,7 +1135,8 @@ def _build_agent_route(agent_name: str, payload: dict[str, Any]) -> dict[str, An
             "query": {"company": company_name, "period": report_period},
         }
     if query_type == "risk_scan":
-        return {"label": "进入行业风险", "path": "/risk", "query": {}}
+        return {"label": "进入行业风险", "path": "/risk",
+                "query": {"period": report_period} if report_period else {}}
     return {"label": "返回工作台", "path": "/workspace", "query": {}}
 
 

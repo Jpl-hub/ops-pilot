@@ -115,6 +115,7 @@ def _build_workspace_alert_queue(alerts: list[dict[str, Any]], user_role: str) -
                 "path": "/risk",
                 "query": {
                     "company": item["company_name"],
+                    "period": item["report_period"],
                 },
                 "label": "进入行业风险",
             }
@@ -125,6 +126,7 @@ def _build_workspace_alert_queue(alerts: list[dict[str, Any]], user_role: str) -
                 "path": "/verify",
                 "query": {
                     "company": item["company_name"],
+                    "period": item["report_period"],
                 },
                 "label": "进入研报核验",
             }
@@ -238,9 +240,9 @@ def _task_queue(
         primary_action = action_cards[0]
         route = {"path": "/score", "query": {"company": company_name, "period": period}}
         if user_role == "investor":
-            route = {"path": "/verify", "query": {"company": company_name}}
+            route = {"path": "/verify", "query": {"company": company_name, "period": period}}
         elif user_role == "regulator":
-            route = {"path": "/risk", "query": {"company": company_name}}
+            route = {"path": "/risk", "query": {"company": company_name, "period": period}}
         task_id = _build_task_id(
             period,
             company_name,

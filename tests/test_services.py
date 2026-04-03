@@ -1888,6 +1888,15 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             board = service.task_board("management", "2025Q3")
             self.assertTrue(board["tasks"])
             task_id = board["tasks"][0]["task_id"]
+            self.assertEqual(board["tasks"][0]["route"]["query"]["period"], "2025Q3")
+
+            investor_board = service.task_board("investor", "2025Q3")
+            self.assertEqual(investor_board["tasks"][0]["route"]["path"], "/verify")
+            self.assertEqual(investor_board["tasks"][0]["route"]["query"]["period"], "2025Q3")
+
+            regulator_board = service.task_board("regulator", "2025Q3")
+            self.assertEqual(regulator_board["tasks"][0]["route"]["path"], "/risk")
+            self.assertEqual(regulator_board["tasks"][0]["route"]["query"]["period"], "2025Q3")
 
             update_payload = service.update_task_status(
                 task_id=task_id,
@@ -3251,6 +3260,12 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             execution_stream = service.company_execution_stream("测试公司", "2025Q3", user_role="management")
             self.assertGreaterEqual(execution_stream["total"], 3)
             self.assertIn("document_upgrade", {item["stream_type"] for item in execution_stream["records"]})
+            alert_stream = next(item for item in execution_stream["records"] if item["stream_type"] == "alert")
+            self.assertEqual(alert_stream["meta"]["route"]["query"]["period"], "2025Q3")
+            task_stream = next(item for item in execution_stream["records"] if item["stream_type"] == "task")
+            self.assertEqual(task_stream["meta"]["route"]["query"]["period"], "2025Q3")
+            watch_stream = next(item for item in execution_stream["records"] if item["stream_type"] == "watchboard")
+            self.assertEqual(watch_stream["meta"]["route"]["query"]["period"], "2025Q3")
             history = service.workspace_history(user_role="management", report_period="2025Q3")
             self.assertGreaterEqual(history["total"], 2)
             self.assertTrue(any(item["history_type"] == "analysis_run" for item in history["records"]))
@@ -3269,6 +3284,15 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(task_record["type_label"], "任务推进")
             self.assertTrue(task_record["status_label"])
+            self.assertEqual(task_record["meta"]["route"]["query"]["period"], "2025Q3")
+            alert_record = next(
+                item for item in overview["execution_bus_records"]["records"] if item["bus_type"] == "alert"
+            )
+            self.assertEqual(alert_record["meta"]["route"]["query"]["period"], "2025Q3")
+            watch_record = next(
+                item for item in overview["execution_bus_records"]["records"] if item["bus_type"] == "watchboard"
+            )
+            self.assertEqual(watch_record["meta"]["route"]["query"]["period"], "2025Q3")
             self.assertEqual(graph["company_name"], "测试公司")
             self.assertGreaterEqual(graph["summary"]["node_count"], 5)
             self.assertGreaterEqual(graph["summary"]["edge_count"], 4)

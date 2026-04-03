@@ -488,7 +488,7 @@ def _build_company_execution_stream(
             "meta": {
                 "priority": item.get("priority"),
                 "reason": item.get("summary"),
-                "route": {"path": "/risk", "query": {"company": company_name}},
+                "route": {"path": "/risk", "query": {"company": company_name, "period": period}},
             },
         }
         for item in service.alert_workflow(report_period=period)["alerts"]
@@ -504,7 +504,7 @@ def _build_company_execution_stream(
             "meta": {
                 "priority": item.get("priority"),
                 "owner": item.get("owner_role"),
-                "route": {"path": "/workspace", "query": {"company": company_name}},
+                "route": {"path": "/workspace", "query": {"company": company_name, "period": period}},
             },
         }
         for item in service.task_board(user_role=user_role, report_period=period, limit=200)["tasks"]
@@ -527,7 +527,7 @@ def _build_company_execution_stream(
                 "created_at": watch_item.get("updated_at") or watch_item.get("created_at"),
                 "meta": {
                     "note": watch_item.get("note"),
-                    "route": {"path": "/workspace", "query": {"company": company_name}},
+                    "route": {"path": "/workspace", "query": {"company": company_name, "period": period}},
                 },
             }
         )

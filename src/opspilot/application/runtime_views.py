@@ -423,7 +423,13 @@ def _build_workspace_execution_bus_records(
             "created_at": item.get("updated_at"),
             "meta": {
                 "summary": item.get("summary"),
-                "route": {"path": "/risk", "query": {"company": item["company_name"]}},
+                "route": {
+                    "path": "/risk",
+                    "query": {
+                        "company": item["company_name"],
+                        "period": item.get("report_period") or report_period or alert_workflow.get("report_period"),
+                    },
+                },
             },
         }
         for item in alert_workflow["alerts"]
@@ -441,7 +447,13 @@ def _build_workspace_execution_bus_records(
             "meta": {
                 "new_alerts": item.get("new_alerts"),
                 "task_count": item.get("task_count"),
-                "route": {"path": "/workspace", "query": {"company": item["company_name"]}},
+                "route": {
+                    "path": "/workspace",
+                    "query": {
+                        "company": item["company_name"],
+                        "period": item.get("report_period") or report_period or watchboard.get("report_period"),
+                    },
+                },
             },
         }
         for item in watchboard["items"]
