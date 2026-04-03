@@ -11,6 +11,7 @@ import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
 import { buildEvidenceLink } from '@/lib/format'
 import { useSession } from '@/lib/session'
+import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 
 const companies = ref<string[]>([])
 const selectedCompany = ref('')
@@ -241,14 +242,13 @@ async function toggleWatchboardTracking() {
 }
 
 function applyQuerySelection() {
-  const queryCompany = typeof route.query.company === 'string' ? route.query.company : ''
-  const queryPeriod = typeof route.query.period === 'string' ? route.query.period : ''
+  const workflowContext = resolveWorkflowContext(route.query)
   syncingFromRoute.value = true
-  if (queryCompany && companies.value.includes(queryCompany)) {
-    selectedCompany.value = queryCompany
+  if (workflowContext.company && companies.value.includes(workflowContext.company)) {
+    selectedCompany.value = workflowContext.company
   }
-  if (queryPeriod) {
-    selectedPeriod.value = queryPeriod
+  if (workflowContext.period) {
+    selectedPeriod.value = workflowContext.period
   }
   syncingFromRoute.value = false
 }
@@ -325,6 +325,14 @@ watch(
     await loadCompanyWorkspace()
   },
 )
+
+watch([selectedCompany, selectedPeriod], ([company, period]) => {
+  if (!company && !period) return
+  persistWorkflowContext({
+    company,
+    period,
+  })
+})
 </script>
 
 <template>

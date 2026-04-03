@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { post, type UserRole } from '@/lib/api'
 import { useSession } from '@/lib/session'
+import { buildWorkflowQuery } from '@/lib/workflowContext'
 
 defineProps<{
   title: string
@@ -61,6 +62,11 @@ async function logout() {
   session.logout()
   await router.push('/login')
 }
+
+function buildNavTarget(path: string) {
+  const query = buildWorkflowQuery(path, route.query, { role: session.activeRole.value })
+  return query ? { path, query } : { path }
+}
 </script>
 
 <template>
@@ -86,7 +92,7 @@ async function logout() {
         <RouterLink
           v-for="item in visibleNavItems"
           :key="item.to"
-          :to="item.to"
+          :to="buildNavTarget(item.to)"
           class="app-nav-item"
         >
           <strong>{{ item.label }}</strong>

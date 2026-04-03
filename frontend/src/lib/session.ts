@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 
 import { clearAuth, loadCurrentUser, type AuthUser, type UserRole } from '@/lib/api'
+import { clearWorkflowContext } from '@/lib/workflowContext'
 
 const currentUser = ref<AuthUser | null>(loadCurrentUser())
 const ROLE_KEY = 'ops-pilot-active-role'
@@ -28,6 +29,7 @@ export function useSession() {
     }
     localStorage.removeItem(ROLE_KEY)
     activeRole.value = 'investor'
+    clearWorkflowContext()
   }
 
   function setActiveRole(role: UserRole) {
@@ -40,6 +42,7 @@ export function useSession() {
     currentUser.value = null
     localStorage.removeItem(ROLE_KEY)
     activeRole.value = 'investor'
+    clearWorkflowContext()
   }
 
   return {

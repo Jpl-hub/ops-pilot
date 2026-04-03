@@ -8,6 +8,7 @@ import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
 import { useSession } from '@/lib/session'
+import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 
 type GraphInferenceStep = { step: number; title: string; detail: string; type?: string }
 type GraphFocalNode = { id: string; label: string; type: string }
@@ -281,11 +282,16 @@ onMounted(async () => {
   bootstrapping.value = true
   try {
     await overviewState.execute(() => get('/workspace/companies'))
+    const workflowContext = resolveWorkflowContext(route.query)
+    const initialCompany =
+      workflowContext.company && companies.value.includes(workflowContext.company)
+        ? workflowContext.company
+        : companies.value[0] || ''
     selectedCompany.value =
-      (typeof route.query.company === 'string' ? route.query.company : '') || companies.value[0] || ''
+      initialCompany
     const preferredPeriod = overviewState.data.value?.preferred_period
-    selectedPeriod.value = typeof route.query.period === 'string' && route.query.period
-      ? route.query.period
+    selectedPeriod.value = workflowContext.period
+      ? workflowContext.period
       : typeof preferredPeriod === 'string'
         ? preferredPeriod
         : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
@@ -328,6 +334,14 @@ watch(
     await loadGraph()
   },
 )
+
+watch([selectedCompany, selectedPeriod], ([company, period]) => {
+  if (!company && !period) return
+  persistWorkflowContext({
+    company,
+    period,
+  })
+})
 </script>
 
 <template>

@@ -9,6 +9,7 @@ import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
 import { buildEvidenceLink } from '@/lib/format'
+import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 
 const companies = ref<string[]>([])
 const reports = ref<any[]>([])
@@ -115,30 +116,25 @@ async function loadVerify() {
   verifyCommandSurface.value = state.data.value?.verify_command_surface || null
 }
 
-function applyQuerySelection() {
-  const company = typeof route.query.company === 'string' ? route.query.company : ''
-  const reportTitle = typeof route.query.report_title === 'string' ? route.query.report_title : ''
-  const period = typeof route.query.period === 'string' ? route.query.period : ''
-  syncingFromRoute.value = true
-  if (company && companies.value.includes(company)) {
-    selectedCompany.value = company
-  }
-  if (period) {
-    selectedPeriod.value = period
-  }
-  if (reportTitle && reports.value.some((item) => item.title === reportTitle)) {
-    selectedReportTitle.value = reportTitle
-  }
-  syncingFromRoute.value = false
-}
-
 onMounted(async () => {
+  const workflowContext = resolveWorkflowContext(route.query)
   await loadCompanies()
-  if (!selectedCompany.value) {
+  syncingFromRoute.value = true
+  if (workflowContext.company && companies.value.includes(workflowContext.company)) {
+    selectedCompany.value = workflowContext.company
+  } else if (!selectedCompany.value) {
     selectedCompany.value = companies.value[0] || ''
   }
+  if (workflowContext.period) {
+    selectedPeriod.value = workflowContext.period
+  }
+  syncingFromRoute.value = false
   await loadReports()
-  applyQuerySelection()
+  if (workflowContext.reportTitle && reports.value.some((item) => item.title === workflowContext.reportTitle)) {
+    syncingFromRoute.value = true
+    selectedReportTitle.value = workflowContext.reportTitle
+    syncingFromRoute.value = false
+  }
   await loadVerify()
 })
 
@@ -201,6 +197,15 @@ watch(
     }
   },
 )
+
+watch([selectedCompany, selectedPeriod, selectedReportTitle], ([company, period, reportTitle]) => {
+  if (!company && !period && !reportTitle) return
+  persistWorkflowContext({
+    company,
+    period,
+    reportTitle: reportTitle || '',
+  })
+})
 </script>
 
 <template>

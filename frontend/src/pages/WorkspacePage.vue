@@ -8,6 +8,7 @@ import ErrorState from '@/components/ErrorState.vue'
 import { useWorkspaceRole } from '@/composables/useWorkspaceRole'
 import type { UserRole } from '@/lib/api'
 import { useSession } from '@/lib/session'
+import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 type AnswerBlock = {
@@ -496,9 +497,10 @@ async function primeScenarioFromRoute() {
     return
   }
 
+  const workflowContext = resolveWorkflowContext(route.query)
   const prompt = readQueryString(route.query.prompt)
-  const targetCompany = readQueryString(route.query.company)
-  const targetPeriod = readQueryString(route.query.period)
+  const targetCompany = workflowContext.company
+  const targetPeriod = workflowContext.period
   let contextChanged = false
 
   syncingFromRoute.value = true
@@ -554,7 +556,8 @@ onMounted(async () => {
   bootstrapping.value = true
   const initialRole = parseRoleQuery(route.query.role)
   if (initialRole && session.activeRole.value !== initialRole) session.setActiveRole(initialRole)
-  const initialPeriod = readQueryString(route.query.period)
+  const initialWorkflowContext = resolveWorkflowContext(route.query)
+  const initialPeriod = initialWorkflowContext.period
   syncingFromRoute.value = true
   try {
     if (initialPeriod) {
@@ -578,7 +581,8 @@ watch(
   () => session.activeRole.value,
   async () => {
     bootstrapping.value = true
-    const targetPeriod = readQueryString(route.query.period)
+    const workflowContext = resolveWorkflowContext(route.query)
+    const targetPeriod = workflowContext.period
     syncingFromRoute.value = true
     try {
       if (targetPeriod) {
@@ -614,6 +618,14 @@ watch(selectedPeriod, async (period, previous) => {
   resetWorkspaceConversation()
   await workspace.loadOverview(currentRole.value)
   await workspace.loadCompanyWorkspace(currentRole.value)
+})
+
+watch([selectedCompany, selectedPeriod], ([company, period]) => {
+  if (!company && !period) return
+  persistWorkflowContext({
+    company,
+    period,
+  })
 })
 </script>
 
