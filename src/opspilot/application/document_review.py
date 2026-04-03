@@ -348,35 +348,27 @@ def _build_document_evidence_navigation(
         )
 
     candidate_pages = _collect_document_artifact_pages(artifact)
+    if not candidate_pages:
+        return _build_document_navigation_unavailable(
+            artifact,
+            message="当前文档结果缺少页码锚点，暂时不能生成可核验的原文跳转。",
+        )
     candidate_chunk_ids = _collect_company_evidence_refs(company)
     selected_items: list[dict[str, Any]] = []
     page_set = set(candidate_pages)
     get_evidence = getattr(repository, "get_evidence", None)
     if get_evidence is not None:
-        fallback_item = None
         for chunk_id in candidate_chunk_ids:
             item = get_evidence(chunk_id)
             if item is None:
                 continue
-            if fallback_item is None:
-                fallback_item = item
-            if page_set:
-                if item.get("page") in page_set:
-                    selected_items.append(item)
-                    if len(selected_items) >= 5:
-                        break
-            else:
-                selected_items = [item]
-                break
-        if not selected_items and fallback_item is not None:
-            selected_items = [fallback_item]
+            if item.get("page") in page_set:
+                selected_items.append(item)
+                if len(selected_items) >= 5:
+                    break
     else:
         evidence_items = repository.resolve_evidence(candidate_chunk_ids)
-        if candidate_pages:
-            paged_items = [item for item in evidence_items if item.get("page") in candidate_pages]
-        else:
-            paged_items = []
-        selected_items = paged_items or evidence_items[:1]
+        selected_items = [item for item in evidence_items if item.get("page") in page_set][:5]
     if not selected_items:
         return _build_document_navigation_unavailable(
             artifact,

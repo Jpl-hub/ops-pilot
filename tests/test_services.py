@@ -2451,6 +2451,202 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError, "解析产物损坏"):
                 service.document_pipeline_result_detail("title_hierarchy", "r-bad")
 
+    def test_document_pipeline_result_detail_blocks_unmatched_evidence_pages_with_get_evidence(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bronze = root / "bronze" / "official"
+            manifests = bronze / "manifests"
+            upgrades = bronze / "upgrades" / "title_hierarchy"
+            manifests.mkdir(parents=True, exist_ok=True)
+            upgrades.mkdir(parents=True, exist_ok=True)
+            artifact_path = upgrades / "r-evidence-miss.json"
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "report_id": "r-evidence-miss",
+                        "summary": "目录恢复完成",
+                        "headings": [{"level": 1, "text": "第一节", "page": 7}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-evidence-miss",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司2025年三季度报告",
+                                "report_period": "2025Q3",
+                                "page_json_path": str(upgrades / "page.json"),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests / "document_pipeline_jobs.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-evidence-miss",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "report_period": "2025Q3",
+                                "stage": "title_hierarchy",
+                                "status": "completed",
+                                "artifact_path": str(artifact_path),
+                                "artifact_summary": "目录恢复完成",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            class StubRepository:
+                def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                    return {
+                        "company_name": company_name,
+                        "report_period": report_period or "2025Q3",
+                        "summary_chunk_id": None,
+                        "metric_evidence": {"G1": ["chunk-1"]},
+                        "label_evidence": {},
+                    }
+
+                def get_evidence(self, chunk_id: str) -> dict | None:
+                    if chunk_id != "chunk-1":
+                        return None
+                    return {
+                        "chunk_id": "chunk-1",
+                        "page": 1,
+                        "source_title": "测试公司2025年三季度报告",
+                    }
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                ocr_runtime_enabled = False
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = bronze
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            detail = service.document_pipeline_result_detail("title_hierarchy", "r-evidence-miss")
+
+            self.assertEqual(detail["evidence_navigation"]["count"], 0)
+            self.assertEqual(detail["evidence_navigation"]["status"], "blocked")
+            self.assertIsNone(detail["evidence_navigation"]["primary_route"])
+
+    def test_document_pipeline_result_detail_blocks_unmatched_evidence_pages_with_resolve_only(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bronze = root / "bronze" / "official"
+            manifests = bronze / "manifests"
+            upgrades = bronze / "upgrades" / "title_hierarchy"
+            manifests.mkdir(parents=True, exist_ok=True)
+            upgrades.mkdir(parents=True, exist_ok=True)
+            artifact_path = upgrades / "r-resolve-miss.json"
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "report_id": "r-resolve-miss",
+                        "summary": "目录恢复完成",
+                        "headings": [{"level": 1, "text": "第一节", "page": 9}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests / "parsed_periodic_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-resolve-miss",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司2025年三季度报告",
+                                "report_period": "2025Q3",
+                                "page_json_path": str(upgrades / "page.json"),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (manifests / "document_pipeline_jobs.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "report_id": "r-resolve-miss",
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "report_period": "2025Q3",
+                                "stage": "title_hierarchy",
+                                "status": "completed",
+                                "artifact_path": str(artifact_path),
+                                "artifact_summary": "目录恢复完成",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            class StubRepository:
+                def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                    return {
+                        "company_name": company_name,
+                        "report_period": report_period or "2025Q3",
+                        "summary_chunk_id": None,
+                        "metric_evidence": {"G1": ["chunk-2"]},
+                        "label_evidence": {},
+                    }
+
+                def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                    if "chunk-2" not in chunk_ids:
+                        return []
+                    return [
+                        {
+                            "chunk_id": "chunk-2",
+                            "page": 3,
+                            "source_title": "测试公司2025年三季度报告",
+                        }
+                    ]
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                ocr_runtime_enabled = False
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = bronze
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            detail = service.document_pipeline_result_detail("title_hierarchy", "r-resolve-miss")
+
+            self.assertEqual(detail["evidence_navigation"]["count"], 0)
+            self.assertEqual(detail["evidence_navigation"]["status"], "blocked")
+            self.assertIsNone(detail["evidence_navigation"]["primary_route"])
+
     def test_company_vision_analyze_returns_consumable_result(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
