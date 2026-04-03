@@ -10,6 +10,7 @@ export type WorkspaceMessage =
 type WorkspaceOverview = {
   companies: string[]
   preferred_period?: string
+  available_periods?: string[]
   role_profile?: {
     label?: string
     focus_title?: string
@@ -127,11 +128,36 @@ type CompanyWorkspace = {
   } | null
 }
 
+function normalizePeriodValue(period: unknown): string {
+  if (typeof period === 'string') {
+    return period.trim()
+  }
+  if (period && typeof period === 'object') {
+    const value = (period as Record<string, unknown>).value
+      || (period as Record<string, unknown>).report_period
+      || (period as Record<string, unknown>).period
+      || (period as Record<string, unknown>).label
+    return typeof value === 'string' ? value.trim() : ''
+  }
+  return ''
+}
+
+function normalizePeriodList(periods: unknown): string[] {
+  if (!Array.isArray(periods)) return []
+  const normalized = periods
+    .map((period) => normalizePeriodValue(period))
+    .filter((period, index, values) => !!period && values.indexOf(period) === index)
+  return normalized
+}
+
 export const useWorkspaceStore = defineStore('workspace', {
   state: () => ({
     selectedCompany: '',
+    selectedPeriod: '',
     query: '',
     companies: [] as string[],
+    availablePeriods: [] as string[],
+    preferredPeriod: '',
     messages: [] as WorkspaceMessage[],
     latestPayload: null as any,
     overview: null as WorkspaceOverview | null,
@@ -180,6 +206,13 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.companies = []
       this.selectedCompany = ''
     },
+    syncPeriodContext(preferredPeriod?: unknown, availablePeriods?: unknown) {
+      this.availablePeriods = normalizePeriodList(availablePeriods)
+      this.preferredPeriod = normalizePeriodValue(preferredPeriod)
+      if (!this.selectedPeriod) {
+        this.selectedPeriod = this.preferredPeriod || this.availablePeriods[0] || ''
+      }
+    },
     resetConversation(title: string, label: string) {
       this.messages = [
         {
@@ -206,6 +239,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       try {
         const payload = await get<WorkspaceCompaniesPayload>('/workspace/companies')
         this.syncCompanies(payload.companies || [])
+        this.syncPeriodContext(payload.preferred_period, payload.available_periods)
       } catch (error) {
         this.companiesError = error instanceof Error ? error.message : '公司池加载失败'
         throw error
@@ -218,11 +252,16 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.loadingOverview = true
       this.overviewError = null
       try {
+        const query = new URLSearchParams({ user_role: role })
+        if (this.selectedPeriod) {
+          query.set('report_period', this.selectedPeriod)
+        }
         const payload = await get<WorkspaceOverview>(
-          `/workspace/overview?user_role=${encodeURIComponent(role)}`,
+          `/workspace/overview?${query.toString()}`,
         )
         this.overview = payload
         this.syncCompanies(payload.companies || [])
+        this.syncPeriodContext(payload.preferred_period, payload.available_periods || this.availablePeriods)
       } catch (error) {
         this.overviewError = error instanceof Error ? error.message : '工作台加载失败'
       } finally {
@@ -231,10 +270,10 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     async bootstrap(role: UserRole) {
       await this.loadCompanies()
+      await this.loadOverview(role)
       if (this.selectedCompany) {
         await this.loadCompanyWorkspace(role)
       }
-      await this.loadOverview(role)
     },
     async loadCompanyWorkspace(role: UserRole) {
       if (this.loadingCompanyWorkspace) return
@@ -245,9 +284,14 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.loadingCompanyWorkspace = true
       this.companyWorkspaceError = null
       try {
-        this.companyWorkspace = await get<CompanyWorkspace>(
-          `/company/workspace?company_name=${encodeURIComponent(this.selectedCompany)}&user_role=${encodeURIComponent(role)}`,
-        )
+        const query = new URLSearchParams({
+          company_name: this.selectedCompany,
+          user_role: role,
+        })
+        if (this.selectedPeriod) {
+          query.set('report_period', this.selectedPeriod)
+        }
+        this.companyWorkspace = await get<CompanyWorkspace>(`/company/workspace?${query.toString()}`)
       } catch (error) {
         this.companyWorkspaceError =
           error instanceof Error ? error.message : '公司运行态加载失败'
@@ -274,6 +318,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         const payload = await post('/chat/turn', {
           query: actualQuery,
           company_name: this.selectedCompany,
+          report_period: this.selectedPeriod || null,
           user_role: role,
         })
         this.latestPayload = payload
@@ -301,7 +346,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         task_id: taskId,
         status,
         user_role: role,
-        report_period: this.overview?.alert_summary?.preferred_period,
+        report_period: this.selectedPeriod || this.overview?.alert_summary?.preferred_period,
         note,
       })
       await this.loadOverview(role)
@@ -316,7 +361,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       await post('/alerts/update', {
         alert_id: alertId,
         status,
-        report_period: this.overview?.alert_summary?.preferred_period,
+        report_period: this.selectedPeriod || this.overview?.alert_summary?.preferred_period,
         note,
       })
       await this.loadOverview(role)
@@ -326,7 +371,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       await post('/alerts/dispatch', {
         alert_id: alertId,
         user_role: role,
-        report_period: this.overview?.alert_summary?.preferred_period,
+        report_period: this.selectedPeriod || this.overview?.alert_summary?.preferred_period,
         note,
       })
       await this.loadOverview(role)
@@ -337,7 +382,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       await post('/watchboard/add', {
         company_name: this.selectedCompany,
         user_role: role,
-        report_period: this.overview?.alert_summary?.preferred_period,
+        report_period: this.selectedPeriod || this.overview?.alert_summary?.preferred_period,
         note,
       })
       await this.loadOverview(role)
@@ -348,7 +393,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       await post('/watchboard/remove', {
         company_name: this.selectedCompany,
         user_role: role,
-        report_period: this.overview?.alert_summary?.preferred_period,
+        report_period: this.selectedPeriod || this.overview?.alert_summary?.preferred_period,
       })
       await this.loadOverview(role)
       await this.loadCompanyWorkspace(role)
@@ -356,7 +401,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     async scanWatchboard(role: UserRole) {
       await post('/watchboard/scan', {
         user_role: role,
-        report_period: this.overview?.alert_summary?.preferred_period,
+        report_period: this.selectedPeriod || this.overview?.alert_summary?.preferred_period,
       })
       await this.loadOverview(role)
       await this.loadCompanyWorkspace(role)
@@ -364,7 +409,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     async dispatchWatchboard(role: UserRole, limit = 10) {
       await post('/watchboard/dispatch', {
         user_role: role,
-        report_period: this.overview?.alert_summary?.preferred_period,
+        report_period: this.selectedPeriod || this.overview?.alert_summary?.preferred_period,
         limit,
       })
       await this.loadOverview(role)

@@ -280,8 +280,12 @@ def workspace_companies(_: dict = Depends(require_current_user)) -> dict:
 
 
 @router.get("/workspace/overview")
-def workspace_overview(user_role: str = "investor", _: dict = Depends(require_current_user)) -> dict:
-    return get_service().workspace_overview(user_role)
+def workspace_overview(
+    user_role: str = "investor",
+    report_period: str | None = None,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().workspace_overview(user_role, report_period=report_period)
 
 
 @router.get("/workspace/runs")

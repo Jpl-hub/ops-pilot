@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -18,6 +18,7 @@ const pipelineRunning = ref(false)
 const actionError = ref('')
 const bootstrapping = ref(false)
 const selectedJobKey = ref('')
+const route = useRoute()
 const session = useSession()
 
 const companies = computed(() => overviewState.data.value?.companies || [])
@@ -148,11 +149,14 @@ onMounted(async () => {
   bootstrapping.value = true
   try {
     await overviewState.execute(() => get('/workspace/companies'))
-    selectedCompany.value = companies.value[0] || ''
+    selectedCompany.value =
+      (typeof route.query.company === 'string' ? route.query.company : '') || companies.value[0] || ''
     const preferredPeriod = overviewState.data.value?.preferred_period
-    selectedPeriod.value = typeof preferredPeriod === 'string'
-      ? preferredPeriod
-      : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
+    selectedPeriod.value = typeof route.query.period === 'string' && route.query.period
+      ? route.query.period
+      : typeof preferredPeriod === 'string'
+        ? preferredPeriod
+        : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
     try {
       await loadVision()
     } catch {

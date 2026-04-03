@@ -1128,7 +1128,11 @@ def _build_agent_route(agent_name: str, payload: dict[str, Any]) -> dict[str, An
             }
         return {"label": "返回工作台", "path": "/workspace", "query": {}}
     if agent_name == "action_planner" and query_type == "claim_verification" and company_name:
-        return {"label": "进入研报核验", "path": "/verify", "query": {"company": company_name}}
+        return {
+            "label": "进入研报核验",
+            "path": "/verify",
+            "query": {"company": company_name, "period": report_period},
+        }
     if query_type == "risk_scan":
         return {"label": "进入行业风险", "path": "/risk", "query": {}}
     return {"label": "返回工作台", "path": "/workspace", "query": {}}

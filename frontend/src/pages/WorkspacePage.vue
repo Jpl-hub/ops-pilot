@@ -28,11 +28,13 @@ const workspace = useWorkspaceStore()
 const {
   companies,
   selectedCompany,
+  selectedPeriod,
   query,
   messages,
   latestPayload,
   overview,
   companyWorkspace,
+  availablePeriods,
   loadingCompanies,
   loadingOverview,
   loadingCompanyWorkspace,
@@ -44,6 +46,8 @@ const {
 } = storeToRefs(workspace)
 
 const appliedScenarioKey = ref('')
+const bootstrapping = ref(false)
+const syncingFromRoute = ref(false)
 const workflowActionPending = ref('')
 const workflowActionError = ref('')
 
@@ -98,6 +102,14 @@ const companySelectPlaceholder = computed(() => {
   if (!companies.value.length) return '当前无公司'
   return '选择公司'
 })
+const periodOptions = computed(() =>
+  (availablePeriods.value || [])
+    .map((period) => {
+      const value = String(period || '').trim()
+      return value ? { value, label: value } : null
+    })
+    .filter(Boolean) as Array<{ value: string; label: string }>,
+)
 
 const overviewPulseCards = computed<QuickMetric[]>(() => {
   const executionSummary = overview.value?.execution_bus_summary
@@ -329,6 +341,10 @@ function parseRoleQuery(value: unknown): UserRole | null {
   return null
 }
 
+function resetWorkspaceConversation() {
+  workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
+}
+
 function formatRelativeTime(value?: string | null) {
   if (!value) return '等待更新'
   const parsed = new Date(value)
@@ -482,15 +498,34 @@ async function primeScenarioFromRoute() {
 
   const prompt = readQueryString(route.query.prompt)
   const targetCompany = readQueryString(route.query.company)
-  if (targetCompany && companies.value.includes(targetCompany) && selectedCompany.value !== targetCompany) {
-    selectedCompany.value = targetCompany
+  const targetPeriod = readQueryString(route.query.period)
+  let contextChanged = false
+
+  syncingFromRoute.value = true
+  try {
+    if (targetPeriod && selectedPeriod.value !== targetPeriod) {
+      selectedPeriod.value = targetPeriod
+      contextChanged = true
+    }
+    if (targetCompany && companies.value.includes(targetCompany) && selectedCompany.value !== targetCompany) {
+      selectedCompany.value = targetCompany
+      contextChanged = true
+    }
+  } finally {
+    syncingFromRoute.value = false
+  }
+
+  if (contextChanged) {
+    resetWorkspaceConversation()
+    await workspace.loadOverview(currentRole.value)
+    await workspace.loadCompanyWorkspace(currentRole.value)
   }
 
   if (!prompt) return
   query.value = prompt
 
   const shouldAutoRun = readQueryString(route.query.auto_run) === '1'
-  const scenarioKey = `${route.fullPath}::${selectedCompany.value || ''}`
+  const scenarioKey = `${route.fullPath}::${selectedCompany.value || ''}::${selectedPeriod.value || ''}`
   if (!shouldAutoRun || !selectedCompany.value || loadingTurn.value || appliedScenarioKey.value === scenarioKey) {
     return
   }
@@ -516,26 +551,50 @@ function handleComposerKeydown(event: KeyboardEvent) {
 }
 
 onMounted(async () => {
+  bootstrapping.value = true
   const initialRole = parseRoleQuery(route.query.role)
   if (initialRole && session.activeRole.value !== initialRole) session.setActiveRole(initialRole)
-  workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
+  const initialPeriod = readQueryString(route.query.period)
+  syncingFromRoute.value = true
+  try {
+    if (initialPeriod) {
+      selectedPeriod.value = initialPeriod
+    }
+  } finally {
+    syncingFromRoute.value = false
+  }
+  resetWorkspaceConversation()
   try {
     await workspace.bootstrap(currentRole.value)
     await primeScenarioFromRoute()
   } catch {
     // 错误已写入 store。
+  } finally {
+    bootstrapping.value = false
   }
 })
 
 watch(
   () => session.activeRole.value,
   async () => {
-    workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
+    bootstrapping.value = true
+    const targetPeriod = readQueryString(route.query.period)
+    syncingFromRoute.value = true
+    try {
+      if (targetPeriod) {
+        selectedPeriod.value = targetPeriod
+      }
+    } finally {
+      syncingFromRoute.value = false
+    }
+    resetWorkspaceConversation()
     try {
       await workspace.bootstrap(currentRole.value)
       await primeScenarioFromRoute()
     } catch {
       // 错误已写入 store。
+    } finally {
+      bootstrapping.value = false
     }
   },
 )
@@ -545,7 +604,15 @@ watch(() => route.fullPath, async () => {
 })
 
 watch(selectedCompany, async (company, previous) => {
-  if (!company || company === previous || loadingCompanies.value) return
+  if (!company || company === previous || loadingCompanies.value || syncingFromRoute.value || bootstrapping.value) return
+  resetWorkspaceConversation()
+  await workspace.loadCompanyWorkspace(currentRole.value)
+})
+
+watch(selectedPeriod, async (period, previous) => {
+  if (period === previous || syncingFromRoute.value || bootstrapping.value) return
+  resetWorkspaceConversation()
+  await workspace.loadOverview(currentRole.value)
   await workspace.loadCompanyWorkspace(currentRole.value)
 })
 </script>
@@ -573,6 +640,13 @@ watch(selectedCompany, async (company, previous) => {
               <select v-model="selectedCompany" :disabled="loadingCompanies || !companies.length">
                 <option value="" disabled>{{ companySelectPlaceholder }}</option>
                 <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+              </select>
+            </label>
+
+            <label class="stage-select">
+              <span>报期</span>
+              <select v-model="selectedPeriod" :disabled="loadingOverview || !periodOptions.length">
+                <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
               </select>
             </label>
 

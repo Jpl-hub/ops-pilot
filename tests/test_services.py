@@ -3215,6 +3215,99 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(overview["companies"], ["测试公司", "对标公司"])
         self.assertEqual(overview["alert_summary"]["total_alerts"], 0)
 
+    def test_workspace_overview_honors_requested_report_period(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                records = [
+                    {"company_name": "测试公司", "report_period": "2025Q3"},
+                    {"company_name": "对标公司", "report_period": "2024FY"},
+                ]
+                if report_period is None:
+                    return records
+                return [item for item in records if item["report_period"] == report_period]
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司", "对标公司"]
+
+        class StubSettings:
+            app_name = "OpsPilot"
+            env = "test"
+            default_period = "2025Q3"
+            audit_min_evidence = 0
+
+            def __init__(self, root: Path) -> None:
+                self.official_data_path = root / "raw"
+                self.bronze_data_path = root / "bronze"
+                self.silver_data_path = root / "silver"
+
+        with TemporaryDirectory() as temp_dir:
+            service = OpsPilotService(StubRepository(), StubSettings(Path(temp_dir)))
+            with (
+                patch.object(
+                    service,
+                    "risk_scan",
+                    return_value={"alert_board": [], "risk_board": []},
+                ) as risk_scan,
+                patch.object(
+                    service,
+                    "task_board",
+                    return_value={
+                        "tasks": [],
+                        "summary": {"total": 0, "queued": 0, "in_progress": 0, "blocked": 0},
+                    },
+                ) as task_board,
+                patch.object(
+                    service,
+                    "alert_workflow",
+                    return_value={
+                        "alerts": [],
+                        "summary": {"total": 0, "new": 0, "in_progress": 0, "dispatched": 0},
+                    },
+                ) as alert_workflow,
+                patch.object(
+                    service,
+                    "watchboard",
+                    return_value={
+                        "summary": {
+                            "tracked_companies": 0,
+                            "companies_with_new_alerts": 0,
+                            "companies_in_progress": 0,
+                        },
+                        "items": [],
+                    },
+                ) as watchboard,
+                patch.object(
+                    service,
+                    "workspace_history",
+                    return_value={"total": 0, "records": []},
+                ) as workspace_history,
+                patch.object(
+                    service,
+                    "document_pipeline_results",
+                    return_value={"results": []},
+                ),
+            ):
+                overview = service.workspace_overview(
+                    user_role="management",
+                    report_period="2024FY",
+                )
+
+        risk_scan.assert_called_once_with("2024FY")
+        task_board.assert_called_once_with(user_role="management", report_period="2024FY")
+        alert_workflow.assert_called_once_with(report_period="2024FY")
+        watchboard.assert_called_once_with(user_role="management", report_period="2024FY")
+        workspace_history.assert_called_once_with(
+            user_role="management",
+            report_period="2024FY",
+            limit=200,
+        )
+        self.assertEqual(overview["preferred_period"], "2024FY")
+        self.assertEqual(overview["alert_summary"]["preferred_period"], "2024FY")
+        self.assertEqual(overview["alert_summary"]["active_companies"], 1)
+
     def test_admin_overview_returns_health_data_and_job_catalog(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

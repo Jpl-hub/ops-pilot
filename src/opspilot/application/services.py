@@ -270,8 +270,16 @@ class OpsPilotService:
     def industry_brain_history(self, limit: int = 24) -> dict[str, Any]:
         return _industry_brain_history(self.settings, limit=limit)
 
-    def workspace_overview(self, user_role: str = "investor") -> dict[str, Any]:
-        return _build_workspace_overview(self, user_role=user_role)
+    def workspace_overview(
+        self,
+        user_role: str = "investor",
+        report_period: str | None = None,
+    ) -> dict[str, Any]:
+        return _build_workspace_overview(
+            self,
+            user_role=user_role,
+            report_period=report_period,
+        )
 
     def workspace_execution_bus(
         self,
@@ -1191,7 +1199,6 @@ class OpsPilotService:
         if company is not None:
             return company
         return self.repository.get_company(company_name, None)
-
 
 
 

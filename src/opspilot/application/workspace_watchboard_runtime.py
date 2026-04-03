@@ -18,17 +18,20 @@ from opspilot.application.runtime_views import (
 from opspilot.application.workspace_service import ROLE_PROFILES
 
 
-def _build_workspace_overview(service: Any, user_role: str = "investor") -> dict[str, Any]:
-    preferred_period = service._preferred_period()
-    risk_payload = service.risk_scan(preferred_period)
-    health = service.health()
+def _build_workspace_overview(
+    service: Any,
+    user_role: str = "investor",
+    report_period: str | None = None,
+) -> dict[str, Any]:
+    period = report_period or service._preferred_period()
+    risk_payload = service.risk_scan(period)
     role_profile = ROLE_PROFILES.get(user_role, ROLE_PROFILES["investor"])
-    task_board = service.task_board(user_role=user_role, report_period=preferred_period)
-    alert_workflow = service.alert_workflow(report_period=preferred_period)
-    watchboard = service.watchboard(user_role=user_role, report_period=preferred_period)
+    task_board = service.task_board(user_role=user_role, report_period=period)
+    alert_workflow = service.alert_workflow(report_period=period)
+    watchboard = service.watchboard(user_role=user_role, report_period=period)
     history = service.workspace_history(
         user_role=user_role,
-        report_period=preferred_period,
+        report_period=period,
         limit=200,
     )
     document_results = service.document_pipeline_results(limit=300)
@@ -40,7 +43,7 @@ def _build_workspace_overview(service: Any, user_role: str = "investor") -> dict
         limit=20,
     )
     return {
-        "preferred_period": preferred_period,
+        "preferred_period": period,
         "role_profile": role_profile,
         "companies": service.list_company_names(),
         "watchboard": watchboard,
@@ -59,7 +62,7 @@ def _build_workspace_overview(service: Any, user_role: str = "investor") -> dict
             watchboard=watchboard,
             workspace_history=history,
             document_results=document_results["results"],
-            report_period=preferred_period,
+            report_period=period,
             user_role=user_role,
         ),
         "alert_summary": {
@@ -67,8 +70,8 @@ def _build_workspace_overview(service: Any, user_role: str = "investor") -> dict
             "high_risk_companies": sum(
                 1 for item in risk_payload["risk_board"] if item["risk_count"] > 0
             ),
-            "preferred_period": preferred_period,
-            "active_companies": health["preferred_period_companies"],
+            "preferred_period": period,
+            "active_companies": len(service.repository.list_companies(period)),
         },
     }
 

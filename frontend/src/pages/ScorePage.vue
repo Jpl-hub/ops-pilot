@@ -652,7 +652,7 @@ watch(
                 </div>
                 <RouterLink
                   class="inline-glass-link"
-                  :to="{ path: '/verify', query: { company: selectedCompany } }"
+                  :to="{ path: '/verify', query: { company: selectedCompany, period: selectedPeriod } }"
                 >
                   进入原文核验
                 </RouterLink>

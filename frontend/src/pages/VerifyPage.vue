@@ -118,9 +118,13 @@ async function loadVerify() {
 function applyQuerySelection() {
   const company = typeof route.query.company === 'string' ? route.query.company : ''
   const reportTitle = typeof route.query.report_title === 'string' ? route.query.report_title : ''
+  const period = typeof route.query.period === 'string' ? route.query.period : ''
   syncingFromRoute.value = true
   if (company && companies.value.includes(company)) {
     selectedCompany.value = company
+  }
+  if (period) {
+    selectedPeriod.value = period
   }
   if (reportTitle && reports.value.some((item) => item.title === reportTitle)) {
     selectedReportTitle.value = reportTitle
@@ -161,13 +165,17 @@ watch(selectedReportTitle, async (value, oldValue) => {
 })
 
 watch(
-  () => [route.query.company, route.query.report_title],
-  async ([companyQuery, reportTitleQuery]) => {
+  () => [route.query.company, route.query.report_title, route.query.period],
+  async ([companyQuery, reportTitleQuery, periodQuery]) => {
     const company = typeof companyQuery === 'string' ? companyQuery : ''
     const reportTitle = typeof reportTitleQuery === 'string' ? reportTitleQuery : ''
+    const period = typeof periodQuery === 'string' ? periodQuery : ''
     if (company && company !== selectedCompany.value && companies.value.includes(company)) {
       syncingFromRoute.value = true
       selectedCompany.value = company
+      if (period) {
+        selectedPeriod.value = period
+      }
       syncingFromRoute.value = false
       await loadReports()
       if (reportTitle && reports.value.some((item) => item.title === reportTitle)) {
@@ -175,6 +183,13 @@ watch(
         selectedReportTitle.value = reportTitle
         syncingFromRoute.value = false
       }
+      await loadVerify()
+      return
+    }
+    if (period && period !== selectedPeriod.value) {
+      syncingFromRoute.value = true
+      selectedPeriod.value = period
+      syncingFromRoute.value = false
       await loadVerify()
       return
     }
