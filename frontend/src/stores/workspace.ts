@@ -55,6 +55,11 @@ type WorkspaceCompaniesPayload = {
   available_periods?: string[]
 }
 
+type WorkspaceRunDetailPayload = {
+  run?: Record<string, any> | null
+  detail?: Record<string, any> | null
+}
+
 type CompanyWorkspace = {
   company_name: string
   report_period: string
@@ -304,6 +309,58 @@ export const useWorkspaceStore = defineStore('workspace', {
           error instanceof Error ? error.message : '公司运行态加载失败'
       } finally {
         this.loadingCompanyWorkspace = false
+      }
+    },
+    async loadRunDetail(runId: string, role: UserRole) {
+      const normalizedRunId = runId.trim()
+      if (!normalizedRunId) return null
+      this.turnError = null
+      this.loadingTurn = true
+      try {
+        const payload = await get<WorkspaceRunDetailPayload>(
+          `/workspace/runs/${encodeURIComponent(normalizedRunId)}`,
+        )
+        const run = payload.run || {}
+        const detail = payload.detail || {}
+        const companyName = typeof run.company_name === 'string' ? run.company_name.trim() : ''
+        const reportPeriod = normalizePeriodValue(run.report_period || detail.report_period)
+        if (companyName) {
+          if (!this.companies.includes(companyName)) {
+            this.companies = [companyName, ...this.companies.filter((item) => item !== companyName)]
+          }
+          this.selectedCompany = companyName
+        }
+        if (reportPeriod) {
+          this.selectedPeriod = reportPeriod
+          if (!this.availablePeriods.includes(reportPeriod)) {
+            this.availablePeriods = [reportPeriod, ...this.availablePeriods.filter((item) => item !== reportPeriod)]
+          }
+        }
+        this.latestPayload = {
+          ...detail,
+          run_id: run.run_id || normalizedRunId,
+          query: run.query || detail.query || '',
+          company_name: companyName || detail.company_name || this.selectedCompany,
+          report_period: reportPeriod || detail.report_period || this.selectedPeriod,
+          user_role: run.user_role || detail.user_role || role,
+          query_type: detail.query_type || run.query_type || '',
+        }
+        const welcome = this.messages.find((item) => item.kind === 'welcome')
+        this.messages = welcome ? [welcome] : []
+        this.messages.push({
+          id: `assistant-run-${normalizedRunId}`,
+          role: 'assistant',
+          kind: 'result',
+          payload: this.latestPayload,
+        })
+        await this.loadOverview(role)
+        await this.loadCompanyWorkspace(role)
+        return payload
+      } catch (error) {
+        this.turnError = error instanceof Error ? error.message : '运行记录加载失败'
+        throw error
+      } finally {
+        this.loadingTurn = false
       }
     },
     async sendQuery(role: UserRole, inputQuery?: string) {

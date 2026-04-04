@@ -6,7 +6,7 @@ import AppShell from '@/components/AppShell.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { get, post } from '@/lib/api'
+import { get, post, type UserRole } from '@/lib/api'
 import { useSession } from '@/lib/session'
 import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 
@@ -36,6 +36,7 @@ const selectedPeriod = ref('')
 const scenario = ref('欧盟对动力电池临时加征关税并限制关键材料进口')
 const scenarioDraft = ref(scenario.value)
 const activeStressStep = ref(0)
+const syncingFromRoute = ref(false)
 const activeRole = computed(() => session.activeRole.value || 'investor')
 const activeRoleLabel = computed(() => {
   const map: Record<string, string> = {
@@ -161,6 +162,19 @@ function displayToneClass(color?: string) {
   return 'tone-warning'
 }
 
+function readQueryString(value: unknown) {
+  const normalized = Array.isArray(value) ? value[0] : value
+  return typeof normalized === 'string' ? normalized.trim() : ''
+}
+
+function parseRoleQuery(value: unknown): UserRole | null {
+  const normalized = readQueryString(value)
+  if (normalized === 'investor' || normalized === 'management' || normalized === 'regulator') {
+    return normalized
+  }
+  return null
+}
+
 async function runStress() {
   if (!selectedCompany.value || !scenarioDraft.value.trim()) return
   scenario.value = scenarioDraft.value.trim()
@@ -175,22 +189,63 @@ async function runStress() {
   activeStressStep.value = 0
 }
 
+async function openStressRun(runId: string) {
+  const normalizedRunId = runId.trim()
+  if (!normalizedRunId) return
+  await stressState.execute(() => get(`/stress-test/runs/${encodeURIComponent(normalizedRunId)}`))
+  const payload = stressState.data.value
+  if (!payload) return
+  const meta = payload.run_meta || {}
+  syncingFromRoute.value = true
+  try {
+    if (typeof meta.company_name === 'string' && meta.company_name.trim()) {
+      selectedCompany.value = meta.company_name.trim()
+    }
+    if (typeof meta.report_period === 'string' && meta.report_period.trim()) {
+      selectedPeriod.value = meta.report_period.trim()
+    }
+  } finally {
+    syncingFromRoute.value = false
+  }
+  scenario.value = String(payload.scenario || scenario.value)
+  scenarioDraft.value = scenario.value
+  activeStressStep.value = 0
+}
+
+async function primeStressFromRoute() {
+  const targetRole = parseRoleQuery(route.query.role)
+  if (targetRole && session.activeRole.value !== targetRole) {
+    session.setActiveRole(targetRole)
+    return
+  }
+  const workflowContext = resolveWorkflowContext(route.query)
+  const targetRunId = readQueryString(route.query.run_id)
+  syncingFromRoute.value = true
+  try {
+    const initialCompany =
+      workflowContext.company && companies.value.includes(workflowContext.company)
+        ? workflowContext.company
+        : companies.value[0] || ''
+    selectedCompany.value = initialCompany
+    const preferredPeriod = overviewState.data.value?.preferred_period
+    selectedPeriod.value = workflowContext.period
+      ? workflowContext.period
+      : typeof preferredPeriod === 'string'
+        ? preferredPeriod
+        : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
+  } finally {
+    syncingFromRoute.value = false
+  }
+  if (targetRunId) {
+    await openStressRun(targetRunId)
+    return
+  }
+  await runStress()
+}
+
 onMounted(async () => {
   await overviewState.execute(() => get('/workspace/companies'))
-  const workflowContext = resolveWorkflowContext(route.query)
-  const initialCompany =
-    workflowContext.company && companies.value.includes(workflowContext.company)
-      ? workflowContext.company
-      : companies.value[0] || ''
-  selectedCompany.value =
-    initialCompany
-  const preferredPeriod = overviewState.data.value?.preferred_period
-  selectedPeriod.value = workflowContext.period
-    ? workflowContext.period
-    : typeof preferredPeriod === 'string'
-      ? preferredPeriod
-      : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
-  await runStress()
+  await primeStressFromRoute()
   stressTicker = window.setInterval(() => {
     if (!focusedPropagationSteps.value.length) return
     activeStressStep.value = (activeStressStep.value + 1) % focusedPropagationSteps.value.length
@@ -213,7 +268,13 @@ watch(
   () => session.activeRole.value,
   async (value, oldValue) => {
     if (!selectedCompany.value || !value || value === oldValue) return
-    await runStress()
+    await primeStressFromRoute()
+  },
+)
+watch(
+  () => [route.query.company, route.query.period, route.query.run_id, route.query.role],
+  async () => {
+    await primeStressFromRoute()
   },
 )
 
@@ -223,6 +284,14 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
     company,
     period,
   })
+})
+watch(selectedCompany, async (_company, previous) => {
+  if (!_company || previous === _company || syncingFromRoute.value) return
+  await runStress()
+})
+watch(selectedPeriod, async (period, previous) => {
+  if (period === previous || syncingFromRoute.value) return
+  await runStress()
 })
 </script>
 

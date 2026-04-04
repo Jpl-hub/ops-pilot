@@ -43,6 +43,25 @@ def _filter_workspace_runs_for_company(
     }
 
 
+def _compact_route_query(**values: Any) -> dict[str, str]:
+    query: dict[str, str] = {}
+    for key, value in values.items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            query[key] = text
+    return query
+
+
+def _build_frontend_route(path: str, *, query: dict[str, Any] | None = None) -> dict[str, Any]:
+    route: dict[str, Any] = {"path": path}
+    compact = _compact_route_query(**(query or {}))
+    if compact:
+        route["query"] = compact
+    return route
+
+
 def _build_runtime_capsule_module(
     *,
     module_key: str,
@@ -61,10 +80,10 @@ def _build_runtime_capsule_module(
             "status": "idle",
             "summary": "暂无运行记录",
             "details": [],
-            "route": {
-                "path": route_path,
-                "query": {"company": company_name, "period": report_period},
-            },
+            "route": _build_frontend_route(
+                route_path,
+                query={"company": company_name, "period": report_period},
+            ),
         }
     details = []
     for key in detail_keys:
@@ -73,16 +92,19 @@ def _build_runtime_capsule_module(
             details.append(str(value))
     if module_key == "analysis" and record.get("report_period"):
         details.append(str(record["report_period"]))
+    route_query = {
+        "company": company_name,
+        "period": report_period,
+        "run_id": record.get("run_id"),
+        "role": record.get("user_role"),
+    }
     return {
         "module_key": module_key,
         "label": label,
         "status": "ready",
         "summary": record.get(summary_key) or "已生成最新结果",
         "details": details[:2],
-        "route": {
-            "path": route_path,
-            "query": {"company": company_name, "period": report_period},
-        },
+        "route": _build_frontend_route(route_path, query=route_query),
         "meta": {
             "run_id": record.get("run_id"),
             "created_at": record.get("created_at"),
@@ -179,7 +201,15 @@ def _build_industry_brain_history_snapshot(
             "created_at": item.get("created_at"),
             "status_label": "已完成",
             "type_label": "协同分析",
-            "route": {"path": f"/api/v1/workspace/runs/{item['run_id']}"},
+            "route": _build_frontend_route(
+                "/workspace",
+                query={
+                    "company": item.get("company_name"),
+                    "period": item.get("report_period"),
+                    "role": item.get("user_role"),
+                    "run_id": item.get("run_id"),
+                },
+            ),
         }
         for item in _load_workspace_run_manifest(settings)["records"]
         if item.get("user_role") == user_role and item.get("report_period") == report_period
@@ -191,7 +221,12 @@ def _build_industry_brain_history_snapshot(
             "created_at": item.get("created_at"),
             "status_label": "已完成",
             "type_label": "监测扫描",
-            "route": {"path": f"/api/v1/watchboard/runs/{item['run_id']}"},
+            "route": _build_frontend_route(
+                "/risk",
+                query={
+                    "period": item.get("report_period"),
+                },
+            ),
         }
         for item in _load_watchboard_runs_manifest(settings)["records"]
         if item.get("user_role") == user_role and item.get("report_period") == report_period
@@ -203,7 +238,13 @@ def _build_industry_brain_history_snapshot(
             "created_at": item.get("created_at"),
             "status_label": item.get("status", "completed"),
             "type_label": "文档升级",
-            "route": {"path": f"/api/v1/admin/document-pipeline/runs/{item['run_id']}"},
+            "route": _build_frontend_route(
+                "/admin",
+                query={
+                    "stage": item.get("stage"),
+                    "run_id": item.get("run_id"),
+                },
+            ),
         }
         for item in _load_document_pipeline_run_manifest(settings)["records"]
         if item.get("report_period") == report_period
@@ -215,7 +256,15 @@ def _build_industry_brain_history_snapshot(
             "created_at": item.get("created_at"),
             "status_label": item.get("severity", {}).get("label") or "已完成",
             "type_label": "压力测试",
-            "route": {"path": f"/api/v1/stress-test/runs/{item['run_id']}"},
+            "route": _build_frontend_route(
+                "/stress",
+                query={
+                    "company": item.get("company_name"),
+                    "period": item.get("report_period"),
+                    "role": item.get("user_role"),
+                    "run_id": item.get("run_id"),
+                },
+            ),
         }
         for item in _load_stress_test_run_manifest(settings)["records"]
         if item.get("user_role") == user_role and item.get("report_period") == report_period
@@ -227,7 +276,15 @@ def _build_industry_brain_history_snapshot(
             "created_at": item.get("created_at"),
             "status_label": "已完成",
             "type_label": "图谱检索",
-            "route": {"path": f"/api/v1/graph-query/runs/{item['run_id']}"},
+            "route": _build_frontend_route(
+                "/graph",
+                query={
+                    "company": item.get("company_name"),
+                    "period": item.get("report_period"),
+                    "role": item.get("user_role"),
+                    "run_id": item.get("run_id"),
+                },
+            ),
         }
         for item in _load_graph_query_run_manifest(settings)["records"]
         if item.get("user_role") == user_role and item.get("report_period") == report_period
@@ -239,7 +296,15 @@ def _build_industry_brain_history_snapshot(
             "created_at": item.get("created_at"),
             "status_label": item.get("status_label") or "已完成",
             "type_label": "文档复核",
-            "route": {"path": f"/api/v1/vision-analyze/runs/{item['run_id']}"},
+            "route": _build_frontend_route(
+                "/vision",
+                query={
+                    "company": item.get("company_name"),
+                    "period": item.get("report_period"),
+                    "role": item.get("user_role"),
+                    "run_id": item.get("run_id"),
+                },
+            ),
         }
         for item in _load_vision_run_manifest(settings)["records"]
         if item.get("user_role") == user_role and item.get("report_period") == report_period

@@ -9,6 +9,7 @@ from opspilot.application.runtime_manifests import (
     _workspace_run_detail_path,
     _write_workspace_run_manifest,
 )
+from opspilot.application.runtime_views import _build_frontend_route
 
 
 def _workspace_history(
@@ -33,9 +34,15 @@ def _workspace_history(
             "meta": {
                 "query_type": item.get("query_type"),
                 "detail_path": item.get("detail_path"),
-                "route": {
-                    "path": f"/api/v1/workspace/runs/{item['run_id']}",
-                },
+                "route": _build_frontend_route(
+                    "/workspace",
+                    query={
+                        "company": item.get("company_name"),
+                        "period": item.get("report_period"),
+                        "role": item.get("user_role"),
+                        "run_id": item.get("run_id"),
+                    },
+                ),
             },
         }
         for item in service.workspace_runs(limit=source_limit)["runs"]
@@ -54,9 +61,10 @@ def _workspace_history(
             "meta": {
                 "tracked_companies": item.get("summary", {}).get("tracked_companies"),
                 "companies_with_new_alerts": item.get("summary", {}).get("companies_with_new_alerts"),
-                "route": {
-                    "path": f"/api/v1/watchboard/runs/{item['run_id']}",
-                },
+                "route": _build_frontend_route(
+                    "/risk",
+                    query={"period": item.get("report_period")},
+                ),
             },
         }
         for item in service.watchboard_runs(
@@ -78,9 +86,13 @@ def _workspace_history(
             "meta": {
                 "stage": item.get("stage"),
                 "artifact_summary": item.get("artifact_summary"),
-                "route": {
-                    "path": f"/api/v1/admin/document-pipeline/results/{item['stage']}/{item['report_id']}",
-                },
+                "route": _build_frontend_route(
+                    "/admin",
+                    query={
+                        "stage": item.get("stage"),
+                        "report_id": item.get("report_id"),
+                    },
+                ),
             },
         }
         for item in service.document_pipeline_results(limit=max(source_limit, limit))["results"]
@@ -103,9 +115,13 @@ def _workspace_history(
                 "remaining_count": item.get("execution_feedback", {}).get("remaining_count"),
                 "headline": item.get("execution_feedback", {}).get("headline"),
                 "contract_status": item.get("contract_status"),
-                "route": {
-                    "path": f"/api/v1/admin/document-pipeline/runs/{item['run_id']}",
-                },
+                "route": _build_frontend_route(
+                    "/admin",
+                    query={
+                        "stage": item.get("stage"),
+                        "run_id": item.get("run_id"),
+                    },
+                ),
             },
         }
         for item in service.document_pipeline_runs(limit=source_limit)["runs"]
@@ -124,9 +140,15 @@ def _workspace_history(
             "meta": {
                 "scenario": item.get("scenario"),
                 "severity": item.get("severity", {}).get("label"),
-                "route": {
-                    "path": f"/api/v1/stress-test/runs/{item['run_id']}",
-                },
+                "route": _build_frontend_route(
+                    "/stress",
+                    query={
+                        "company": item.get("company_name"),
+                        "period": item.get("report_period"),
+                        "role": item.get("user_role"),
+                        "run_id": item.get("run_id"),
+                    },
+                ),
             },
         }
         for item in service.stress_test_runs(
@@ -147,9 +169,15 @@ def _workspace_history(
             "created_at": item.get("created_at"),
             "meta": {
                 "intent": item.get("intent"),
-                "route": {
-                    "path": f"/api/v1/graph-query/runs/{item['run_id']}",
-                },
+                "route": _build_frontend_route(
+                    "/graph",
+                    query={
+                        "company": item.get("company_name"),
+                        "period": item.get("report_period"),
+                        "role": item.get("user_role"),
+                        "run_id": item.get("run_id"),
+                    },
+                ),
             },
         }
         for item in service.graph_query_runs(
@@ -170,9 +198,15 @@ def _workspace_history(
             "created_at": item.get("created_at"),
             "meta": {
                 "headline": item.get("headline"),
-                "route": {
-                    "path": f"/api/v1/vision-analyze/runs/{item['run_id']}",
-                },
+                "route": _build_frontend_route(
+                    "/vision",
+                    query={
+                        "company": item.get("company_name"),
+                        "period": item.get("report_period"),
+                        "role": item.get("user_role"),
+                        "run_id": item.get("run_id"),
+                    },
+                ),
             },
         }
         for item in service.vision_runs(

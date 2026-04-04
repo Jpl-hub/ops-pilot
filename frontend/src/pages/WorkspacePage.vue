@@ -498,10 +498,34 @@ function buildCompanyRouteQuery(extra: Record<string, string | null | undefined>
 
 function resolveExecutionRoute(record: any) {
   const companyName = record?.company_name || selectedCompany.value
-  const reportPeriod = companyWorkspace.value?.report_period || overview.value?.preferred_period
-  const role = currentRole.value
+  const reportPeriod =
+    record?.report_period
+    || companyWorkspace.value?.report_period
+    || selectedPeriod.value
+    || overview.value?.preferred_period
+  const role = record?.user_role || currentRole.value
   const metaRoute = normalizeRoute(record?.meta?.route)
   if (metaRoute) return metaRoute
+  if (record?.run_id && record?.query) {
+    return companyName
+      ? { path: '/workspace', query: { company: companyName, period: reportPeriod, role, run_id: record.run_id } }
+      : { path: '/workspace', query: { role, run_id: record.run_id } }
+  }
+  if (record?.run_id && record?.intent) {
+    return companyName
+      ? { path: '/graph', query: { company: companyName, period: reportPeriod, role, run_id: record.run_id } }
+      : null
+  }
+  if (record?.run_id && record?.scenario) {
+    return companyName
+      ? { path: '/stress', query: { company: companyName, period: reportPeriod, role, run_id: record.run_id } }
+      : null
+  }
+  if (record?.run_id && (record?.headline || record?.status_label)) {
+    return companyName
+      ? { path: '/vision', query: { company: companyName, period: reportPeriod, role, run_id: record.run_id } }
+      : null
+  }
   switch (record?.stream_type || record?.history_type || record?.module_key) {
     case 'analysis_run':
     case 'analysis':
@@ -614,6 +638,7 @@ async function primeScenarioFromRoute() {
 
   const workflowContext = resolveWorkflowContext(route.query)
   const prompt = readQueryString(route.query.prompt)
+  const targetRunId = readQueryString(route.query.run_id)
   const targetCompany = workflowContext.company
   const targetPeriod = workflowContext.period
   let contextChanged = false
@@ -636,6 +661,17 @@ async function primeScenarioFromRoute() {
     resetWorkspaceConversation()
     await workspace.loadOverview(currentRole.value)
     await workspace.loadCompanyWorkspace(currentRole.value)
+  }
+
+  if (targetRunId) {
+    const runKey = `run:${targetRunId}`
+    if (appliedScenarioKey.value === runKey && latestAnswer.value?.run_id === targetRunId) {
+      return
+    }
+    appliedScenarioKey.value = runKey
+    resetWorkspaceConversation()
+    await workspace.loadRunDetail(targetRunId, currentRole.value)
+    return
   }
 
   if (!prompt) return

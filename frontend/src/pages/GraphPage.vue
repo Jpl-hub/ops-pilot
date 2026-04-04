@@ -6,7 +6,7 @@ import AppShell from '@/components/AppShell.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { get, post } from '@/lib/api'
+import { get, post, type UserRole } from '@/lib/api'
 import { useSession } from '@/lib/session'
 import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 
@@ -30,6 +30,7 @@ const graphStageRef = ref<HTMLElement | null>(null)
 const nodeLayout = ref<Record<string, { x: number; y: number }>>({})
 const dragNodeId = ref<string | null>(null)
 const bootstrapping = ref(false)
+const syncingFromRoute = ref(false)
 let graphTicker: number | null = null
 let moveHandler: ((event: PointerEvent) => void) | null = null
 let upHandler: ((event: PointerEvent) => void) | null = null
@@ -161,6 +162,19 @@ function displayNodeType(type: string) {
   return map[type] || '节点'
 }
 
+function readQueryString(value: unknown) {
+  const normalized = Array.isArray(value) ? value[0] : value
+  return typeof normalized === 'string' ? normalized.trim() : ''
+}
+
+function parseRoleQuery(value: unknown): UserRole | null {
+  const normalized = readQueryString(value)
+  if (normalized === 'investor' || normalized === 'management' || normalized === 'regulator') {
+    return normalized
+  }
+  return null
+}
+
 function initializeGraphLayout() {
   const grouped = new Map<string, GraphNode[]>()
   rawGraphNodes.value.forEach((node) => {
@@ -237,6 +251,61 @@ async function loadGraph() {
   activePathStep.value = 0
 }
 
+async function openGraphRun(runId: string) {
+  const normalizedRunId = runId.trim()
+  if (!normalizedRunId) return
+  await graphState.execute(() => get(`/graph-query/runs/${encodeURIComponent(normalizedRunId)}`))
+  const payload = graphState.data.value
+  if (!payload) return
+  const meta = payload.run_meta || {}
+  syncingFromRoute.value = true
+  try {
+    if (typeof meta.company_name === 'string' && meta.company_name.trim()) {
+      selectedCompany.value = meta.company_name.trim()
+    }
+    if (typeof meta.report_period === 'string' && meta.report_period.trim()) {
+      selectedPeriod.value = meta.report_period.trim()
+    }
+  } finally {
+    syncingFromRoute.value = false
+  }
+  graphIntent.value = String(meta.intent || payload.intent || graphIntent.value)
+  graphIntentDraft.value = graphIntent.value
+  activePathStep.value = 0
+}
+
+async function primeGraphFromRoute() {
+  const targetRole = parseRoleQuery(route.query.role)
+  if (targetRole && session.activeRole.value !== targetRole) {
+    session.setActiveRole(targetRole)
+    return
+  }
+  const workflowContext = resolveWorkflowContext(route.query)
+  const targetRunId = readQueryString(route.query.run_id)
+  syncingFromRoute.value = true
+  try {
+    const initialCompany =
+      workflowContext.company && companies.value.includes(workflowContext.company)
+        ? workflowContext.company
+        : companies.value[0] || ''
+    selectedCompany.value = initialCompany
+    const preferredPeriod = overviewState.data.value?.preferred_period
+    selectedPeriod.value = workflowContext.period
+      ? workflowContext.period
+      : typeof preferredPeriod === 'string'
+        ? preferredPeriod
+        : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
+  } finally {
+    syncingFromRoute.value = false
+  }
+
+  if (targetRunId) {
+    await openGraphRun(targetRunId)
+    return
+  }
+  await loadGraph()
+}
+
 function submitIntent() {
   graphIntent.value = graphIntentDraft.value.trim() || graphIntent.value
   loadGraph()
@@ -282,20 +351,7 @@ onMounted(async () => {
   bootstrapping.value = true
   try {
     await overviewState.execute(() => get('/workspace/companies'))
-    const workflowContext = resolveWorkflowContext(route.query)
-    const initialCompany =
-      workflowContext.company && companies.value.includes(workflowContext.company)
-        ? workflowContext.company
-        : companies.value[0] || ''
-    selectedCompany.value =
-      initialCompany
-    const preferredPeriod = overviewState.data.value?.preferred_period
-    selectedPeriod.value = workflowContext.period
-      ? workflowContext.period
-      : typeof preferredPeriod === 'string'
-        ? preferredPeriod
-        : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
-    await loadGraph()
+    await primeGraphFromRoute()
   } finally {
     bootstrapping.value = false
   }
@@ -320,18 +376,25 @@ watch(() => graphState.data.value?.run_id, () => {
 })
 
 watch(selectedCompany, async () => {
-  if (bootstrapping.value) return
+  if (bootstrapping.value || syncingFromRoute.value) return
   await loadGraph()
 })
 watch(selectedPeriod, async () => {
-  if (bootstrapping.value) return
+  if (bootstrapping.value || syncingFromRoute.value) return
   await loadGraph()
 })
 watch(
   () => session.activeRole.value,
   async (value, oldValue) => {
     if (bootstrapping.value || !selectedCompany.value || !value || value === oldValue) return
-    await loadGraph()
+    await primeGraphFromRoute()
+  },
+)
+watch(
+  () => [route.query.company, route.query.period, route.query.run_id, route.query.role],
+  async () => {
+    if (bootstrapping.value) return
+    await primeGraphFromRoute()
   },
 )
 

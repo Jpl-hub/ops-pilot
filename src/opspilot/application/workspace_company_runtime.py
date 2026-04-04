@@ -14,6 +14,7 @@ from opspilot.application.graph_runtime import _dedupe_graph_nodes, _graph_node_
 from opspilot.application.industry_signals import _build_company_signal_graph_context
 from opspilot.application.runtime_manifests import _find_watchboard_record
 from opspilot.application.runtime_views import (
+    _build_frontend_route,
     _build_runtime_capsule_module,
     _filter_workspace_runs_for_company,
 )
@@ -488,7 +489,10 @@ def _build_company_execution_stream(
             "meta": {
                 "priority": item.get("priority"),
                 "reason": item.get("summary"),
-                "route": {"path": "/risk", "query": {"company": company_name, "period": period}},
+                "route": _build_frontend_route(
+                    "/risk",
+                    query={"company": company_name, "period": period},
+                ),
             },
         }
         for item in service.alert_workflow(report_period=period)["alerts"]
@@ -504,7 +508,10 @@ def _build_company_execution_stream(
             "meta": {
                 "priority": item.get("priority"),
                 "owner": item.get("owner_role"),
-                "route": {"path": "/workspace", "query": {"company": company_name, "period": period}},
+                "route": _build_frontend_route(
+                    "/workspace",
+                    query={"company": company_name, "period": period},
+                ),
             },
         }
         for item in service.task_board(user_role=user_role, report_period=period, limit=200)["tasks"]
@@ -527,7 +534,10 @@ def _build_company_execution_stream(
                 "created_at": watch_item.get("updated_at") or watch_item.get("created_at"),
                 "meta": {
                     "note": watch_item.get("note"),
-                    "route": {"path": "/workspace", "query": {"company": company_name, "period": period}},
+                    "route": _build_frontend_route(
+                        "/workspace",
+                        query={"company": company_name, "period": period},
+                    ),
                 },
             }
         )
@@ -562,7 +572,15 @@ def _build_company_execution_stream(
             "meta": {
                 "scenario": item.get("scenario"),
                 "severity": item.get("severity", {}).get("label"),
-                "route": {"path": f"/api/v1/stress-test/runs/{item['run_id']}"},
+                "route": _build_frontend_route(
+                    "/stress",
+                    query={
+                        "company": item.get("company_name"),
+                        "period": item.get("report_period"),
+                        "role": item.get("user_role"),
+                        "run_id": item.get("run_id"),
+                    },
+                ),
             },
         }
         for item in service.stress_test_runs(
@@ -581,7 +599,15 @@ def _build_company_execution_stream(
             "created_at": item.get("created_at"),
             "meta": {
                 "intent": item.get("intent"),
-                "route": {"path": f"/api/v1/graph-query/runs/{item['run_id']}"},
+                "route": _build_frontend_route(
+                    "/graph",
+                    query={
+                        "company": item.get("company_name"),
+                        "period": item.get("report_period"),
+                        "role": item.get("user_role"),
+                        "run_id": item.get("run_id"),
+                    },
+                ),
             },
         }
         for item in service.graph_query_runs(
@@ -600,7 +626,15 @@ def _build_company_execution_stream(
             "created_at": item.get("created_at"),
             "meta": {
                 "headline": item.get("headline"),
-                "route": {"path": f"/api/v1/vision-analyze/runs/{item['run_id']}"},
+                "route": _build_frontend_route(
+                    "/vision",
+                    query={
+                        "company": item.get("company_name"),
+                        "period": item.get("report_period"),
+                        "role": item.get("user_role"),
+                        "run_id": item.get("run_id"),
+                    },
+                ),
             },
         }
         for item in service.vision_runs(
@@ -619,7 +653,15 @@ def _build_company_execution_stream(
             "created_at": item.get("created_at"),
             "meta": {
                 "query_type": item.get("query_type"),
-                "route": {"path": f"/api/v1/workspace/runs/{item['run_id']}"},
+                "route": _build_frontend_route(
+                    "/workspace",
+                    query={
+                        "company": item.get("company_name"),
+                        "period": item.get("report_period"),
+                        "role": item.get("user_role"),
+                        "run_id": item.get("run_id"),
+                    },
+                ),
             },
         }
         for item in service.workspace_runs(limit=200)["runs"]

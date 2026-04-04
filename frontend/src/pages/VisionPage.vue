@@ -7,7 +7,7 @@ import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { get, post } from '@/lib/api'
+import { get, post, type UserRole } from '@/lib/api'
 import { useSession } from '@/lib/session'
 import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 
@@ -18,6 +18,7 @@ const runsState = useAsyncState<any>()
 const pipelineRunning = ref(false)
 const actionError = ref('')
 const bootstrapping = ref(false)
+const syncingFromRoute = ref(false)
 const selectedJobKey = ref('')
 const route = useRoute()
 const session = useSession()
@@ -124,6 +125,19 @@ function qualityTone(status?: string): 'default' | 'risk' | 'success' {
   return 'default'
 }
 
+function readQueryString(value: unknown) {
+  const normalized = Array.isArray(value) ? value[0] : value
+  return typeof normalized === 'string' ? normalized.trim() : ''
+}
+
+function parseRoleQuery(value: unknown): UserRole | null {
+  const normalized = readQueryString(value)
+  if (normalized === 'investor' || normalized === 'management' || normalized === 'regulator') {
+    return normalized
+  }
+  return null
+}
+
 async function loadVision() {
   if (!selectedCompany.value) return
   actionError.value = ''
@@ -154,28 +168,61 @@ async function runPipeline() {
 }
 
 async function openVisionRun(runId: string) {
-  await visionState.execute(() => get(`/vision-analyze/runs/${encodeURIComponent(runId)}`))
+  const normalizedRunId = runId.trim()
+  if (!normalizedRunId) return
+  await visionState.execute(() => get(`/vision-analyze/runs/${encodeURIComponent(normalizedRunId)}`))
+  const payload = visionState.data.value
+  if (!payload) return
+  const meta = payload.run_meta || {}
+  syncingFromRoute.value = true
+  try {
+    if (typeof meta.company_name === 'string' && meta.company_name.trim()) {
+      selectedCompany.value = meta.company_name.trim()
+    }
+    if (typeof meta.report_period === 'string' && meta.report_period.trim()) {
+      selectedPeriod.value = meta.report_period.trim()
+    }
+  } finally {
+    syncingFromRoute.value = false
+  }
 }
 
-onMounted(async () => {
-  bootstrapping.value = true
+async function primeVisionFromRoute() {
+  const targetRole = parseRoleQuery(route.query.role)
+  if (targetRole && session.activeRole.value !== targetRole) {
+    session.setActiveRole(targetRole)
+    return
+  }
+  const workflowContext = resolveWorkflowContext(route.query)
+  const targetRunId = readQueryString(route.query.run_id)
+  syncingFromRoute.value = true
   try {
-    await overviewState.execute(() => get('/workspace/companies'))
-    const workflowContext = resolveWorkflowContext(route.query)
     const initialCompany =
       workflowContext.company && companies.value.includes(workflowContext.company)
         ? workflowContext.company
         : companies.value[0] || ''
-    selectedCompany.value =
-      initialCompany
+    selectedCompany.value = initialCompany
     const preferredPeriod = overviewState.data.value?.preferred_period
     selectedPeriod.value = workflowContext.period
       ? workflowContext.period
       : typeof preferredPeriod === 'string'
         ? preferredPeriod
         : String(preferredPeriod?.value || preferredPeriod?.period || preferredPeriod?.report_period || preferredPeriod?.label || '')
+  } finally {
+    syncingFromRoute.value = false
+  }
+  await loadVision()
+  if (targetRunId) {
+    await openVisionRun(targetRunId)
+  }
+}
+
+onMounted(async () => {
+  bootstrapping.value = true
+  try {
+    await overviewState.execute(() => get('/workspace/companies'))
     try {
-      await loadVision()
+      await primeVisionFromRoute()
     } catch {
       // 请求错误由状态容器接管
     }
@@ -185,7 +232,7 @@ onMounted(async () => {
 })
 
 watch([selectedCompany, selectedPeriod], async () => {
-  if (bootstrapping.value) return
+  if (bootstrapping.value || syncingFromRoute.value) return
   try {
     await loadVision()
   } catch {
@@ -213,7 +260,18 @@ watch(
   async (value, oldValue) => {
     if (bootstrapping.value || !selectedCompany.value || !value || value === oldValue) return
     try {
-      await loadVision()
+      await primeVisionFromRoute()
+    } catch {
+      // 请求错误由状态容器接管
+    }
+  },
+)
+watch(
+  () => [route.query.company, route.query.period, route.query.run_id, route.query.role],
+  async () => {
+    if (bootstrapping.value) return
+    try {
+      await primeVisionFromRoute()
     } catch {
       // 请求错误由状态容器接管
     }
