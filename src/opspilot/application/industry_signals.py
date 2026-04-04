@@ -334,16 +334,17 @@ def _build_kafka_signal_runtime(settings: Settings) -> dict[str, Any]:
             "freshness_label": "Kafka 依赖未安装",
         }
 
-    consumer = KafkaConsumer(
-        bootstrap_servers=[item.strip() for item in bootstrap_servers.split(",") if item.strip()],
-        enable_auto_commit=False,
-        auto_offset_reset="latest",
-        consumer_timeout_ms=1200,
-        request_timeout_ms=5000,
-        api_version_auto_timeout_ms=5000,
-        metadata_max_age_ms=5000,
-    )
+    consumer = None
     try:
+        consumer = KafkaConsumer(
+            bootstrap_servers=[item.strip() for item in bootstrap_servers.split(",") if item.strip()],
+            enable_auto_commit=False,
+            auto_offset_reset="latest",
+            consumer_timeout_ms=1200,
+            request_timeout_ms=5000,
+            api_version_auto_timeout_ms=5000,
+            metadata_max_age_ms=5000,
+        )
         partitions = consumer.partitions_for_topic(topic)
         if not partitions:
             return {
@@ -408,7 +409,8 @@ def _build_kafka_signal_runtime(settings: Settings) -> dict[str, Any]:
             "error": str(exc),
         }
     finally:
-        consumer.close()
+        if consumer is not None:
+            consumer.close()
 
 
 def _decode_kafka_signal_record(value: Any) -> dict[str, Any] | None:

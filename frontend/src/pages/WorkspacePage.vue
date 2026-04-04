@@ -223,8 +223,8 @@ const workspaceStatus = computed(() =>
     companyWorkspace.value?.report_period || overview.value?.preferred_period
       ? `报期 ${companyWorkspace.value?.report_period || overview.value?.preferred_period}`
       : '',
-    companyWorkspace.value?.watchboard?.tracked ? '持续跟踪中' : '',
-    companyWorkspace.value?.research?.status === 'ready' ? '研报可核验' : '',
+    companyWorkspace.value?.watchboard?.tracked ? '已加入持续跟踪' : '',
+    companyWorkspace.value?.research?.status === 'ready' ? '可直接核验研报' : '',
   ].filter(Boolean),
 )
 
@@ -233,17 +233,20 @@ const pageLoadError = computed(
 )
 
 const briefHeadline = computed(() => {
-  const summary = companyWorkspace.value?.score_summary
   if (!selectedCompany.value) return '先选择公司，再发起一轮判断'
-  if (!summary) return `正在回收 ${selectedCompany.value} 的真实运行态`
+  if (!companyWorkspace.value?.score_summary) return '正在回收这家公司的真实运行态'
   if ((companyWorkspace.value?.alerts?.summary?.new || 0) > 0) {
-    return `${selectedCompany.value} 当前有新增预警，适合先围绕最急的问题做判断`
+    return '当前有新增预警，适合先围绕最急的问题做判断'
   }
   if ((companyWorkspace.value?.tasks?.summary?.in_progress || 0) > 0) {
-    return `${selectedCompany.value} 当前有在途动作，适合继续把这轮判断推进完`
+    return '当前有在途动作，适合继续把这一轮判断推进完'
   }
-  return `${selectedCompany.value} 当前运行态已就绪，可以直接围绕一个问题做判断`
+  return '当前运行态已经就绪，可以直接围绕一个问题开始判断'
 })
+
+const surfaceTitle = computed(() => selectedCompany.value || '先选择公司')
+
+const surfaceSummary = computed(() => latestAnswer.value?.summary || briefHeadline.value)
 
 const latestRunSummary = computed(() => {
   const latestRun = (companyWorkspace.value?.recent_runs?.items || []).slice(0, 1)[0]
@@ -624,10 +627,12 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
         <section class="workspace-body">
           <section class="main-surface">
             <header class="surface-head">
-              <span class="surface-kicker">{{ latestAnswer ? '当前判断' : '先看当前状态' }}</span>
-              <strong>{{ latestAnswer?.summary || briefHeadline }}</strong>
+              <div class="surface-headline">
+                <span class="surface-kicker">{{ latestAnswer ? '当前判断' : '先看当前状态' }}</span>
+                <strong>{{ surfaceTitle }}</strong>
+                <p class="surface-summary">{{ surfaceSummary }}</p>
+              </div>
               <div class="surface-meta">
-                <span>{{ selectedCompany || '未选择公司' }}</span>
                 <span v-for="item in workspaceStatus" :key="item">{{ item }}</span>
               </div>
             </header>
@@ -642,6 +647,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                 <article v-for="item in companySnapshotMetrics" :key="item.label" class="summary-chip">
                   <span>{{ item.label }}</span>
                   <strong>{{ displayMetricValue(item) }}</strong>
+                  <p v-if="item.hint">{{ item.hint }}</p>
                 </article>
               </section>
 
@@ -696,6 +702,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                 <article v-for="item in companySnapshotMetrics" :key="item.label" class="summary-chip">
                   <span>{{ item.label }}</span>
                   <strong>{{ displayMetricValue(item) }}</strong>
+                  <p v-if="item.hint">{{ item.hint }}</p>
                 </article>
               </section>
 
@@ -707,13 +714,13 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                   </ul>
                   <p v-else class="inline-empty">{{ column.empty }}</p>
                 </article>
-
-                <article class="snapshot-note">
-                  <span class="focus-label">这一轮可以从这里接着看</span>
-                  <p>{{ researchSummary }}</p>
-                  <p v-if="latestRunSummary">{{ latestRunSummary }}</p>
-                </article>
               </section>
+
+              <article class="snapshot-note">
+                <span class="focus-label">这一轮可以从这里接着看</span>
+                <p>{{ researchSummary }}</p>
+                <p v-if="latestRunSummary">{{ latestRunSummary }}</p>
+              </article>
             </div>
 
             <div v-else class="surface-empty">
@@ -937,20 +944,33 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .main-surface {
   min-height: 0;
   display: grid;
-  gap: 20px;
+  gap: 18px;
   align-content: start;
 }
 
 .surface-head {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+}
+
+.surface-headline {
+  display: grid;
+  gap: 8px;
 }
 
 .surface-head strong {
-  font-size: clamp(22px, 2.4vw, 30px);
-  line-height: 1.14;
+  font-size: clamp(34px, 4vw, 52px);
+  line-height: 1.02;
   letter-spacing: -0.05em;
+  max-width: 980px;
+}
+
+.surface-summary {
+  margin: 0;
   max-width: 840px;
+  color: rgba(203, 213, 225, 0.82);
+  font-size: 17px;
+  line-height: 1.65;
 }
 
 .surface-meta {
@@ -973,7 +993,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .surface-stack {
   min-height: 0;
   display: grid;
-  gap: 18px;
+  gap: 20px;
   align-content: start;
 }
 
@@ -1025,15 +1045,15 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .inline-grid,
 .evidence-links {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .summary-strip {
-  grid-template-columns: repeat(3, minmax(0, 180px));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .snapshot-surface {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .summary-chip,
@@ -1053,14 +1073,21 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .action-card,
 .evidence-card {
   display: grid;
-  gap: 10px;
-  padding: 16px;
+  gap: 8px;
+  padding: 18px;
 }
 
 .summary-chip strong {
-  font-size: 24px;
-  line-height: 1.1;
+  font-size: 28px;
+  line-height: 1.05;
   letter-spacing: -0.04em;
+}
+
+.summary-chip p {
+  margin: 0;
+  color: rgba(148, 163, 184, 0.86);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .action-card strong,
@@ -1071,7 +1098,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
 .snapshot-column,
 .snapshot-note {
-  min-height: 220px;
+  min-height: 200px;
   align-content: start;
 }
 
@@ -1137,7 +1164,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 140px;
   gap: 10px;
-  padding: 6px;
+  padding: 8px;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
@@ -1180,6 +1207,10 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   .snapshot-surface,
   .inline-grid {
     grid-template-columns: 1fr;
+  }
+
+  .surface-head strong {
+    font-size: clamp(28px, 8vw, 40px);
   }
 }
 

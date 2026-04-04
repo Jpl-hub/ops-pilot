@@ -157,31 +157,59 @@ def admin_innovation_radar(_: dict = Depends(require_current_user)) -> dict:
 
 
 @router.get("/industry/brain")
-def industry_brain(_: dict = Depends(require_current_user)) -> dict:
-    return get_service().industry_brain()
+def industry_brain(
+    user_role: str | None = None,
+    report_period: str | None = None,
+    current_user: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().industry_brain(
+        user_role=user_role or current_user["role"],
+        report_period=report_period,
+    )
 
 
 @router.get("/industry/brain/tick")
-def industry_brain_tick(_: dict = Depends(require_current_user)) -> dict:
-    return get_service().industry_brain_tick()
+def industry_brain_tick(
+    user_role: str | None = None,
+    report_period: str | None = None,
+    current_user: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().industry_brain_tick(
+        user_role=user_role or current_user["role"],
+        report_period=report_period,
+    )
 
 
 @router.get("/industry/brain/history")
-def industry_brain_history(limit: int = 24, _: dict = Depends(require_current_user)) -> dict:
-    return get_service().industry_brain_history(limit=limit)
+def industry_brain_history(
+    limit: int = 24,
+    user_role: str | None = None,
+    report_period: str | None = None,
+    current_user: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().industry_brain_history(
+        limit=limit,
+        user_role=user_role or current_user["role"],
+        report_period=report_period,
+    )
 
 
 @router.websocket("/ws/industry-brain")
 async def industry_brain_stream(websocket: WebSocket) -> None:
     token = websocket.query_params.get("token")
-    if not token or get_auth_store().get_user_by_token(token) is None:
+    user = get_auth_store().get_user_by_token(token) if token else None
+    if user is None:
         await websocket.close(code=4401)
         return
 
     await websocket.accept()
     try:
         while True:
-            payload = await asyncio.to_thread(get_service().industry_brain_tick)
+            payload = await asyncio.to_thread(
+                get_service().industry_brain_tick,
+                user_role=websocket.query_params.get("user_role") or user.role,
+                report_period=websocket.query_params.get("report_period"),
+            )
             await websocket.send_json(payload)
             await asyncio.sleep(1.5)
     except WebSocketDisconnect:
@@ -816,8 +844,8 @@ def industry_research_brief(_: dict = Depends(require_current_user)) -> dict:
 
 
 @router.get("/evidence/{chunk_id}")
-def evidence_detail(chunk_id: str, _: dict = Depends(require_current_user)) -> dict:
+def evidence_detail(chunk_id: str, current_user: dict = Depends(require_current_user)) -> dict:
     try:
-        return get_service().get_evidence(chunk_id)
+        return get_service().get_evidence(chunk_id, user_role=current_user["role"])
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

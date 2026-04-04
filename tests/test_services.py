@@ -70,6 +70,109 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertIn("external_signal_stream", history["records"][0])
             self.assertIn("streaming_anomalies", history["records"][0])
 
+    def test_industry_brain_handles_unreadable_kafka_without_crashing(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            settings = type(
+                "StubSettings",
+                (),
+                {
+                    "app_name": "OpsPilot",
+                    "env": "test",
+                    "default_period": "2025Q3",
+                    "audit_min_evidence": 0,
+                    "sample_data_path": Path(__file__).resolve().parents[1] / "data" / "bootstrap",
+                    "official_data_path": root / "raw" / "official",
+                    "bronze_data_path": root / "bronze" / "official",
+                    "silver_data_path": root / "silver" / "official",
+                    "kafka_bootstrap_servers": "redpanda:9092",
+                    "kafka_signal_topic": "opspilot.external_signals",
+                },
+            )()
+            repository = SampleRepository(settings.sample_data_path)
+            service = OpsPilotService(repository, settings)
+
+            with patch("opspilot.application.industry_signals.KafkaConsumer", side_effect=RuntimeError("broker down")):
+                payload = service.industry_brain()
+
+            self.assertEqual(payload["kafka_signal_runtime"]["status"], "unavailable")
+            self.assertEqual(payload["kafka_signal_runtime"]["freshness_label"], "Kafka 主题不可读")
+            self.assertIn("broker down", payload["kafka_signal_runtime"]["error"])
+
+    def test_industry_brain_scopes_history_and_routes_by_role(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            settings = type(
+                "StubSettings",
+                (),
+                {
+                    "app_name": "OpsPilot",
+                    "env": "test",
+                    "default_period": "2025Q3",
+                    "audit_min_evidence": 0,
+                    "sample_data_path": Path(__file__).resolve().parents[1] / "data" / "bootstrap",
+                    "official_data_path": root / "raw" / "official",
+                    "bronze_data_path": root / "bronze" / "official",
+                    "silver_data_path": root / "silver" / "official",
+                },
+            )()
+            repository = SampleRepository(settings.sample_data_path)
+            service = OpsPilotService(repository, settings)
+            preferred_period = service._preferred_period()
+            manifests_root = settings.bronze_data_path / "manifests"
+            manifests_root.mkdir(parents=True, exist_ok=True)
+            (manifests_root / "workspace_watchboard.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2026-04-03T00:00:00+08:00",
+                        "record_count": 2,
+                        "records": [
+                            {
+                                "company_name": "宁德时代",
+                                "report_period": preferred_period,
+                                "user_role": "investor",
+                                "note": "投资者持续跟踪",
+                            },
+                            {
+                                "company_name": "阳光电源",
+                                "report_period": preferred_period,
+                                "user_role": "management",
+                                "note": "经营侧重点企业",
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            investor_payload = service.industry_brain(user_role="investor", report_period=preferred_period)
+            management_payload = service.industry_brain(user_role="management", report_period=preferred_period)
+            investor_history = service.industry_brain_history(
+                limit=8,
+                user_role="investor",
+                report_period=preferred_period,
+            )
+            management_history = service.industry_brain_history(
+                limit=8,
+                user_role="management",
+                report_period=preferred_period,
+            )
+
+            self.assertEqual(investor_payload["user_role"], "investor")
+            self.assertEqual(investor_payload["role_label"], "投资者")
+            self.assertEqual(investor_payload["focus_title"], "优先看收益质量、同业位置和研报分歧")
+            self.assertEqual(investor_payload["live_events"][0]["route"]["query"]["role"], "investor")
+            self.assertEqual(management_payload["user_role"], "management")
+            self.assertEqual(management_payload["live_events"][0]["route"]["query"]["role"], "management")
+            self.assertTrue(investor_history["records"])
+            self.assertTrue(management_history["records"])
+            self.assertTrue(all(item.get("user_role") == "investor" for item in investor_history["records"]))
+            self.assertTrue(all(item.get("user_role") == "management" for item in management_history["records"]))
+            self.assertEqual(investor_history["records"][0]["report_period"], preferred_period)
+            self.assertIn("metrics", investor_history["records"][0])
+            self.assertIn("brain_command_surface", investor_history["records"][0])
+
     def test_service_falls_back_to_latest_company_period(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

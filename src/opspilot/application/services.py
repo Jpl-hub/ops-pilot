@@ -71,6 +71,7 @@ from opspilot.application.document_pipeline_runtime import (
     _document_pipeline_runs,
     _run_document_pipeline_stage,
 )
+from opspilot.application.evidence_runtime import build_evidence_detail
 from opspilot.application.data_runtime import (
     _build_innovation_radar,
     _build_official_data_status,
@@ -261,14 +262,45 @@ class OpsPilotService:
     def innovation_radar(self) -> dict[str, Any]:
         return _build_innovation_radar()
 
-    def industry_brain(self) -> dict[str, Any]:
-        return _build_industry_brain_payload(self, force_refresh=True)
+    def industry_brain(
+        self,
+        *,
+        user_role: str = "management",
+        report_period: str | None = None,
+    ) -> dict[str, Any]:
+        return _build_industry_brain_payload(
+            self,
+            force_refresh=True,
+            user_role=user_role,
+            report_period=report_period,
+        )
 
-    def industry_brain_tick(self) -> dict[str, Any]:
-        return _build_industry_brain_payload(self, force_refresh=False)
+    def industry_brain_tick(
+        self,
+        *,
+        user_role: str = "management",
+        report_period: str | None = None,
+    ) -> dict[str, Any]:
+        return _build_industry_brain_payload(
+            self,
+            force_refresh=False,
+            user_role=user_role,
+            report_period=report_period,
+        )
 
-    def industry_brain_history(self, limit: int = 24) -> dict[str, Any]:
-        return _industry_brain_history(self.settings, limit=limit)
+    def industry_brain_history(
+        self,
+        limit: int = 24,
+        *,
+        user_role: str | None = None,
+        report_period: str | None = None,
+    ) -> dict[str, Any]:
+        return _industry_brain_history(
+            self.settings,
+            limit=limit,
+            user_role=user_role,
+            report_period=report_period,
+        )
 
     def workspace_overview(
         self,
@@ -1166,8 +1198,8 @@ class OpsPilotService:
     ) -> dict[str, Any]:
         return self._workspace.metric_query(query=query, company_name=company_name, report_period=report_period)
 
-    def get_evidence(self, chunk_id: str) -> dict[str, Any]:
-        return self._workspace.get_evidence(chunk_id)
+    def get_evidence(self, chunk_id: str, *, user_role: str = "management") -> dict[str, Any]:
+        return build_evidence_detail(self, chunk_id, user_role=user_role)
 
     def _persist_workspace_run(
         self,

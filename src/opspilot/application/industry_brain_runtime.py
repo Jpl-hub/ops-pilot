@@ -33,23 +33,126 @@ from opspilot.application.runtime_views import (
     _build_industry_brain_history_snapshot,
     _build_industry_brain_watchboard_snapshot,
 )
+from opspilot.application.workspace_service import ROLE_PROFILES
 from opspilot.application.document_pipeline import _utcnow_iso
 
 
-def _industry_brain_history(settings: Any, *, limit: int = 24) -> dict[str, Any]:
+def _normalize_user_role(user_role: str | None) -> str:
+    return user_role if user_role in ROLE_PROFILES else "investor"
+
+
+def _industry_brain_cache_context(
+    service: Any,
+    *,
+    user_role: str,
+    report_period: str,
+) -> dict[str, Any]:
+    root_cache = service._industry_brain_cache
+    contexts = root_cache.setdefault("contexts", {})
+    cache_key = f"{user_role}:{report_period}"
+    cache = contexts.get(cache_key)
+    if cache is None:
+        cache = {
+            "generated_at": 0.0,
+            "sequence": 0,
+            "payload": None,
+            "history": [],
+        }
+        contexts[cache_key] = cache
+    return cache
+
+
+def _role_route(
+    route: dict[str, Any] | None,
+    *,
+    company_name: str | None,
+    user_role: str,
+    report_period: str,
+) -> dict[str, Any]:
+    payload = dict(route or {})
+    payload["path"] = str(payload.get("path") or "/score")
+    query = dict(payload.get("query") or {})
+    if company_name and not query.get("company"):
+        query["company"] = company_name
+    if report_period and not query.get("period"):
+        query["period"] = report_period
+    query["role"] = user_role
+    payload["query"] = query
+    return payload
+
+
+def _inject_role_routes(
+    records: list[dict[str, Any]],
+    *,
+    user_role: str,
+    report_period: str,
+) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for item in records:
+        company_name = item.get("company_name")
+        if not item.get("route") and not company_name:
+            enriched.append(item)
+            continue
+        enriched.append(
+            {
+                **item,
+                "route": _role_route(
+                    item.get("route"),
+                    company_name=company_name,
+                    user_role=user_role,
+                    report_period=report_period,
+                ),
+            }
+        )
+    return enriched
+
+
+def _industry_brain_history(
+    settings: Any,
+    *,
+    limit: int = 24,
+    user_role: str | None = None,
+    report_period: str | None = None,
+) -> dict[str, Any]:
     manifest = _load_industry_brain_manifest(settings)
-    records = list(manifest["records"])
+    role_key = _normalize_user_role(user_role) if user_role else None
+    records = []
+    for item in manifest["records"]:
+        item_role = item.get("user_role")
+        if role_key is not None:
+            if item_role is None:
+                if role_key != "management":
+                    continue
+            elif item_role != role_key:
+                continue
+        if report_period is not None and item.get("report_period") != report_period:
+            continue
+        records.append(item)
     records.sort(key=lambda item: item.get("refreshed_at") or "", reverse=True)
     return {
         "generated_at": manifest.get("generated_at"),
+        "user_role": role_key,
+        "report_period": report_period,
         "total": len(records),
         "records": records[:limit],
     }
 
 
-def _build_industry_brain_payload(service: Any, *, force_refresh: bool) -> dict[str, Any]:
+def _build_industry_brain_payload(
+    service: Any,
+    *,
+    force_refresh: bool,
+    user_role: str = "management",
+    report_period: str | None = None,
+) -> dict[str, Any]:
+    role_key = _normalize_user_role(user_role)
+    preferred_period = report_period or service._preferred_period()
     now = time.monotonic()
-    cache = service._industry_brain_cache
+    cache = _industry_brain_cache_context(
+        service,
+        user_role=role_key,
+        report_period=preferred_period,
+    )
     if (
         not force_refresh
         and cache.get("payload") is not None
@@ -63,15 +166,15 @@ def _build_industry_brain_payload(service: Any, *, force_refresh: bool) -> dict[
         }
         return payload
 
-    preferred_period = service._preferred_period()
     health = service.health()
+    period_company_count = len(service.repository.list_companies(preferred_period))
     alert_workflow = service.alert_workflow(report_period=preferred_period)
-    task_board = service.task_board(user_role="management", report_period=preferred_period, limit=200)
+    task_board = service.task_board(user_role=role_key, report_period=preferred_period, limit=200)
     risk_payload = service.risk_scan(preferred_period)
     watchboard = _build_industry_brain_watchboard_snapshot(
         service.settings,
         report_period=preferred_period,
-        user_role="management",
+        user_role=role_key,
         alert_workflow=alert_workflow,
         task_board=task_board,
         risk_payload=risk_payload,
@@ -82,7 +185,7 @@ def _build_industry_brain_payload(service: Any, *, force_refresh: bool) -> dict[
     workspace_history = _build_industry_brain_history_snapshot(
         service.settings,
         report_period=preferred_period,
-        user_role="management",
+        user_role=role_key,
         limit=10,
     )
 
@@ -117,6 +220,14 @@ def _build_industry_brain_payload(service: Any, *, force_refresh: bool) -> dict[
         signal_heatmap=streaming_heatmap,
         kafka_signal_runtime=kafka_signal_runtime,
     )
+    streaming_anomalies = {
+        **streaming_anomalies,
+        "items": _inject_role_routes(
+            list(streaming_anomalies.get("items") or []),
+            user_role=role_key,
+            report_period=preferred_period,
+        ),
+    }
 
     market_tape = [
         {
@@ -168,6 +279,11 @@ def _build_industry_brain_payload(service: Any, *, force_refresh: bool) -> dict[
         attention_matrix,
         streaming_anomalies,
     )
+    attention_matrix = _inject_role_routes(
+        attention_matrix,
+        user_role=role_key,
+        report_period=preferred_period,
+    )
 
     live_events = []
     for item in watchboard["items"][:5]:
@@ -184,13 +300,20 @@ def _build_industry_brain_payload(service: Any, *, force_refresh: bool) -> dict[
                 ),
                 "route": {
                     "path": "/score",
-                    "query": {"company": item["company_name"], "period": preferred_period},
+                    "query": {
+                        "company": item["company_name"],
+                        "period": preferred_period,
+                        "role": role_key,
+                    },
                 },
             }
         )
     signal_feed = external_signal_stream.get("signals") or live_events
 
     payload = {
+        "user_role": role_key,
+        "role_label": ROLE_PROFILES[role_key]["label"],
+        "focus_title": ROLE_PROFILES[role_key]["focus_title"],
         "report_period": preferred_period,
         "stream": {
             "sequence": cache["sequence"],
@@ -205,7 +328,7 @@ def _build_industry_brain_payload(service: Any, *, force_refresh: bool) -> dict[
         "metrics": [
             {
                 "label": "正式公司覆盖",
-                "value": str(health["preferred_period_companies"]),
+                "value": str(period_company_count),
                 "hint": f"{preferred_period} 主周期已接入正式公司数",
                 "tone": "accent",
             },
@@ -272,7 +395,11 @@ def _build_industry_brain_payload(service: Any, *, force_refresh: bool) -> dict[
                 "risk_labels": item["risk_labels"][:3],
                 "route": {
                     "path": "/score",
-                    "query": {"company": item["company_name"], "period": preferred_period},
+                    "query": {
+                        "company": item["company_name"],
+                        "period": preferred_period,
+                        "role": role_key,
+                    },
                 },
             }
             for item in top_risk_companies

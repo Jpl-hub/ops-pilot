@@ -66,14 +66,28 @@ def _append_industry_brain_snapshot(settings: Settings, payload: dict[str, Any])
         {
             "refreshed_at": payload.get("stream", {}).get("refreshed_at"),
             "report_period": payload.get("report_period"),
+            "user_role": payload.get("user_role"),
+            "role_label": payload.get("role_label"),
+            "focus_title": payload.get("focus_title"),
+            "stream": payload.get("stream", {}),
             "sequence": payload.get("stream", {}).get("sequence"),
+            "sector_tags": payload.get("sector_tags", []),
+            "metrics": payload.get("metrics", []),
+            "charts": payload.get("charts", []),
             "market_tape": payload.get("market_tape", []),
+            "brain_command_surface": payload.get("brain_command_surface", {}),
+            "brain_signal_tape": payload.get("brain_signal_tape", []),
+            "radar_events": payload.get("radar_events", []),
             "live_events": payload.get("live_events", []),
             "external_signal_stream": payload.get("external_signal_stream", {}),
             "streaming_snapshot": payload.get("streaming_snapshot", {}),
+            "streaming_timeline": payload.get("streaming_timeline", {}),
+            "streaming_heatmap": payload.get("streaming_heatmap", {}),
             "streaming_anomalies": payload.get("streaming_anomalies", {}),
             "attention_matrix": payload.get("attention_matrix", []),
             "execution_flash": payload.get("execution_flash", []),
+            "top_risk_companies": payload.get("top_risk_companies", []),
+            "document_pipeline": payload.get("document_pipeline", {}),
         }
     )
     manifest["records"] = records[-36:]
