@@ -164,15 +164,16 @@ def _build_manual_task_route(
     company_name: str,
     report_period: str,
     user_role: str,
+    source_run_id: str | None = None,
 ) -> dict[str, Any]:
-    return {
-        "path": "/workspace",
-        "query": {
-            "company": company_name,
-            "period": report_period,
-            "role": user_role,
-        },
+    query = {
+        "company": company_name,
+        "period": report_period,
+        "role": user_role,
     }
+    if source_run_id:
+        query["run"] = source_run_id
+    return {"path": "/workspace", "query": query}
 
 
 def _build_manual_task_payload(
@@ -186,7 +187,12 @@ def _build_manual_task_payload(
     title = str(record.get("title") or "").strip()
     summary = str(record.get("summary") or "").strip()
     created_at = record.get("created_at") or record.get("updated_at")
-    route = record.get("route") or _build_manual_task_route(company_name, report_period, user_role)
+    route = record.get("route") or _build_manual_task_route(
+        company_name,
+        report_period,
+        user_role,
+        source_run_id=record.get("source_run_id"),
+    )
     return {
         "task_id": record["task_id"],
         "company_name": company_name,
@@ -426,7 +432,12 @@ def _create_manual_task(
                 "updated_at": created_at,
             }
         ],
-        "route": _build_manual_task_route(company_name, period, user_role),
+        "route": _build_manual_task_route(
+            company_name,
+            period,
+            user_role,
+            source_run_id=source_run_id,
+        ),
         "owner_role": user_role,
         "task_source": "manual",
         "source_run_id": source_run_id,

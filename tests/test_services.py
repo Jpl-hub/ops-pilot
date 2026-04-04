@@ -1862,6 +1862,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["control_plane"]["model"], "gpt-4o-mini")
             self.assertEqual(detail["detail"]["agent_runtime"]["completion_id"], "chatcmpl-test")
             self.assertEqual(detail["detail"]["tool_trace"][0]["tool_name"], "tool_score_company")
+            self.assertEqual(detail["detail"]["answer_markdown"], payload["answer_markdown"])
+            self.assertEqual(detail["detail"]["action_cards"][0]["title"], payload["action_cards"][0]["title"])
 
     def test_task_queue_returns_prioritized_actions(self) -> None:
         class StubRepository:
@@ -2100,6 +2102,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(manual_payload["task"]["task_source"], "manual")
             self.assertEqual(manual_payload["task"]["route"]["path"], "/workspace")
             self.assertEqual(manual_payload["task"]["route"]["query"]["role"], "management")
+            self.assertEqual(manual_payload["task"]["route"]["query"]["run"], "run-123")
             self.assertEqual(manual_payload["task"]["source_run_id"], "run-123")
 
             board = service.task_board("management", "2025Q3")
