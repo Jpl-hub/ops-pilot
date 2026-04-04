@@ -104,7 +104,7 @@ export function buildWorkflowQuery(
 ): LocationQueryRaw | undefined {
   const context = resolveWorkflowContext(currentQuery)
   const query: LocationQueryRaw = {}
-  if (['/workspace', '/graph', '/stress', '/score', '/verify', '/vision'].includes(path)) {
+  if (['/workspace', '/graph', '/stress', '/risk', '/score', '/verify', '/vision'].includes(path)) {
     if (context.company) {
       query.company = context.company
     }

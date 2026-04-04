@@ -37,6 +37,12 @@ type SignalCard = {
   route: { path: string; query?: Record<string, string> } | null
 }
 
+type SurfaceLink = {
+  label: string
+  path: string
+  query?: Record<string, string>
+}
+
 type EvidenceCard = {
   title: string
   subtitle: string
@@ -276,12 +282,41 @@ const researchSummary = computed(() => {
 const companySignals = computed<SignalCard[]>(() => {
   const cards: SignalCard[] = []
   const research = companyWorkspace.value?.research
+  const taskSummary = companyWorkspace.value?.tasks?.summary || {}
+  const alertSummary = companyWorkspace.value?.alerts?.summary || {}
   if (research?.report_title) {
     cards.push({
       label: '当前可核验研报',
       title: research.report_title,
       detail: researchSummary.value,
-      route: selectedCompany.value ? { path: '/verify', query: { company: selectedCompany.value } } : null,
+      route:
+        selectedCompany.value
+          ? {
+              path: '/verify',
+              query: buildCompanyRouteQuery({ report_title: research.report_title }),
+            }
+          : null,
+    })
+  }
+  if (
+    selectedCompany.value
+    && (
+      Number(alertSummary.new || 0) > 0
+      || Number(taskSummary.in_progress || 0) > 0
+      || Number(taskSummary.queued || 0) > 0
+      || companyWorkspace.value?.watchboard?.tracked
+    )
+  ) {
+    cards.push({
+      label: '当前运行态',
+      title: `${Number(alertSummary.new || 0)} 条新增预警 / ${Number(taskSummary.in_progress || 0) + Number(taskSummary.queued || 0)} 项在办`,
+      detail: companyWorkspace.value?.watchboard?.tracked
+        ? companyWorkspace.value.watchboard?.note || '这家公司已经纳入持续跟踪。'
+        : '当前还没纳入持续跟踪。',
+      route: {
+        path: '/risk',
+        query: buildCompanyRouteQuery({ role: currentRole.value }),
+      },
     })
   }
   const latestRun = (companyWorkspace.value?.recent_runs?.items || []).slice(0, 1)[0]
@@ -293,7 +328,7 @@ const companySignals = computed<SignalCard[]>(() => {
       route: resolveExecutionRoute(latestRun),
     })
   }
-  return cards.slice(0, 2)
+  return cards.slice(0, 3)
 })
 
 const analysisStages = computed(() => [
@@ -318,6 +353,39 @@ const analysisStages = computed(() => [
     status: primaryActionCards.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
   },
 ])
+
+const runtimeCapsuleModules = computed<any[]>(() =>
+  (companyWorkspace.value?.runtime_capsule?.modules || []).slice(0, 4),
+)
+
+const executionHighlights = computed<any[]>(() =>
+  (companyWorkspace.value?.execution_stream?.records || []).slice(0, 4),
+)
+
+const continuationLinks = computed<SurfaceLink[]>(() => {
+  const seen = new Set<string>()
+  const links: SurfaceLink[] = []
+  const pushLink = (link: SurfaceLink | null | undefined) => {
+    if (!link?.path) return
+    const key = `${link.path}-${JSON.stringify(link.query || {})}`
+    if (seen.has(key)) return
+    seen.add(key)
+    links.push(link)
+  }
+
+  resultLinks.value.forEach((item) => pushLink(item))
+  runtimeCapsuleModules.value.forEach((item) => {
+    const route = normalizeRoute(item?.route)
+    if (!route?.path) return
+    pushLink({
+      label: item?.label || item?.summary || '继续推进',
+      path: route.path,
+      query: route.query || {},
+    })
+  })
+
+  return links.slice(0, 4)
+})
 
 function parseAnswerMarkdown(markdown: string, fallbackSections: any[]): AnswerBlock[] {
   const lines = markdown
@@ -409,6 +477,25 @@ function normalizeRoute(routeLike: any) {
   }
 }
 
+function buildCompanyRouteQuery(extra: Record<string, string | null | undefined> = {}) {
+  const query: Record<string, string> = {}
+  const company = selectedCompany.value || companyWorkspace.value?.company_name
+  const period = companyWorkspace.value?.report_period || selectedPeriod.value || overview.value?.preferred_period
+  if (company) {
+    query.company = company
+  }
+  if (period) {
+    query.period = period
+  }
+  Object.entries(extra).forEach(([key, value]) => {
+    const normalized = typeof value === 'string' ? value.trim() : ''
+    if (normalized) {
+      query[key] = normalized
+    }
+  })
+  return query
+}
+
 function resolveExecutionRoute(record: any) {
   const companyName = record?.company_name || selectedCompany.value
   const reportPeriod = companyWorkspace.value?.report_period || overview.value?.preferred_period
@@ -445,6 +532,77 @@ function describeEvidenceItem(item: any) {
     item?.chunk_id ||
     '打开原文'
   return String(text).replace(/\s+/g, ' ').trim().slice(0, 72)
+}
+
+function displayModuleStatus(status?: string) {
+  const map: Record<string, string> = {
+    ready: '已就绪',
+    idle: '待运行',
+    running: '运行中',
+    blocked: '已阻断',
+    completed: '已完成',
+  }
+  return map[(status || '').toLowerCase()] || status || '待运行'
+}
+
+function moduleTone(status?: string) {
+  const normalized = (status || '').toLowerCase()
+  if (normalized === 'ready' || normalized === 'completed') return 'success'
+  if (normalized === 'running') return 'accent'
+  if (normalized === 'blocked') return 'risk'
+  return 'default'
+}
+
+function displayExecutionStatus(status?: string) {
+  const map: Record<string, string> = {
+    queued: '待处理',
+    new: '新增',
+    dispatched: '已派发',
+    in_progress: '处理中',
+    done: '已完成',
+    resolved: '已解决',
+    dismissed: '已忽略',
+    completed: '已完成',
+    tracked: '跟踪中',
+    blocked: '已阻断',
+  }
+  return map[(status || '').toLowerCase()] || status || '已记录'
+}
+
+function displayExecutionType(streamType?: string) {
+  const map: Record<string, string> = {
+    alert: '预警',
+    task: '任务',
+    watchboard: '监测',
+    document_upgrade: '文档升级',
+    stress_test: '压力测试',
+    graph_query: '图谱检索',
+    vision_analyze: '文档复核',
+    analysis_run: '协同分析',
+  }
+  return map[streamType || ''] || '运行记录'
+}
+
+function describeExecutionMeta(record: any) {
+  const meta = record?.meta || {}
+  const details = [
+    meta.priority,
+    meta.owner,
+    meta.reason,
+    meta.note,
+    meta.scenario,
+    meta.severity,
+    meta.intent,
+    meta.headline,
+    meta.query_type,
+    meta.stage,
+  ]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+  if (details.length) {
+    return details.join(' · ')
+  }
+  return record?.created_at ? formatRelativeTime(record.created_at) : '继续打开这条运行记录。'
 }
 
 async function primeScenarioFromRoute() {
@@ -556,7 +714,7 @@ async function toggleWatchboardTracking() {
     if (companyWorkspace.value?.watchboard?.tracked) {
       await workspace.removeCurrentCompanyFromWatchboard(currentRole.value)
     } else {
-      await workspace.addCurrentCompanyToWatchboard(currentRole.value, '来自协同分析持续跟踪')
+      await workspace.addCurrentCompanyToWatchboard(currentRole.value, `${roleLabel.value}持续跟踪`)
     }
   } catch (error) {
     workflowActionError.value = error instanceof Error ? error.message : '更新持续跟踪失败'
@@ -711,9 +869,9 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
               <p>真实服务正在回收数字、证据和下一步建议。</p>
             </div>
 
-            <div v-else-if="companyWorkspaceReady" class="surface-stack">
-              <section class="summary-strip">
-                <article v-for="item in companySnapshotMetrics" :key="item.label" class="summary-chip">
+            <div v-else-if="latestAnswer || companyWorkspaceReady" class="surface-stack">
+              <section v-if="decisionMetrics.length" class="summary-strip">
+                <article v-for="item in decisionMetrics" :key="item.label" class="summary-chip">
                   <span>{{ item.label }}</span>
                   <strong>{{ displayMetricValue(item) }}</strong>
                   <p v-if="item.hint">{{ item.hint }}</p>
@@ -872,6 +1030,82 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
                 <p v-if="workflowActionError" class="composer-error">{{ workflowActionError }}</p>
               </section>
+
+              <section v-if="companySignals.length || continuationLinks.length" class="flow-surface">
+                <div class="section-head">
+                  <span>继续推进</span>
+                  <strong>把这一轮判断接到下一步</strong>
+                </div>
+                <div class="continuation-layout">
+                  <div v-if="companySignals.length" class="signal-grid">
+                    <RouterLink
+                      v-for="item in companySignals"
+                      :key="`${item.label}-${item.title}`"
+                      :to="item.route || { path: '/workspace' }"
+                      class="signal-card"
+                    >
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.title }}</strong>
+                      <p>{{ item.detail }}</p>
+                    </RouterLink>
+                  </div>
+
+                  <article v-if="continuationLinks.length" class="continuation-panel">
+                    <span class="focus-label">继续看哪里</span>
+                    <div class="continuation-links">
+                      <RouterLink
+                        v-for="item in continuationLinks"
+                        :key="`${item.path}-${item.label}`"
+                        :to="{ path: item.path, query: item.query || {} }"
+                        class="surface-link"
+                      >
+                        {{ item.label }}
+                      </RouterLink>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
+              <section v-if="runtimeCapsuleModules.length || executionHighlights.length" class="flow-surface">
+                <div class="section-head">
+                  <span>当前运行态</span>
+                  <strong>看这家公司现在卡在哪一段</strong>
+                </div>
+                <div class="runtime-layout">
+                  <div v-if="runtimeCapsuleModules.length" class="runtime-grid">
+                    <RouterLink
+                      v-for="item in runtimeCapsuleModules"
+                      :key="item.module_key"
+                      :to="{ path: item.route.path, query: item.route.query || {} }"
+                      class="runtime-card"
+                      :class="`is-${moduleTone(item.status)}`"
+                    >
+                      <div class="runtime-card-top">
+                        <span>{{ item.label }}</span>
+                        <em>{{ displayModuleStatus(item.status) }}</em>
+                      </div>
+                      <strong>{{ item.summary }}</strong>
+                      <p>{{ item.details?.length ? item.details.join(' · ') : '继续进入这个模块。' }}</p>
+                    </RouterLink>
+                  </div>
+
+                  <div v-if="executionHighlights.length" class="execution-list">
+                    <RouterLink
+                      v-for="item in executionHighlights"
+                      :key="`${item.stream_type}-${item.id}`"
+                      :to="resolveExecutionRoute(item) || { path: '/workspace' }"
+                      class="execution-card"
+                    >
+                      <div class="execution-card-top">
+                        <span>{{ displayExecutionType(item.stream_type) }}</span>
+                        <em>{{ displayExecutionStatus(item.status) }}</em>
+                      </div>
+                      <strong>{{ item.title }}</strong>
+                      <p>{{ describeExecutionMeta(item) }}</p>
+                    </RouterLink>
+                  </div>
+                </div>
+              </section>
             </div>
 
             <div v-else class="surface-empty">
@@ -959,6 +1193,9 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .action-card p,
 .evidence-card p,
 .task-card p,
+.signal-card p,
+.runtime-card p,
+.execution-card p,
 .surface-empty,
 .surface-loading p,
 .inline-empty,
@@ -1008,6 +1245,10 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .summary-chip strong,
 .action-card strong,
 .evidence-card strong,
+.task-card strong,
+.signal-card strong,
+.runtime-card strong,
+.execution-card strong,
 .surface-loading strong {
   color: #f8fafc;
 }
@@ -1197,7 +1438,13 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .summary-strip,
 .snapshot-surface,
 .inline-grid,
-.evidence-links {
+.evidence-links,
+.continuation-layout,
+.runtime-layout,
+.signal-grid,
+.runtime-grid,
+.execution-list,
+.continuation-links {
   display: grid;
   gap: 14px;
 }
@@ -1216,6 +1463,10 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .action-card,
 .evidence-card,
 .task-card,
+.signal-card,
+.continuation-panel,
+.runtime-card,
+.execution-card,
 .surface-link {
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1227,7 +1478,11 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .snapshot-note,
 .action-card,
 .evidence-card,
-.task-card {
+.task-card,
+.signal-card,
+.continuation-panel,
+.runtime-card,
+.execution-card {
   display: grid;
   gap: 8px;
   padding: 18px;
@@ -1248,7 +1503,10 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
 .action-card strong,
 .evidence-card strong,
-.task-card strong {
+.task-card strong,
+.signal-card strong,
+.runtime-card strong,
+.execution-card strong {
   font-size: 16px;
   line-height: 1.35;
 }
@@ -1315,6 +1573,63 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .task-status.is-blocked {
   background: rgba(69, 10, 10, 0.82);
   color: #fecaca;
+}
+
+.continuation-layout,
+.runtime-layout {
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+}
+
+.signal-grid,
+.runtime-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.signal-card,
+.runtime-card,
+.execution-card {
+  text-decoration: none;
+  color: inherit;
+}
+
+.signal-card span,
+.runtime-card-top span,
+.execution-card-top span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(120, 143, 172, 0.82);
+}
+
+.runtime-card-top,
+.execution-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.runtime-card-top em,
+.execution-card-top em {
+  font-style: normal;
+  color: rgba(226, 232, 240, 0.88);
+  font-size: 12px;
+}
+
+.runtime-card.is-success {
+  border-color: rgba(52, 211, 153, 0.2);
+  background: rgba(15, 41, 31, 0.52);
+}
+
+.runtime-card.is-accent {
+  border-color: rgba(59, 130, 246, 0.2);
+  background: rgba(16, 24, 42, 0.58);
+}
+
+.runtime-card.is-risk {
+  border-color: rgba(244, 63, 94, 0.24);
+  background: rgba(58, 18, 28, 0.46);
 }
 
 .surface-link {
@@ -1442,7 +1757,11 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 @media (max-width: 1240px) {
   .summary-strip,
   .snapshot-surface,
-  .inline-grid {
+  .inline-grid,
+  .signal-grid,
+  .runtime-grid,
+  .continuation-layout,
+  .runtime-layout {
     grid-template-columns: 1fr;
   }
 
