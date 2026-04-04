@@ -1,15 +1,24 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ChartPanel from '@/components/ChartPanel.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { buildWebSocketUrl, get, loadAccessToken } from '@/lib/api'
+import { buildWebSocketUrl, get, loadAccessToken, type UserRole } from '@/lib/api'
+import { useSession } from '@/lib/session'
+import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 
 const state = useAsyncState<any>()
+const contextState = useAsyncState<any>()
 const livePayload = ref<any | null>(null)
 const wsStatus = ref<'connecting' | 'connected' | 'disconnected'>('connecting')
+const selectedPeriod = ref('')
+const route = useRoute()
+const session = useSession()
+const bootstrapping = ref(false)
+const syncingFromRoute = ref(false)
 let liveSocket: WebSocket | null = null
 let reconnectTimer: number | null = null
 let shouldReconnect = true
@@ -23,6 +32,7 @@ const streamingAnomalies = computed(() => payload.value?.streaming_anomalies || 
 const attentionMatrix = computed(() => payload.value?.attention_matrix || [])
 const topRiskCompanies = computed(() => payload.value?.top_risk_companies || [])
 const radarEvents = computed(() => payload.value?.radar_events || [])
+const executionFlash = computed(() => payload.value?.execution_flash || [])
 const topSectorTags = computed(() => (payload.value?.sector_tags || []).slice(0, 4))
 const signalFeed = computed(() => externalSignalStream.value?.signals || payload.value?.live_events || [])
 const trendChart = computed(() => payload.value?.charts?.[0] || null)
@@ -34,6 +44,28 @@ const signalCards = computed(() => signalFeed.value.slice(0, 4))
 const pulseSteps = computed(() => brainSignalTape.value.slice(0, 3))
 const leadMetric = computed(() => marketTape.value[0] || null)
 const supportMetrics = computed(() => marketTape.value.slice(1, 4))
+const activeRole = computed<UserRole>(() => session.activeRole.value || 'investor')
+const activeRoleLabel = computed(() => {
+  const labels: Record<UserRole, string> = {
+    investor: '投资者视角',
+    management: '管理层视角',
+    regulator: '监管风控视角',
+  }
+  return labels[activeRole.value] || labels.investor
+})
+const availablePeriods = computed(() =>
+  (contextState.data.value?.available_periods || [])
+    .map((item: any) => {
+      if (typeof item === 'string') return { value: item, label: item }
+      if (item && typeof item === 'object') {
+        const value = String(item.value || item.period || item.report_period || item.label || '')
+        const label = String(item.label || item.period || item.report_period || item.value || '')
+        return value ? { value, label } : null
+      }
+      return null
+    })
+    .filter(Boolean) as Array<{ value: string; label: string }>,
+)
 
 const companyQueue = computed(() => {
   const merged = new Map<
@@ -87,6 +119,50 @@ const companyQueue = computed(() => {
   return Array.from(merged.values()).slice(0, 4)
 })
 
+function readQueryString(value: unknown) {
+  const normalized = Array.isArray(value) ? value[0] : value
+  return typeof normalized === 'string' ? normalized.trim() : ''
+}
+
+function parseRoleQuery(value: unknown): UserRole | null {
+  const normalized = readQueryString(value)
+  if (normalized === 'investor' || normalized === 'management' || normalized === 'regulator') {
+    return normalized
+  }
+  return null
+}
+
+function preferredPeriod() {
+  const preferred = contextState.data.value?.preferred_period
+  if (typeof preferred === 'string' && preferred.trim()) {
+    return preferred.trim()
+  }
+  if (preferred && typeof preferred === 'object') {
+    const candidate = String(
+      preferred.value || preferred.period || preferred.report_period || preferred.label || '',
+    ).trim()
+    if (candidate) return candidate
+  }
+  return availablePeriods.value[0]?.value || ''
+}
+
+function normalizePeriodSelection(requested: string) {
+  const normalized = requested.trim()
+  if (!normalized) return preferredPeriod()
+  if (availablePeriods.value.some((item) => item.value === normalized)) {
+    return normalized
+  }
+  return preferredPeriod()
+}
+
+function buildIndustryQuery() {
+  const query = new URLSearchParams({ user_role: activeRole.value })
+  if (selectedPeriod.value) {
+    query.set('report_period', selectedPeriod.value)
+  }
+  return query
+}
+
 function displayWsStatus(status: 'connecting' | 'connected' | 'disconnected') {
   const map: Record<string, string> = {
     connecting: '连通中',
@@ -120,15 +196,32 @@ function displayAnomalyMeta(item: any) {
   return parts.join(' · ')
 }
 
+function displayResearchSource(event: any) {
+  return event?.source || event?.source_name || event?.domain || '外部线索'
+}
+
+function displayExecutionMeta(item: any) {
+  const parts = [item?.summary, item?.status, formatTimestamp(item?.created_at)].filter(Boolean)
+  return parts.join(' · ')
+}
+
+function formatTimestamp(value?: string | null) {
+  if (!value) return '刚刚同步'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '刚刚同步'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(parsed)
+}
+
 function anomalyTone(level?: string) {
   const normalized = (level || '').toLowerCase()
   if (normalized === 'critical' || normalized === 'high') return 'is-risk'
   if (normalized === 'medium') return 'is-warning'
   return 'is-calm'
-}
-
-function displayResearchSource(event: any) {
-  return event?.source || event?.source_name || event?.domain || '外部线索'
 }
 
 function stopReconnectTimer() {
@@ -146,9 +239,9 @@ function scheduleReconnect() {
   }, 4000)
 }
 
-function disconnectLiveStream() {
+function disconnectLiveStream(allowReconnect = false) {
   stopReconnectTimer()
-  shouldReconnect = false
+  shouldReconnect = allowReconnect
   const activeSocket = liveSocket
   liveSocket = null
   if (activeSocket) {
@@ -168,11 +261,12 @@ function connectLiveStream() {
   }
   if (liveSocket && liveSocket.readyState <= WebSocket.OPEN) return
 
+  shouldReconnect = true
   stopReconnectTimer()
   wsStatus.value = 'connecting'
-  const nextSocket = new WebSocket(
-    buildWebSocketUrl(`/ws/industry-brain?token=${encodeURIComponent(token)}`),
-  )
+  const query = buildIndustryQuery()
+  query.set('token', token)
+  const nextSocket = new WebSocket(buildWebSocketUrl(`/ws/industry-brain?${query.toString()}`))
   liveSocket = nextSocket
 
   nextSocket.onopen = () => {
@@ -201,18 +295,83 @@ function connectLiveStream() {
   }
 }
 
+async function loadContextOptions() {
+  await contextState.execute(() => get('/workspace/companies')).catch(() => {})
+}
+
 async function loadPage() {
-  await state.execute(() => get('/industry/brain')).catch(() => {})
+  await state.execute(() => get(`/industry/brain?${buildIndustryQuery().toString()}`)).catch(() => {})
+  const reportPeriod = readQueryString(state.data.value?.report_period)
+  if (!selectedPeriod.value && reportPeriod) {
+    syncingFromRoute.value = true
+    try {
+      selectedPeriod.value = reportPeriod
+    } finally {
+      syncingFromRoute.value = false
+    }
+  }
+}
+
+async function refreshSurface() {
+  await loadPage()
+  disconnectLiveStream(true)
+  connectLiveStream()
+}
+
+async function syncSurfaceFromRoute() {
+  const targetRole = parseRoleQuery(route.query.role)
+  syncingFromRoute.value = true
+  try {
+    if (targetRole && session.activeRole.value !== targetRole) {
+      session.setActiveRole(targetRole)
+    }
+    const workflowContext = resolveWorkflowContext(route.query)
+    const nextPeriod = normalizePeriodSelection(workflowContext.period || selectedPeriod.value)
+    if (nextPeriod !== selectedPeriod.value) {
+      selectedPeriod.value = nextPeriod
+    }
+  } finally {
+    syncingFromRoute.value = false
+  }
 }
 
 onMounted(async () => {
-  shouldReconnect = true
-  await loadPage()
-  connectLiveStream()
+  bootstrapping.value = true
+  try {
+    await loadContextOptions()
+    await syncSurfaceFromRoute()
+    await loadPage()
+    connectLiveStream()
+  } finally {
+    bootstrapping.value = false
+  }
 })
 
 onBeforeUnmount(() => {
-  disconnectLiveStream()
+  disconnectLiveStream(false)
+})
+
+watch(
+  () => session.activeRole.value,
+  async (value, oldValue) => {
+    if (bootstrapping.value || syncingFromRoute.value || !value || value === oldValue) return
+    await refreshSurface()
+  },
+)
+
+watch(
+  () => [route.query.period, route.query.role],
+  async () => {
+    if (bootstrapping.value) return
+    await syncSurfaceFromRoute()
+    await refreshSurface()
+  },
+)
+
+watch(selectedPeriod, async (value, oldValue) => {
+  persistWorkflowContext({ period: value })
+  if (bootstrapping.value || syncingFromRoute.value || value === oldValue) return
+  await refreshSurface()
 })
 </script>
 
@@ -224,16 +383,7 @@ onBeforeUnmount(() => {
       <div v-else-if="state.error.value && !payload" class="brain-panel brain-error">
         <strong>产业大脑暂时不可用</strong>
         <p>{{ state.error.value }}</p>
-        <button
-          type="button"
-          class="brain-action"
-          @click="() => {
-            disconnectLiveStream()
-            void loadPage()
-            shouldReconnect = true
-            connectLiveStream()
-          }"
-        >
+        <button type="button" class="brain-action" @click="() => { void refreshSurface() }">
           重新连接
         </button>
       </div>
@@ -243,6 +393,7 @@ onBeforeUnmount(() => {
           <div class="brain-title">
             <div class="brain-title-row">
               <h1>新能源产业大脑</h1>
+              <span class="brain-role-pill">{{ activeRoleLabel }}</span>
               <span class="brain-live-chip" :class="wsStatus === 'connected' ? 'is-live' : 'is-risk'">
                 {{ displayWsStatus(wsStatus) }}
               </span>
@@ -256,10 +407,21 @@ onBeforeUnmount(() => {
             </p>
           </div>
 
-          <div class="brain-sector-strip">
-            <div v-for="tag in topSectorTags" :key="tag.label" class="brain-sector-pill">
-              <span>{{ tag.label }}</span>
-              <strong>{{ tag.count }}</strong>
+          <div class="brain-header-side">
+            <label v-if="availablePeriods.length" class="brain-period-select">
+              <span>主周期</span>
+              <select v-model="selectedPeriod">
+                <option v-for="period in availablePeriods" :key="period.value" :value="period.value">
+                  {{ period.label }}
+                </option>
+              </select>
+            </label>
+
+            <div class="brain-sector-strip">
+              <div v-for="tag in topSectorTags" :key="tag.label" class="brain-sector-pill">
+                <span>{{ tag.label }}</span>
+                <strong>{{ tag.count }}</strong>
+              </div>
             </div>
           </div>
         </section>
@@ -334,7 +496,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="brain-bottom">
-          <article class="brain-panel">
+          <article class="brain-panel brain-bottom-panel">
             <div class="section-head">
               <strong>最新变化</strong>
             </div>
@@ -359,30 +521,55 @@ onBeforeUnmount(() => {
             <div v-else class="brain-empty-state">当前还没有新的正式线索。</div>
           </article>
 
-          <article class="brain-panel">
-            <div class="section-head">
-              <strong>政策与技术变化</strong>
-            </div>
+          <div class="brain-side-stack">
+            <article class="brain-panel brain-bottom-panel">
+              <div class="section-head">
+                <strong>最近执行</strong>
+              </div>
 
-            <div v-if="radarCards.length" class="brain-radar-list">
-              <a
-                v-for="item in radarCards"
-                :key="item.id"
-                class="brain-radar-card"
-                :href="item.url"
-                target="_blank"
-                rel="noreferrer"
-              >
-                <div class="brain-radar-top">
-                  <span>{{ item.year }}</span>
-                  <strong>{{ displayResearchSource(item) }}</strong>
-                </div>
-                <h3>{{ item.title }}</h3>
-                <p>{{ (item.core_points || []).slice(0, 2).join(' · ') }}</p>
-              </a>
-            </div>
-            <div v-else class="brain-empty-state">当前还没有需要重点关注的变化。</div>
-          </article>
+              <div v-if="executionFlash.length" class="brain-execution-list">
+                <RouterLink
+                  v-for="item in executionFlash"
+                  :key="`${item.title}-${item.created_at || item.status}`"
+                  class="brain-execution-item"
+                  :to="{ path: item.route?.path || '/workspace', query: item.route?.query || {} }"
+                >
+                  <div class="brain-execution-top">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.status || '已完成' }}</span>
+                  </div>
+                  <p>{{ item.summary || '回到这一轮执行结果' }}</p>
+                  <small>{{ displayExecutionMeta(item) }}</small>
+                </RouterLink>
+              </div>
+              <div v-else class="brain-empty-state">当前还没有最近执行记录。</div>
+            </article>
+
+            <article class="brain-panel brain-bottom-panel">
+              <div class="section-head">
+                <strong>政策与技术变化</strong>
+              </div>
+
+              <div v-if="radarCards.length" class="brain-radar-list">
+                <a
+                  v-for="item in radarCards"
+                  :key="item.id"
+                  class="brain-radar-card"
+                  :href="item.url"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <div class="brain-radar-top">
+                    <span>{{ item.year }}</span>
+                    <strong>{{ displayResearchSource(item) }}</strong>
+                  </div>
+                  <h3>{{ item.title }}</h3>
+                  <p>{{ (item.core_points || []).slice(0, 2).join(' · ') }}</p>
+                </a>
+              </div>
+              <div v-else class="brain-empty-state">当前还没有需要重点关注的变化。</div>
+            </article>
+          </div>
         </section>
       </template>
     </div>
@@ -424,7 +611,8 @@ onBeforeUnmount(() => {
 .section-head strong,
 .brain-queue-top strong,
 .brain-stream-top strong,
-.brain-radar-card h3 {
+.brain-radar-card h3,
+.brain-execution-top strong {
   margin: 0;
   color: #f8fafc;
 }
@@ -434,7 +622,8 @@ onBeforeUnmount(() => {
 .brain-pulse-item p,
 .brain-queue-card p,
 .brain-stream-item p,
-.brain-radar-card p {
+.brain-radar-card p,
+.brain-execution-item p {
   margin: 0;
   color: rgba(191, 207, 228, 0.82);
   line-height: 1.65;
@@ -452,7 +641,7 @@ onBeforeUnmount(() => {
 
 .brain-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
   gap: 14px;
   align-items: end;
   padding: 4px 2px 2px;
@@ -476,6 +665,13 @@ onBeforeUnmount(() => {
   letter-spacing: -0.05em;
 }
 
+.brain-header-side {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.brain-role-pill,
 .brain-live-chip,
 .brain-sector-pill {
   min-height: 32px;
@@ -486,6 +682,12 @@ onBeforeUnmount(() => {
   gap: 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 11px;
+}
+
+.brain-role-pill {
+  border-color: rgba(96, 165, 250, 0.18);
+  background: rgba(37, 99, 235, 0.12);
+  color: #dbeafe;
 }
 
 .brain-live-chip.is-live {
@@ -500,12 +702,45 @@ onBeforeUnmount(() => {
   color: #fda4af;
 }
 
+.brain-period-select {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  max-width: 240px;
+}
+
+.brain-period-select span,
+.brain-metric span,
+.brain-metric small,
+.brain-pulse-item em,
+.brain-stream-top span,
+.brain-queue-top span,
+.brain-stream-item small,
+.brain-queue-card small,
+.brain-radar-top span,
+.brain-radar-top strong,
+.brain-execution-top span,
+.brain-execution-item small {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(160, 175, 194, 0.82);
+}
+
+.brain-period-select select {
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #eef2f7;
+}
+
 .brain-sector-strip {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  max-width: 320px;
+  width: 100%;
 }
 
 .brain-sector-pill {
@@ -534,20 +769,6 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.brain-metric span,
-.brain-metric small,
-.brain-pulse-item em,
-.brain-stream-top span,
-.brain-queue-top span,
-.brain-stream-item small,
-.brain-queue-card small,
-.brain-radar-top span,
-.brain-radar-top strong {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: rgba(160, 175, 194, 0.82);
-}
-
 .brain-metric strong {
   font-family: 'JetBrains Mono', monospace;
   font-size: 18px;
@@ -567,8 +788,13 @@ onBeforeUnmount(() => {
 
 .brain-chart-surface,
 .brain-queue-surface,
-.brain-bottom > .brain-panel {
+.brain-bottom-panel {
   padding: 16px;
+}
+
+.brain-side-stack {
+  display: grid;
+  gap: 14px;
 }
 
 .section-head {
@@ -598,7 +824,8 @@ onBeforeUnmount(() => {
 .brain-pulse-strip,
 .brain-queue-list,
 .brain-stream-list,
-.brain-radar-list {
+.brain-radar-list,
+.brain-execution-list {
   display: grid;
   gap: 10px;
 }
@@ -624,7 +851,8 @@ onBeforeUnmount(() => {
 
 .brain-queue-card,
 .brain-stream-item,
-.brain-radar-card {
+.brain-radar-card,
+.brain-execution-item {
   display: grid;
   gap: 6px;
   padding: 14px;
@@ -638,7 +866,8 @@ onBeforeUnmount(() => {
 
 .brain-queue-card:hover,
 .brain-stream-item:hover,
-.brain-radar-card:hover {
+.brain-radar-card:hover,
+.brain-execution-item:hover {
   transform: translateY(-2px);
   border-color: rgba(52, 211, 153, 0.18);
   background: rgba(255, 255, 255, 0.045);
@@ -656,7 +885,8 @@ onBeforeUnmount(() => {
 
 .brain-queue-top,
 .brain-stream-top,
-.brain-radar-top {
+.brain-radar-top,
+.brain-execution-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -678,21 +908,21 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1180px) {
+  .brain-header,
   .brain-metric-strip,
   .brain-main,
   .brain-bottom {
     grid-template-columns: 1fr;
   }
+
+  .brain-header-side {
+    justify-items: start;
+  }
 }
 
 @media (max-width: 860px) {
-  .brain-header {
-    grid-template-columns: 1fr;
-  }
-
   .brain-sector-strip {
     justify-content: flex-start;
-    max-width: none;
   }
 
   .brain-pulse-strip {
