@@ -63,6 +63,21 @@ def _build_frontend_route(path: str, *, query: dict[str, Any] | None = None) -> 
     return route
 
 
+def _build_verify_frontend_route(record: dict[str, Any] | None) -> dict[str, Any]:
+    if record is None:
+        return _build_frontend_route("/verify")
+    return _build_frontend_route(
+        "/verify",
+        query={
+            "company": record.get("company_name"),
+            "period": record.get("report_period"),
+            "role": record.get("user_role"),
+            "run_id": record.get("run_id"),
+            "report_title": record.get("report_title"),
+        },
+    )
+
+
 def _build_runtime_capsule_module(
     *,
     module_key: str,
@@ -98,6 +113,7 @@ def _build_runtime_capsule_module(
         "period": report_period,
         "run_id": record.get("run_id"),
         "role": record.get("user_role"),
+        "report_title": record.get("report_title"),
     }
     return {
         "module_key": module_key,
@@ -297,7 +313,7 @@ def _build_industry_brain_history_snapshot(
             "created_at": item.get("created_at"),
             "status_label": item.get("status_label") or "已完成",
             "type_label": "观点核验",
-            "route": {"path": f"/api/v1/claim/verify/runs/{item['run_id']}"},
+            "route": _build_verify_frontend_route(item),
         }
         for item in _load_verify_run_manifest(settings)["records"]
         if item.get("user_role") == user_role and item.get("report_period") == report_period

@@ -22,6 +22,7 @@ from opspilot.application.research_reports import (
     _extract_research_payload,
     _select_research_report,
 )
+from opspilot.application.runtime_views import _build_verify_frontend_route
 from opspilot.delivery_report import build_delivery_report_markdown
 from opspilot.runtime_checks import build_runtime_report, validate_delivery_runtime
 from opspilot.infra.sample_repository import SampleRepository
@@ -5917,14 +5918,43 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(detail["run_meta"]["report_title"], "测试公司2024年年度点评")
 
             history = service.workspace_history(user_role="management", report_period="2024FY")
-            self.assertTrue(any(item["history_type"] == "claim_verify" for item in history["records"]))
+            verify_history = next(item for item in history["records"] if item["history_type"] == "claim_verify")
+            self.assertEqual(verify_history["meta"]["route"]["path"], "/verify")
+            self.assertEqual(verify_history["meta"]["route"]["query"]["run_id"], payload["run_id"])
+            self.assertEqual(
+                verify_history["meta"]["route"]["query"]["report_title"],
+                "测试公司2024年年度点评",
+            )
+
+            verify_route = _build_verify_frontend_route(runs["runs"][0])
+            self.assertEqual(verify_route["path"], "/verify")
+            self.assertEqual(verify_route["query"]["run_id"], payload["run_id"])
 
             execution_stream = service.company_execution_stream(
                 "测试公司",
                 "2024FY",
                 user_role="management",
             )
-            self.assertIn("claim_verify", {item["stream_type"] for item in execution_stream["records"]})
+            verify_stream = next(item for item in execution_stream["records"] if item["stream_type"] == "claim_verify")
+            self.assertEqual(verify_stream["meta"]["route"]["path"], "/verify")
+            self.assertEqual(verify_stream["meta"]["route"]["query"]["run_id"], payload["run_id"])
+
+            company_workspace = service.company_workspace(
+                "测试公司",
+                "2024FY",
+                user_role="management",
+            )
+            verify_module = next(
+                item
+                for item in company_workspace["runtime_capsule"]["modules"]
+                if item["module_key"] == "verify"
+            )
+            self.assertEqual(verify_module["route"]["path"], "/verify")
+            self.assertEqual(verify_module["route"]["query"]["run_id"], payload["run_id"])
+            self.assertEqual(
+                verify_module["route"]["query"]["report_title"],
+                "测试公司2024年年度点评",
+            )
 
             intelligence_runtime = service.company_intelligence_runtime(
                 "测试公司",
@@ -5936,6 +5966,8 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(verify_pulse["status"], "ready")
             self.assertIn("偏差", verify_pulse["signal"])
+            self.assertEqual(verify_pulse["route"]["path"], "/verify")
+            self.assertEqual(verify_pulse["route"]["query"]["run_id"], payload["run_id"])
 
     def test_list_research_reports_returns_ranked_catalog(self) -> None:
         class StubRepository:

@@ -516,6 +516,28 @@ function resolveExecutionRoute(record: any) {
       ? { path: '/graph', query: { company: companyName, period: reportPeriod, role, run_id: record.run_id } }
       : null
   }
+  if (
+    record?.run_id
+    && (
+      record?.stream_type === 'claim_verify'
+      || record?.history_type === 'claim_verify'
+      || record?.meta?.report_title
+      || record?.meta?.source_name
+    )
+  ) {
+    return companyName
+      ? {
+          path: '/verify',
+          query: {
+            company: companyName,
+            period: reportPeriod,
+            role,
+            run_id: record.run_id,
+            report_title: record?.meta?.report_title || '',
+          },
+        }
+      : null
+  }
   if (record?.run_id && record?.scenario) {
     return companyName
       ? { path: '/stress', query: { company: companyName, period: reportPeriod, role, run_id: record.run_id } }
@@ -599,6 +621,7 @@ function displayExecutionType(streamType?: string) {
     task: '任务',
     watchboard: '监测',
     document_upgrade: '文档升级',
+    claim_verify: '观点核验',
     stress_test: '压力测试',
     graph_query: '图谱检索',
     vision_analyze: '文档复核',
@@ -614,6 +637,8 @@ function describeExecutionMeta(record: any) {
     meta.owner,
     meta.reason,
     meta.note,
+    meta.report_title,
+    meta.source_name,
     meta.scenario,
     meta.severity,
     meta.intent,

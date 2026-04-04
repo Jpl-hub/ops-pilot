@@ -15,6 +15,7 @@ from opspilot.application.industry_signals import _build_company_signal_graph_co
 from opspilot.application.runtime_manifests import _find_watchboard_record
 from opspilot.application.runtime_views import (
     _build_frontend_route,
+    _build_verify_frontend_route,
     _build_runtime_capsule_module,
     _filter_workspace_runs_for_company,
 )
@@ -452,7 +453,14 @@ def _build_company_intelligence_runtime(
                 if verify_detail
                 else 0
             ),
-            "route": {"path": "/verify", "query": {"company": company_name, "period": period}},
+            "route": (
+                _build_verify_frontend_route(latest_verify_runs[0])
+                if latest_verify_runs
+                else _build_frontend_route(
+                    "/verify",
+                    query={"company": company_name, "period": period},
+                )
+            ),
         },
         {
             "module_key": "vision",
@@ -657,7 +665,7 @@ def _build_company_execution_stream(
                 "report_title": item.get("report_title"),
                 "headline": item.get("headline"),
                 "source_name": item.get("source_name"),
-                "route": {"path": f"/api/v1/claim/verify/runs/{item['run_id']}"},
+                "route": _build_verify_frontend_route(item),
             },
         }
         for item in service.verify_runs(

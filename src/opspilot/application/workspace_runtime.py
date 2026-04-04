@@ -9,7 +9,7 @@ from opspilot.application.runtime_manifests import (
     _workspace_run_detail_path,
     _write_workspace_run_manifest,
 )
-from opspilot.application.runtime_views import _build_frontend_route
+from opspilot.application.runtime_views import _build_frontend_route, _build_verify_frontend_route
 
 
 def _workspace_history(
@@ -170,9 +170,7 @@ def _workspace_history(
             "meta": {
                 "report_title": item.get("report_title"),
                 "source_name": item.get("source_name"),
-                "route": {
-                    "path": f"/api/v1/claim/verify/runs/{item['run_id']}",
-                },
+                "route": _build_verify_frontend_route(item),
             },
         }
         for item in service.verify_runs(
