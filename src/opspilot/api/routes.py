@@ -804,6 +804,32 @@ def stress_test_run_detail(run_id: str, _: dict = Depends(require_current_user))
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/claim/verify/runs")
+def claim_verify_runs(
+    company_name: str | None = None,
+    report_period: str | None = None,
+    user_role: str = "management",
+    report_title: str | None = None,
+    limit: int = 20,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().verify_runs(
+        company_name=company_name,
+        report_period=report_period,
+        user_role=user_role,
+        report_title=report_title,
+        limit=limit,
+    )
+
+
+@router.get("/claim/verify/runs/{run_id}")
+def claim_verify_run_detail(run_id: str, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().verify_run_detail(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/claim/verify")
 def claim_verify(request: ClaimVerifyRequest, _: dict = Depends(require_current_user)) -> dict:
     try:
@@ -811,6 +837,8 @@ def claim_verify(request: ClaimVerifyRequest, _: dict = Depends(require_current_
             request.company_name,
             request.report_period,
             request.report_title,
+            user_role=request.user_role,
+            persist_run=True,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -357,6 +357,23 @@ def _vision_run_detail_path(settings: Settings, run_id: str) -> Path:
     return settings.bronze_data_path / "vision_runs" / f"{run_id}.json"
 
 
+def _load_verify_run_manifest(settings: Settings) -> dict[str, Any]:
+    return _load_simple_run_manifest(settings.bronze_data_path / "manifests" / "claim_verify_runs.json")
+
+
+def _write_verify_run_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    _write_simple_run_manifest(settings.bronze_data_path / "manifests" / "claim_verify_runs.json", payload)
+
+
+def _build_verify_run_id(company_name: str) -> str:
+    company_slug = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fff]+", "-", company_name).strip("-").lower()
+    return f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{company_slug}-verify"
+
+
+def _verify_run_detail_path(settings: Settings, run_id: str) -> Path:
+    return settings.bronze_data_path / "verify_runs" / f"{run_id}.json"
+
+
 def _load_simple_run_manifest(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"generated_at": _utcnow_iso(), "record_count": 0, "records": []}

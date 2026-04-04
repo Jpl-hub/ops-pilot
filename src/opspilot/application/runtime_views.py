@@ -13,6 +13,7 @@ from opspilot.application.runtime_manifests import (
     _load_document_pipeline_run_manifest,
     _load_graph_query_run_manifest,
     _load_stress_test_run_manifest,
+    _load_verify_run_manifest,
     _load_vision_run_manifest,
     _load_watchboard_manifest,
     _load_watchboard_runs_manifest,
@@ -289,6 +290,18 @@ def _build_industry_brain_history_snapshot(
         for item in _load_graph_query_run_manifest(settings)["records"]
         if item.get("user_role") == user_role and item.get("report_period") == report_period
     ]
+    verify_runs = [
+        {
+            "history_type": "claim_verify",
+            "title": f"观点核验 · {item.get('company_name')}",
+            "created_at": item.get("created_at"),
+            "status_label": item.get("status_label") or "已完成",
+            "type_label": "观点核验",
+            "route": {"path": f"/api/v1/claim/verify/runs/{item['run_id']}"},
+        }
+        for item in _load_verify_run_manifest(settings)["records"]
+        if item.get("user_role") == user_role and item.get("report_period") == report_period
+    ]
     vision_runs = [
         {
             "history_type": "vision_analyze",
@@ -310,7 +323,7 @@ def _build_industry_brain_history_snapshot(
         if item.get("user_role") == user_role and item.get("report_period") == report_period
     ]
 
-    records = analysis_runs + watch_runs + document_runs + stress_runs + graph_runs + vision_runs
+    records = analysis_runs + watch_runs + document_runs + stress_runs + verify_runs + graph_runs + vision_runs
     records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     return {
         "user_role": user_role,

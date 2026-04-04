@@ -9,6 +9,7 @@ import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get, post } from '@/lib/api'
 import { buildEvidenceLink } from '@/lib/format'
+import { useSession } from '@/lib/session'
 import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 
 const companies = ref<string[]>([])
@@ -17,18 +18,65 @@ const selectedCompany = ref('')
 const selectedPeriod = ref('')
 const selectedReportTitle = ref<string | null>(null)
 const state = useAsyncState<any>()
+const runsState = useAsyncState<any>()
+const companyState = useAsyncState<any>()
 const route = useRoute()
+const session = useSession()
 const syncingFromRoute = ref(false)
+const bootstrapping = ref(false)
 const verifyCommandSurface = ref<any | null>(null)
 const availablePeriods = ref<any[]>([])
 const reportStatusMessage = ref('')
 const reportCatalogReady = ref(false)
+const actionPending = ref('')
+const actionError = ref('')
 
+const activeRole = computed(() => session.activeRole.value || 'investor')
+const activeRoleLabel = computed(() => {
+  const map: Record<string, string> = {
+    investor: '投资者视角',
+    management: '管理层视角',
+    regulator: '监管风控视角',
+  }
+  return map[activeRole.value] || '投资者视角'
+})
 const verifyWatchItems = computed(() => verifyCommandSurface.value?.watch_items?.slice(0, 2) || [])
 const verifyDominantSignal = computed(() => verifyCommandSurface.value?.dominant_signal || null)
 const verifyPrimaryClaims = computed(() => state.data.value?.claim_cards?.slice(0, 4) || [])
 const verifyPrimaryInsights = computed(() => state.data.value?.research_compare?.insights?.slice(0, 3) || [])
 const verifyCompareRows = computed(() => state.data.value?.research_compare?.rows?.slice(0, 3) || [])
+const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 4))
+const companyWorkspace = computed(() => companyState.data.value || null)
+const workflowTasks = computed(() => companyWorkspace.value?.tasks?.items?.slice(0, 3) || [])
+const quickRoutes = computed(() => state.data.value?.related_routes || [])
+const currentRunId = computed(() => state.data.value?.run_id || state.data.value?.run_meta?.run_id || '')
+const watchboardActionLabel = computed(() =>
+  companyWorkspace.value?.watchboard?.tracked ? '移出持续跟踪' : '加入持续跟踪',
+)
+const watchboardSummary = computed(() => {
+  if (!selectedCompany.value) return '先选择公司，再把核验分歧推进成动作。'
+  if (companyWorkspace.value?.watchboard?.tracked) {
+    return `已纳入持续跟踪，当前 ${Number(companyWorkspace.value.watchboard.new_alerts || 0)} 条新增预警，${Number(companyWorkspace.value.watchboard.task_count || 0)} 项相关任务。`
+  }
+  return '当前还未进入持续跟踪，可直接纳入监测板继续盯分歧与后续预警。'
+})
+const workflowStatCards = computed(() => {
+  const taskSummary = companyWorkspace.value?.tasks?.summary || {}
+  return [
+    {
+      label: '持续跟踪',
+      value: companyWorkspace.value?.watchboard?.tracked ? '已纳入' : '未纳入',
+    },
+    {
+      label: '在办任务',
+      value: `${Number(taskSummary.queued || 0) + Number(taskSummary.in_progress || 0)}项`,
+    },
+    {
+      label: '已完成',
+      value: `${Number(taskSummary.done || 0)}项`,
+    },
+  ]
+})
 
 const periodOptions = computed(() =>
   (availablePeriods.value || [])
@@ -44,18 +92,83 @@ const periodOptions = computed(() =>
     .filter(Boolean) as Array<{ value: string; label: string }>,
 )
 
+function readQueryString(value: unknown) {
+  const normalized = Array.isArray(value) ? value[0] : value
+  return typeof normalized === 'string' ? normalized.trim() : ''
+}
+
+function formatTimestamp(value?: string) {
+  if (!value) return '刚刚'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 function displayClaimStatus(status?: string) {
   const map: Record<string, string> = {
     match: '一致',
     mismatch: '不一致',
     partial: '部分一致',
+    insufficient_data: '待补证',
     review: '待复核',
   }
   return map[(status || '').toLowerCase()] || '待复核'
 }
 
-function claimTone(status?: string) {
-  return (status || '').toLowerCase() === 'match' ? 'success' : 'risk'
+function claimTone(status?: string): 'success' | 'risk' | 'default' {
+  const normalized = (status || '').toLowerCase()
+  if (normalized === 'match') return 'success'
+  if (normalized === 'mismatch') return 'risk'
+  return 'default'
+}
+
+function displayTaskStatus(status?: string) {
+  const map: Record<string, string> = {
+    queued: '待开工',
+    in_progress: '处理中',
+    done: '已完成',
+    blocked: '已阻断',
+  }
+  return map[(status || '').toLowerCase()] || '已记录'
+}
+
+function buildClaimTaskTitle(card: any) {
+  return `核验${card.label}分歧`
+}
+
+function buildClaimTaskSummary(card: any) {
+  const claimed = String(card.claimed_value ?? '未提取')
+  const actual = String(card.actual_value ?? '未提取')
+  return `继续核对 ${card.label}：研报 ${claimed}，财报 ${actual}。`.slice(0, 220)
+}
+
+function setSelectionFromPayload(payload: any) {
+  syncingFromRoute.value = true
+  try {
+    if (payload?.company_name) {
+      selectedCompany.value = payload.company_name
+    }
+    if (payload?.report_period) {
+      selectedPeriod.value = payload.report_period
+    }
+    if (payload?.report_meta?.title) {
+      selectedReportTitle.value = payload.report_meta.title
+    }
+  } finally {
+    syncingFromRoute.value = false
+  }
+}
+
+function resetVerifyState() {
+  state.data.value = null
+  state.error.value = null
+  state.loading.value = false
+  verifyCommandSurface.value = null
 }
 
 async function loadCompanies() {
@@ -99,11 +212,59 @@ async function loadReports() {
   reportCatalogReady.value = true
 }
 
-async function loadVerify() {
+async function loadRuns() {
+  if (!selectedCompany.value) {
+    runsState.data.value = { runs: [] }
+    runsState.error.value = null
+    runsState.loading.value = false
+    return
+  }
+  const query = new URLSearchParams({
+    company_name: selectedCompany.value,
+    user_role: activeRole.value,
+    limit: '6',
+  })
+  if (selectedPeriod.value) {
+    query.set('report_period', selectedPeriod.value)
+  }
+  if (selectedReportTitle.value) {
+    query.set('report_title', selectedReportTitle.value)
+  }
+  await runsState.execute(() => get(`/claim/verify/runs?${query.toString()}`))
+}
+
+async function loadCompanyWorkspace() {
+  if (!selectedCompany.value) {
+    companyState.data.value = null
+    companyState.error.value = null
+    companyState.loading.value = false
+    return
+  }
+  const query = new URLSearchParams({
+    company_name: selectedCompany.value,
+    user_role: activeRole.value,
+  })
+  if (selectedPeriod.value) {
+    query.set('report_period', selectedPeriod.value)
+  }
+  try {
+    await companyState.execute(() => get(`/company/workspace?${query.toString()}`))
+  } catch {
+    // 错误留给 companyState，用于局部展示。
+  }
+}
+
+async function openVerifyRun(runId: string) {
+  if (!runId) return
+  await state.execute(() => get(`/claim/verify/runs/${encodeURIComponent(runId)}`))
+  verifyCommandSurface.value = state.data.value?.verify_command_surface || null
+  setSelectionFromPayload(state.data.value)
+  await loadCompanyWorkspace()
+}
+
+async function runVerify() {
   if (!selectedCompany.value || !selectedReportTitle.value) {
-    state.data.value = null
-    state.error.value = null
-    state.loading.value = false
+    resetVerifyState()
     return
   }
   await state.execute(() =>
@@ -111,90 +272,185 @@ async function loadVerify() {
       company_name: selectedCompany.value,
       report_period: selectedPeriod.value || null,
       report_title: selectedReportTitle.value,
+      user_role: activeRole.value,
     }),
   )
   verifyCommandSurface.value = state.data.value?.verify_command_surface || null
+  setSelectionFromPayload(state.data.value)
+  await Promise.allSettled([loadRuns(), loadCompanyWorkspace()])
+}
+
+async function syncVerifySurface(options?: { forceRun?: boolean; runId?: string }) {
+  if (!selectedCompany.value) {
+    resetVerifyState()
+    await loadCompanyWorkspace()
+    return
+  }
+  if (!selectedReportTitle.value) {
+    resetVerifyState()
+    await Promise.allSettled([loadRuns(), loadCompanyWorkspace()])
+    return
+  }
+  await loadRuns()
+  if (options?.runId) {
+    await openVerifyRun(options.runId)
+    return
+  }
+  const matchedRun = (runsState.data.value?.runs || []).find(
+    (item: any) => item.report_title === selectedReportTitle.value,
+  )
+  if (!options?.forceRun && matchedRun) {
+    await openVerifyRun(matchedRun.run_id)
+    return
+  }
+  await runVerify()
+}
+
+function isActionPending(key: string) {
+  return actionPending.value === key
+}
+
+async function runWorkflowAction(key: string, action: () => Promise<void>) {
+  actionError.value = ''
+  actionPending.value = key
+  try {
+    await action()
+  } catch (error) {
+    actionError.value = error instanceof Error ? error.message : '执行失败'
+  } finally {
+    if (actionPending.value === key) {
+      actionPending.value = ''
+    }
+  }
+}
+
+async function toggleWatchboardTracking() {
+  if (!selectedCompany.value) return
+  await runWorkflowAction(`watchboard:${selectedCompany.value}`, async () => {
+    const reportPeriod = state.data.value?.report_period || selectedPeriod.value || null
+    if (companyWorkspace.value?.watchboard?.tracked) {
+      await post('/watchboard/remove', {
+        company_name: selectedCompany.value,
+        user_role: activeRole.value,
+        report_period: reportPeriod,
+      })
+    } else {
+      await post('/watchboard/add', {
+        company_name: selectedCompany.value,
+        user_role: activeRole.value,
+        report_period: reportPeriod,
+        note: `${activeRoleLabel.value}继续核验跟踪`,
+      })
+    }
+    await loadCompanyWorkspace()
+  })
+}
+
+async function createTaskFromClaim(card: any) {
+  if (!selectedCompany.value) return
+  const key = `task:${card.claim_id || card.label}`
+  await runWorkflowAction(key, async () => {
+    await post('/tasks/create', {
+      company_name: selectedCompany.value,
+      title: buildClaimTaskTitle(card),
+      summary: buildClaimTaskSummary(card),
+      priority: card.status === 'mismatch' ? 'P1' : 'P2',
+      user_role: activeRole.value,
+      report_period: state.data.value?.report_period || selectedPeriod.value || null,
+      note: `来自观点核验：${state.data.value?.report_meta?.title || selectedReportTitle.value || ''}`.slice(0, 180),
+      source_run_id: currentRunId.value || null,
+    })
+    await loadCompanyWorkspace()
+  })
 }
 
 onMounted(async () => {
-  const workflowContext = resolveWorkflowContext(route.query)
-  await loadCompanies()
-  syncingFromRoute.value = true
-  if (workflowContext.company && companies.value.includes(workflowContext.company)) {
-    selectedCompany.value = workflowContext.company
-  } else if (!selectedCompany.value) {
-    selectedCompany.value = companies.value[0] || ''
-  }
-  if (workflowContext.period) {
-    selectedPeriod.value = workflowContext.period
-  }
-  syncingFromRoute.value = false
-  await loadReports()
-  if (workflowContext.reportTitle && reports.value.some((item) => item.title === workflowContext.reportTitle)) {
+  bootstrapping.value = true
+  try {
+    const workflowContext = resolveWorkflowContext(route.query)
+    const routeRunId = readQueryString(route.query.run_id)
+    await loadCompanies()
     syncingFromRoute.value = true
-    selectedReportTitle.value = workflowContext.reportTitle
+    if (workflowContext.company && companies.value.includes(workflowContext.company)) {
+      selectedCompany.value = workflowContext.company
+    } else if (!selectedCompany.value) {
+      selectedCompany.value = companies.value[0] || ''
+    }
+    if (workflowContext.period) {
+      selectedPeriod.value = workflowContext.period
+    }
     syncingFromRoute.value = false
+    await loadReports()
+    if (workflowContext.reportTitle && reports.value.some((item) => item.title === workflowContext.reportTitle)) {
+      syncingFromRoute.value = true
+      selectedReportTitle.value = workflowContext.reportTitle
+      syncingFromRoute.value = false
+    }
+    await syncVerifySurface({ runId: routeRunId || undefined })
+  } finally {
+    bootstrapping.value = false
   }
-  await loadVerify()
 })
 
 watch(selectedCompany, async (_, oldValue) => {
-  if (syncingFromRoute.value) return
+  if (syncingFromRoute.value || bootstrapping.value) return
   if (oldValue && selectedCompany.value !== oldValue) {
     await loadReports()
-    await loadVerify()
+    await syncVerifySurface()
   }
 })
 
 watch(selectedPeriod, async (value, oldValue) => {
-  if (syncingFromRoute.value) return
+  if (syncingFromRoute.value || bootstrapping.value) return
   if (value !== oldValue) {
-    await loadVerify()
+    await syncVerifySurface()
   }
 })
 
 watch(selectedReportTitle, async (value, oldValue) => {
-  if (syncingFromRoute.value) return
+  if (syncingFromRoute.value || bootstrapping.value) return
   if (value && value !== oldValue) {
-    await loadVerify()
+    await syncVerifySurface()
   }
 })
 
 watch(
-  () => [route.query.company, route.query.report_title, route.query.period],
-  async ([companyQuery, reportTitleQuery, periodQuery]) => {
-    const company = typeof companyQuery === 'string' ? companyQuery : ''
-    const reportTitle = typeof reportTitleQuery === 'string' ? reportTitleQuery : ''
-    const period = typeof periodQuery === 'string' ? periodQuery : ''
+  () => [route.query.company, route.query.report_title, route.query.period, route.query.run_id],
+  async ([companyQuery, reportTitleQuery, periodQuery, runIdQuery]) => {
+    if (bootstrapping.value) return
+    const company = readQueryString(companyQuery)
+    const reportTitle = readQueryString(reportTitleQuery)
+    const period = readQueryString(periodQuery)
+    const runId = readQueryString(runIdQuery)
+    let companyChanged = false
+    syncingFromRoute.value = true
     if (company && company !== selectedCompany.value && companies.value.includes(company)) {
-      syncingFromRoute.value = true
       selectedCompany.value = company
-      if (period) {
-        selectedPeriod.value = period
-      }
-      syncingFromRoute.value = false
-      await loadReports()
-      if (reportTitle && reports.value.some((item) => item.title === reportTitle)) {
-        syncingFromRoute.value = true
-        selectedReportTitle.value = reportTitle
-        syncingFromRoute.value = false
-      }
-      await loadVerify()
-      return
+      companyChanged = true
     }
     if (period && period !== selectedPeriod.value) {
-      syncingFromRoute.value = true
       selectedPeriod.value = period
-      syncingFromRoute.value = false
-      await loadVerify()
-      return
     }
-    if (reportTitle && reportTitle !== selectedReportTitle.value && reports.value.some((item) => item.title === reportTitle)) {
+    syncingFromRoute.value = false
+    if (companyChanged) {
+      await loadReports()
+    }
+    if (reportTitle && reports.value.some((item) => item.title === reportTitle)) {
       syncingFromRoute.value = true
       selectedReportTitle.value = reportTitle
       syncingFromRoute.value = false
-      await loadVerify()
     }
+    if (companyChanged || period || reportTitle || runId) {
+      await syncVerifySurface({ runId: runId || undefined })
+    }
+  },
+)
+
+watch(
+  () => session.activeRole.value,
+  async (value, oldValue) => {
+    if (bootstrapping.value || !selectedCompany.value || !value || value === oldValue) return
+    await syncVerifySurface()
   },
 )
 
@@ -215,6 +471,7 @@ watch([selectedCompany, selectedPeriod, selectedReportTitle], ([company, period,
         <div class="control-copy">
           <h1>{{ selectedCompany || '观点核验' }}</h1>
           <p>{{ selectedReportTitle || '选一篇研报开始核对' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+          <span class="role-pill">{{ activeRoleLabel }}</span>
         </div>
         <div class="control-fields">
           <select v-model="selectedCompany" class="glass-select">
@@ -227,12 +484,16 @@ watch([selectedCompany, selectedPeriod, selectedReportTitle], ([company, period,
           <select v-model="selectedReportTitle" class="glass-select report-select">
             <option v-for="report in reports" :key="report.title" :value="report.title">{{ report.title }} | {{ report.publish_date }}</option>
           </select>
-          <button class="button-primary action-button" @click="loadVerify">重新核对</button>
+          <button class="button-primary action-button" @click="runVerify">重新核对</button>
         </div>
       </section>
 
-      <LoadingState v-if="state.loading.value" class="state-container" />
-      <ErrorState v-else-if="state.error.value" :message="state.error.value" class="state-container" />
+      <LoadingState v-if="bootstrapping || state.loading.value || runsState.loading.value" class="state-container" />
+      <ErrorState
+        v-else-if="state.error.value || runsState.error.value || actionError"
+        :message="String(state.error.value || runsState.error.value || actionError)"
+        class="state-container"
+      />
 
       <section v-else-if="!selectedCompany" class="glass-panel empty-panel">
         <div class="empty-content">
@@ -253,7 +514,10 @@ watch([selectedCompany, selectedPeriod, selectedReportTitle], ([company, period,
           <div class="summary-head">
             <div>
               <h2>{{ state.data.value.report_meta.title }}</h2>
-              <p>{{ state.data.value.report_meta.publish_date }} · {{ state.data.value.report_meta.source_name }}</p>
+              <p>
+                {{ state.data.value.report_meta.publish_date }} · {{ state.data.value.report_meta.source_name }}
+                <span v-if="currentRunId"> · 核验于 {{ formatTimestamp(state.data.value.run_meta?.created_at || state.data.value.created_at) }}</span>
+              </p>
             </div>
             <div class="summary-links">
               <a class="inline-link" :href="state.data.value.report_meta.source_url" target="_blank" rel="noreferrer">查看原文</a>
@@ -284,12 +548,67 @@ watch([selectedCompany, selectedPeriod, selectedReportTitle], ([company, period,
             <div class="summary-copy">
               <strong>{{ verifyCommandSurface?.headline || '先把这篇研报的主要说法和财报原文放在一起看。' }}</strong>
               <p v-if="verifyDominantSignal">{{ verifyDominantSignal.value }}</p>
-            </div>
-            <div v-if="verifyWatchItems.length" class="watch-list">
-              <div v-for="item in verifyWatchItems" :key="item.label" class="watch-item">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
+              <div v-if="quickRoutes.length" class="summary-links">
+                <RouterLink
+                  v-for="item in quickRoutes"
+                  :key="item.path + JSON.stringify(item.query || {})"
+                  class="inline-link"
+                  :to="{ path: item.path, query: item.query || {} }"
+                >
+                  {{ item.label }}
+                </RouterLink>
               </div>
+            </div>
+            <div class="summary-side">
+              <article class="summary-card">
+                <div class="card-head">
+                  <strong>继续推进</strong>
+                  <button
+                    type="button"
+                    class="inline-action"
+                    :disabled="!selectedCompany || isActionPending(`watchboard:${selectedCompany}`)"
+                    @click="toggleWatchboardTracking()"
+                  >
+                    {{
+                      selectedCompany && isActionPending(`watchboard:${selectedCompany}`)
+                        ? '处理中…'
+                        : watchboardActionLabel
+                    }}
+                  </button>
+                </div>
+                <p class="card-copy">{{ watchboardSummary }}</p>
+                <div class="watch-list">
+                  <div v-for="item in workflowStatCards" :key="item.label" class="watch-item">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </div>
+                  <div v-for="item in verifyWatchItems" :key="`verify-${item.label}`" class="watch-item">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </div>
+                </div>
+              </article>
+
+              <article v-if="recentRuns.length" class="summary-card">
+                <div class="card-head">
+                  <strong>最近核验</strong>
+                  <span class="subtle-copy">{{ activeRoleLabel }}</span>
+                </div>
+                <button
+                  v-for="item in recentRuns"
+                  :key="item.run_id"
+                  type="button"
+                  class="run-item-button"
+                  :class="{ 'is-active': currentRunId === item.run_id }"
+                  @click="openVerifyRun(item.run_id)"
+                >
+                  <div class="run-item-copy">
+                    <strong>{{ item.report_title }}</strong>
+                    <p>{{ item.headline || item.source_name || '回到该次核验' }}</p>
+                  </div>
+                  <span>{{ formatTimestamp(item.created_at) }}</span>
+                </button>
+              </article>
             </div>
           </div>
         </section>
@@ -311,6 +630,15 @@ watch([selectedCompany, selectedPeriod, selectedReportTitle], ([company, period,
                 <strong>{{ row.source_name }}</strong>
                 <p>{{ row.title }}</p>
                 <span>{{ row.publish_date }} · 评级 {{ row.rating_text }} · 目标价 {{ row.target_price ?? '--' }}</span>
+              </div>
+            </div>
+
+            <div v-if="workflowTasks.length" class="related-list">
+              <h4>已经落入任务板</h4>
+              <div v-for="task in workflowTasks" :key="task.task_id" class="related-item">
+                <strong>{{ task.title }}</strong>
+                <p>{{ task.summary }}</p>
+                <span>{{ displayTaskStatus(task.status) }} · {{ task.priority || 'P1' }}</span>
               </div>
             </div>
           </article>
@@ -354,6 +682,21 @@ watch([selectedCompany, selectedPeriod, selectedReportTitle], ([company, period,
                   >
                     财报出处
                   </RouterLink>
+                </div>
+
+                <div v-if="card.status !== 'match'" class="claim-actions">
+                  <button
+                    type="button"
+                    class="inline-action"
+                    :disabled="isActionPending(`task:${card.claim_id || card.label}`)"
+                    @click="createTaskFromClaim(card)"
+                  >
+                    {{
+                      isActionPending(`task:${card.claim_id || card.label}`)
+                        ? '写入中…'
+                        : '写入任务板'
+                    }}
+                  </button>
                 </div>
               </article>
             </div>
@@ -416,6 +759,18 @@ watch([selectedCompany, selectedPeriod, selectedReportTitle], ([company, period,
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.role-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  color: #bbf7d0;
+  font-size: 12px;
 }
 
 .glass-select {
@@ -557,6 +912,79 @@ watch([selectedCompany, selectedPeriod, selectedReportTitle], ([company, period,
   gap: 10px;
 }
 
+.summary-side {
+  display: grid;
+  gap: 14px;
+}
+
+.summary-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.card-head strong,
+.run-item-copy strong {
+  color: #f8fafc;
+}
+
+.subtle-copy,
+.card-copy,
+.run-item-copy p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.inline-action {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  background: rgba(16, 185, 129, 0.1);
+  color: #d1fae5;
+  cursor: pointer;
+}
+
+.inline-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.run-item-button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.run-item-button.is-active {
+  border-color: rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.run-item-copy {
+  display: grid;
+  gap: 4px;
+}
+
 .watch-item {
   display: flex;
   justify-content: space-between;
@@ -641,6 +1069,11 @@ watch([selectedCompany, selectedPeriod, selectedReportTitle], ([company, period,
 .claim-item {
   display: grid;
   gap: 14px;
+}
+
+.claim-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .claim-top {

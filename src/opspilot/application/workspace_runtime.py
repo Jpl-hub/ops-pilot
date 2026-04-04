@@ -157,6 +157,30 @@ def _workspace_history(
             limit=source_limit,
         )["runs"]
     ]
+    verify_runs = [
+        {
+            "history_type": "claim_verify",
+            "id": item["run_id"],
+            "title": f"观点核验 · {item['company_name']}",
+            "company_name": item.get("company_name"),
+            "report_period": item.get("report_period"),
+            "user_role": item.get("user_role"),
+            "status": item.get("status_label", "completed"),
+            "created_at": item.get("created_at"),
+            "meta": {
+                "report_title": item.get("report_title"),
+                "source_name": item.get("source_name"),
+                "route": {
+                    "path": f"/api/v1/claim/verify/runs/{item['run_id']}",
+                },
+            },
+        }
+        for item in service.verify_runs(
+            report_period=period,
+            user_role=user_role,
+            limit=source_limit,
+        )["runs"]
+    ]
     graph_runs = [
         {
             "history_type": "graph_query",
@@ -216,7 +240,7 @@ def _workspace_history(
         )["runs"]
     ]
     records = analysis_runs + watch_runs + document_jobs + document_runs + stress_runs
-    records += graph_runs + vision_runs
+    records += verify_runs + graph_runs + vision_runs
     records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     return {
         "user_role": user_role,

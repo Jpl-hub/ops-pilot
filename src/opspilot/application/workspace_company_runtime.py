@@ -196,6 +196,12 @@ def _build_company_runtime_capsule(
         user_role=user_role,
         limit=1,
     )["runs"]
+    latest_verify = service.verify_runs(
+        company_name=company_name,
+        report_period=period,
+        user_role=user_role,
+        limit=1,
+    )["runs"]
     latest_vision = service.vision_runs(
         company_name=company_name,
         report_period=period,
@@ -241,6 +247,16 @@ def _build_company_runtime_capsule(
             detail_keys=("created_at",),
         ),
         _build_runtime_capsule_module(
+            module_key="verify",
+            label="观点核验",
+            route_path="/verify",
+            company_name=company_name,
+            report_period=period,
+            record=latest_verify[0] if latest_verify else None,
+            summary_key="report_title",
+            detail_keys=("source_name", "created_at"),
+        ),
+        _build_runtime_capsule_module(
             module_key="vision",
             label="多模态解析",
             route_path="/vision",
@@ -258,6 +274,7 @@ def _build_company_runtime_capsule(
             latest_analysis[0] if latest_analysis else None,
             latest_graph[0] if latest_graph else None,
             latest_stress[0] if latest_stress else None,
+            latest_verify[0] if latest_verify else None,
             latest_vision[0] if latest_vision else None,
         )
         if item is not None
@@ -270,6 +287,7 @@ def _build_company_runtime_capsule(
             latest_record.get("query")
             or latest_record.get("intent")
             or latest_record.get("scenario")
+            or latest_record.get("report_title")
             or latest_record.get("headline")
         )
     return {
@@ -325,6 +343,12 @@ def _build_company_intelligence_runtime(
         user_role=user_role,
         limit=1,
     )["runs"]
+    latest_verify_runs = service.verify_runs(
+        company_name=company_name,
+        report_period=period,
+        user_role=user_role,
+        limit=1,
+    )["runs"]
     latest_vision_runs = service.vision_runs(
         company_name=company_name,
         report_period=period,
@@ -353,6 +377,11 @@ def _build_company_intelligence_runtime(
         if latest_stress_runs
         else None
     )
+    verify_detail = (
+        service.verify_run_detail(latest_verify_runs[0]["run_id"])
+        if latest_verify_runs
+        else None
+    )
 
     runs = [
         item
@@ -360,6 +389,7 @@ def _build_company_intelligence_runtime(
             latest_analysis[0] if latest_analysis else None,
             latest_graph_runs[0] if latest_graph_runs else None,
             latest_stress_runs[0] if latest_stress_runs else None,
+            latest_verify_runs[0] if latest_verify_runs else None,
             latest_vision_runs[0] if latest_vision_runs else None,
         )
         if item
@@ -403,6 +433,28 @@ def _build_company_intelligence_runtime(
             "route": {"path": "/stress", "query": {"company": company_name, "period": period}},
         },
         {
+            "module_key": "verify",
+            "label": "观点核验",
+            "status": "ready" if latest_verify_runs else "idle",
+            "headline": latest_verify_runs[0].get("report_title") if latest_verify_runs else "等待观点核验",
+            "signal": (
+                f"{latest_verify_runs[0].get('mismatch_count', 0)} 处偏差"
+                if latest_verify_runs
+                else "pending"
+            ),
+            "intensity": (
+                min(
+                    100,
+                    32
+                    + latest_verify_runs[0].get("mismatch_count", 0) * 18
+                    + latest_verify_runs[0].get("insufficient_count", 0) * 12,
+                )
+                if verify_detail
+                else 0
+            ),
+            "route": {"path": "/verify", "query": {"company": company_name, "period": period}},
+        },
+        {
             "module_key": "vision",
             "label": "多模态解析",
             "status": "ready" if any(item["status"] == "completed" for item in vision_runtime["stages"]) else "idle",
@@ -432,6 +484,8 @@ def _build_company_intelligence_runtime(
                     if pulse["module_key"] == "graph" and latest_graph_runs
                     else latest_stress_runs[0].get("created_at")
                     if pulse["module_key"] == "stress" and latest_stress_runs
+                    else latest_verify_runs[0].get("created_at")
+                    if pulse["module_key"] == "verify" and latest_verify_runs
                     else latest_vision_runs[0].get("created_at")
                     if pulse["module_key"] == "vision" and latest_vision_runs
                     else None
@@ -443,6 +497,8 @@ def _build_company_intelligence_runtime(
                     if pulse["module_key"] == "graph" and latest_graph_runs
                     else latest_stress_runs[0].get("run_id")
                     if pulse["module_key"] == "stress" and latest_stress_runs
+                    else latest_verify_runs[0].get("run_id")
+                    if pulse["module_key"] == "verify" and latest_verify_runs
                     else latest_vision_runs[0].get("run_id")
                     if pulse["module_key"] == "vision" and latest_vision_runs
                     else None
@@ -590,6 +646,27 @@ def _build_company_execution_stream(
             limit=100,
         )["runs"]
     ]
+    verify_items = [
+        {
+            "stream_type": "claim_verify",
+            "id": item["run_id"],
+            "title": "观点核验",
+            "status": item.get("status_label", "completed"),
+            "created_at": item.get("created_at"),
+            "meta": {
+                "report_title": item.get("report_title"),
+                "headline": item.get("headline"),
+                "source_name": item.get("source_name"),
+                "route": {"path": f"/api/v1/claim/verify/runs/{item['run_id']}"},
+            },
+        }
+        for item in service.verify_runs(
+            company_name=company_name,
+            report_period=period,
+            user_role=user_role,
+            limit=100,
+        )["runs"]
+    ]
     graph_items = [
         {
             "stream_type": "graph_query",
@@ -669,7 +746,7 @@ def _build_company_execution_stream(
         and item.get("report_period") == period
         and item.get("user_role") == user_role
     ]
-    records = alert_items + task_items + watch_records + document_items + stress_items + graph_items + vision_items + analysis_runs
+    records = alert_items + task_items + watch_records + document_items + stress_items + verify_items + graph_items + vision_items + analysis_runs
     records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     return {
         "company_name": company_name,
@@ -681,6 +758,7 @@ def _build_company_execution_stream(
             "tasks": len(task_items),
             "watch_records": len(watch_records),
             "document_upgrades": len(document_items),
+            "verify_runs": len(verify_items),
             "graph_queries": len(graph_items),
             "vision_runs": len(vision_items),
             "analysis_runs": len(analysis_runs),

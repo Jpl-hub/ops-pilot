@@ -26,6 +26,7 @@ class ClaimVerifyRequest(BaseModel):
     company_name: str
     report_period: str | None = None
     report_title: str | None = None
+    user_role: Literal["investor", "management", "regulator"] = "management"
 
 
 class StressTestRequest(BaseModel):

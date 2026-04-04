@@ -3446,9 +3446,9 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(workspace["alerts"]["items"])
             self.assertGreaterEqual(workspace["execution_stream"]["total"], 3)
             self.assertEqual(intelligence_runtime["company_name"], "测试公司")
-            self.assertEqual(len(intelligence_runtime["module_pulses"]), 4)
+            self.assertEqual(len(intelligence_runtime["module_pulses"]), 5)
             self.assertGreaterEqual(intelligence_runtime["runtime_bus"]["total"], 1)
-            self.assertEqual(len(intelligence_runtime["runtime_bus"]["records"]), 4)
+            self.assertEqual(len(intelligence_runtime["runtime_bus"]["records"]), 5)
             self.assertTrue(
                 any(item["module_key"] == "graph" and item["intensity"] >= 0 for item in intelligence_runtime["module_pulses"])
             )
@@ -5787,6 +5787,155 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["evidence_groups"][0]["title"], "营收同比")
             self.assertIn("verify_command_surface", payload)
             self.assertTrue(payload["verify_delta_tape"])
+
+    def test_verify_claim_persists_runs_and_surfaces_execution_context(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                if company_name != "测试公司":
+                    return None
+                if report_period in (None, "2024FY"):
+                    return {
+                        "company_name": "测试公司",
+                        "report_period": "2024FY",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 10.0, "P1": 15.0},
+                        "raw_metrics": {"RAW_REVENUE": 10_000_000_000.0, "RAW_NET_PROFIT": 800_000_000.0},
+                        "facts": {"net_profit": {"change_pct": 12.0}},
+                        "history": [],
+                        "metric_evidence": {"G1": ["g1"], "G2": ["g2"], "P1": ["p1"]},
+                        "formula_context": {},
+                        "label_evidence": {},
+                        "summary_chunk_id": "summary",
+                    }
+                return None
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [self.get_company("测试公司", "2024FY")]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return [
+                    {
+                        "chunk_id": chunk_id,
+                        "company_name": "测试公司",
+                        "report_period": "2024FY",
+                        "source_title": "官方报告",
+                        "source_type": "official_summary_page",
+                        "page": 1,
+                        "excerpt": "官方证据",
+                        "fingerprint": chunk_id,
+                        "source_url": "https://example.com/report.pdf",
+                        "local_path": "report.pdf",
+                    }
+                    for chunk_id in chunk_ids
+                ]
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司"]
+
+            def find_company_from_query(self, query: str, report_period: str | None = None) -> str | None:
+                return "测试公司" if "测试公司" in query else None
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifests_root = root / "raw" / "manifests"
+            manifests_root.mkdir(parents=True, exist_ok=True)
+            report_path = root / "report.html"
+            report_path.write_text(
+                """
+                <script>
+                var zwinfo= {
+                    "notice_content":"测试公司实现营收100亿元，同比+10%；毛利率15.0%。预计公司2025/2026/2027年归母净利润分别为11/12/13亿元，对应PE20x/18x/16x，维持\\"买入\\"评级，目标价41元。",
+                    "notice_title":"测试公司2024年年度点评",
+                    "notice_date":"2025-01-10 00:00:00",
+                    "attach_url":"https://example.com/report.pdf",
+                    "source_sample_name":"测试证券",
+                    "researcher":"分析师甲",
+                    "rating":"A"
+                };
+                </script>
+                """,
+                encoding="utf-8",
+            )
+            (manifests_root / "research_reports_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "company_name": "测试公司",
+                                "security_code": "000001",
+                                "title": "测试公司2024年年度点评",
+                                "publish_date": "2025-01-10",
+                                "source_url": "https://example.com/research",
+                                "detail_url": "https://example.com/research",
+                                "local_path": str(report_path),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+                ocr_runtime_enabled = False
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            payload = service.verify_claim(
+                "测试公司",
+                user_role="management",
+                persist_run=True,
+            )
+
+            self.assertIn("run_id", payload)
+            self.assertTrue((root / "bronze" / "manifests" / "claim_verify_runs.json").exists())
+
+            runs = service.verify_runs(
+                company_name="测试公司",
+                report_period="2024FY",
+                user_role="management",
+            )
+            self.assertEqual(runs["total"], 1)
+            self.assertEqual(runs["runs"][0]["report_title"], "测试公司2024年年度点评")
+
+            detail = service.verify_run_detail(payload["run_id"])
+            self.assertEqual(detail["run_meta"]["company_name"], "测试公司")
+            self.assertEqual(detail["run_meta"]["report_title"], "测试公司2024年年度点评")
+
+            history = service.workspace_history(user_role="management", report_period="2024FY")
+            self.assertTrue(any(item["history_type"] == "claim_verify" for item in history["records"]))
+
+            execution_stream = service.company_execution_stream(
+                "测试公司",
+                "2024FY",
+                user_role="management",
+            )
+            self.assertIn("claim_verify", {item["stream_type"] for item in execution_stream["records"]})
+
+            intelligence_runtime = service.company_intelligence_runtime(
+                "测试公司",
+                "2024FY",
+                user_role="management",
+            )
+            verify_pulse = next(
+                item for item in intelligence_runtime["module_pulses"] if item["module_key"] == "verify"
+            )
+            self.assertEqual(verify_pulse["status"], "ready")
+            self.assertIn("偏差", verify_pulse["signal"])
 
     def test_list_research_reports_returns_ranked_catalog(self) -> None:
         class StubRepository:

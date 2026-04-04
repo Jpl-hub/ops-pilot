@@ -99,6 +99,9 @@ from opspilot.application.vision_runtime import (
 from opspilot.application.verify_runtime import (
     _build_verify_command_surface,
     _build_verify_delta_tape,
+    _persist_verify_run,
+    _verify_run_detail,
+    _verify_runs,
 )
 from opspilot.application.stress_service import StressService
 from opspilot.application.industry_brain_runtime import (
@@ -736,6 +739,27 @@ class OpsPilotService:
     def stress_test_run_detail(self, run_id: str) -> dict[str, Any]:
         return self._stress.stress_test_run_detail(run_id)
 
+    def verify_runs(
+        self,
+        *,
+        company_name: str | None = None,
+        report_period: str | None = None,
+        user_role: str = "management",
+        report_title: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return _verify_runs(
+            self,
+            company_name=company_name,
+            report_period=report_period,
+            user_role=user_role,
+            report_title=report_title,
+            limit=limit,
+        )
+
+    def verify_run_detail(self, run_id: str) -> dict[str, Any]:
+        return _verify_run_detail(self, run_id)
+
     def task_board(
         self, user_role: str = "management", report_period: str | None = None, limit: int = 12
     ) -> dict[str, Any]:
@@ -1076,6 +1100,9 @@ class OpsPilotService:
         company_name: str,
         report_period: str | None = None,
         report_title: str | None = None,
+        *,
+        user_role: str = "management",
+        persist_run: bool = False,
     ) -> dict[str, Any]:
         research_reports = _load_research_reports(
             self.settings.official_data_path / "manifests" / "research_reports_manifest.json"
@@ -1138,9 +1165,10 @@ class OpsPilotService:
             calculations=calculations,
             min_evidence=self.settings.audit_min_evidence,
         )
-        return {
+        payload = {
             "company_name": company["company_name"],
             "report_period": company["report_period"],
+            "user_role": user_role,
             "answer_markdown": _render_claim_answer(
                 research_meta,
                 company["report_period"],
@@ -1170,7 +1198,32 @@ class OpsPilotService:
             ),
             "research_compare": self.compare_research_reports(company_name),
             "research_timeline": self.summarize_research_timeline(company_name),
+            "related_routes": [
+                {
+                    "label": "回到协同分析",
+                    "path": "/workspace",
+                    "query": {"company": company["company_name"], "period": company["report_period"]},
+                },
+                {
+                    "label": "查看企业体检",
+                    "path": "/score",
+                    "query": {"company": company["company_name"], "period": company["report_period"]},
+                },
+                {
+                    "label": "进入图谱检索",
+                    "path": "/graph",
+                    "query": {"company": company["company_name"], "period": company["report_period"]},
+                },
+            ],
         }
+        if not persist_run:
+            return payload
+        return _persist_verify_run(
+            self,
+            payload,
+            user_role=user_role,
+            report_title=report_title,
+        )
 
     async def chat_turn(
         self,
