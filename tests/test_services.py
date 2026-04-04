@@ -2020,6 +2020,104 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(refreshed_task["history"][-1]["status"], "in_progress")
             self.assertTrue((root / "bronze" / "manifests" / "workspace_task_board.json").exists())
 
+    def test_manual_task_creation_persists_and_alert_dispatch_prefers_system_task(self) -> None:
+        class StubRepository:
+            def preferred_period(self) -> str:
+                return "2025Q3"
+
+            def list_companies(self, report_period: str | None = None) -> list[dict]:
+                return [
+                    {
+                        "company_name": "测试公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": -8.4, "G2": -15.2, "C3": 18.0, "S4": 0.72, "S1": 0.98},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                    {
+                        "company_name": "对标公司",
+                        "report_period": "2025Q3",
+                        "subindustry": "储能",
+                        "metrics": {"G1": 10.0, "G2": 8.0, "C3": 1.0, "S4": 1.4, "S1": 1.5},
+                        "history": [],
+                        "metric_evidence": {},
+                        "formula_context": {},
+                        "label_evidence": {},
+                    },
+                ]
+
+            def get_company(self, company_name: str, report_period: str | None = None) -> dict | None:
+                for item in self.list_companies(report_period):
+                    if item["company_name"] == company_name:
+                        return item
+                return None
+
+            def list_company_periods(self, company_name: str) -> list[str]:
+                return ["2025Q3"]
+
+            def resolve_evidence(self, chunk_ids: list[str]) -> list[dict]:
+                return []
+
+            def get_evidence(self, chunk_id: str) -> dict | None:
+                return None
+
+            def list_company_names(self) -> list[str]:
+                return ["测试公司", "对标公司"]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            class StubSettings:
+                app_name = "OpsPilot"
+                env = "test"
+                default_period = "2025Q3"
+                audit_min_evidence = 0
+
+                def __init__(self) -> None:
+                    self.official_data_path = root / "raw"
+                    self.bronze_data_path = root / "bronze"
+                    self.silver_data_path = root / "silver"
+
+            service = OpsPilotService(StubRepository(), StubSettings())
+            system_board = service.task_board("management", "2025Q3")
+            system_task_id = system_board["tasks"][0]["task_id"]
+
+            manual_payload = service.create_task(
+                company_name="测试公司",
+                title="复核渠道库存去化节奏",
+                summary="把库存周转与渠道出货节奏拆开核对，再决定是否继续加压整改。",
+                priority="P0",
+                user_role="management",
+                report_period="2025Q3",
+                note="来自协同分析动作卡",
+                source_run_id="run-123",
+            )
+
+            self.assertTrue(manual_payload["created"])
+            self.assertEqual(manual_payload["task"]["task_source"], "manual")
+            self.assertEqual(manual_payload["task"]["route"]["path"], "/workspace")
+            self.assertEqual(manual_payload["task"]["route"]["query"]["role"], "management")
+            self.assertEqual(manual_payload["task"]["source_run_id"], "run-123")
+
+            board = service.task_board("management", "2025Q3")
+            manual_task = next(
+                item for item in board["tasks"] if item["title"] == "复核渠道库存去化节奏"
+            )
+            self.assertEqual(manual_task["task_source_label"], "协同分析动作")
+            self.assertEqual(board["summary"]["total"], len(board["tasks"]))
+
+            alert_id = service.alert_workflow("2025Q3")["alerts"][0]["alert_id"]
+            dispatch_payload = service.dispatch_alert_to_task(
+                alert_id=alert_id,
+                user_role="management",
+                report_period="2025Q3",
+            )
+            self.assertEqual(dispatch_payload["task"]["task_id"], system_task_id)
+            self.assertNotEqual(dispatch_payload["task"]["task_id"], manual_task["task_id"])
+
     def test_risk_scan_builds_alert_board_from_prior_period(self) -> None:
         class StubRepository:
             def preferred_period(self) -> str:

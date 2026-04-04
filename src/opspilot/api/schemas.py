@@ -89,6 +89,17 @@ class TaskStatusUpdateRequest(BaseModel):
     note: str | None = Field(default=None, max_length=200)
 
 
+class TaskCreateRequest(BaseModel):
+    company_name: str = Field(..., min_length=2, max_length=80)
+    title: str = Field(..., min_length=4, max_length=120)
+    summary: str = Field(..., min_length=4, max_length=240)
+    priority: str = Field(default="P1", min_length=2, max_length=16)
+    user_role: Literal["investor", "management", "regulator"] = "management"
+    report_period: str | None = None
+    note: str | None = Field(default=None, max_length=200)
+    source_run_id: str | None = Field(default=None, max_length=120)
+
+
 class AlertStatusUpdateRequest(BaseModel):
     alert_id: str = Field(..., min_length=6, max_length=160)
     status: Literal["new", "dispatched", "in_progress", "resolved", "dismissed"]

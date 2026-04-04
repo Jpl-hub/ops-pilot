@@ -175,6 +175,16 @@ const primaryActionCards = computed<any[]>(() => {
   if (latestActionCards.value.length) return latestActionCards.value
   return (companyWorkspace.value?.action_cards || []).slice(0, 3)
 })
+const liveTasks = computed<any[]>(() => (companyWorkspace.value?.tasks?.items || []).slice(0, 4))
+const watchboardActionLabel = computed(() =>
+  companyWorkspace.value?.watchboard?.tracked ? '移出持续跟踪' : '加入持续跟踪',
+)
+const watchboardSummary = computed(() => {
+  const watchboard = companyWorkspace.value?.watchboard
+  if (!selectedCompany.value) return '先选择公司，再决定是否持续跟踪。'
+  if (!watchboard?.tracked) return '当前未加入持续跟踪，适合把需要连续盯防的主体放进监测板。'
+  return `已加入持续跟踪 · ${watchboard.new_alerts || 0} 条新增预警 / ${watchboard.task_count || 0} 项在板任务`
+})
 
 const latestEvidenceCards = computed<EvidenceCard[]>(() =>
   latestEvidenceGroups.value
@@ -498,6 +508,65 @@ function handleComposerKeydown(event: KeyboardEvent) {
   }
 }
 
+function workflowPendingKey(scope: string, value: string) {
+  return `${scope}:${value}`
+}
+
+function isWorkflowPending(scope: string, value: string) {
+  return workflowActionPending.value === workflowPendingKey(scope, value)
+}
+
+async function createTaskFromCard(card: any) {
+  if (!selectedCompany.value) return
+  const actionKey = workflowPendingKey('task-create', `${card?.title || 'task'}`)
+  workflowActionPending.value = actionKey
+  workflowActionError.value = ''
+  try {
+    await workspace.createTaskFromAction(card, currentRole.value)
+  } catch (error) {
+    workflowActionError.value = error instanceof Error ? error.message : '写入任务板失败'
+  } finally {
+    if (workflowActionPending.value === actionKey) {
+      workflowActionPending.value = ''
+    }
+  }
+}
+
+async function setTaskStatus(taskId: string, status: 'queued' | 'in_progress' | 'done' | 'blocked') {
+  const actionKey = workflowPendingKey('task-status', `${taskId}:${status}`)
+  workflowActionPending.value = actionKey
+  workflowActionError.value = ''
+  try {
+    await workspace.updateTaskStatus(taskId, status, currentRole.value)
+  } catch (error) {
+    workflowActionError.value = error instanceof Error ? error.message : '更新任务状态失败'
+  } finally {
+    if (workflowActionPending.value === actionKey) {
+      workflowActionPending.value = ''
+    }
+  }
+}
+
+async function toggleWatchboardTracking() {
+  if (!selectedCompany.value) return
+  const actionKey = workflowPendingKey('watchboard', selectedCompany.value)
+  workflowActionPending.value = actionKey
+  workflowActionError.value = ''
+  try {
+    if (companyWorkspace.value?.watchboard?.tracked) {
+      await workspace.removeCurrentCompanyFromWatchboard(currentRole.value)
+    } else {
+      await workspace.addCurrentCompanyToWatchboard(currentRole.value, '来自协同分析持续跟踪')
+    }
+  } catch (error) {
+    workflowActionError.value = error instanceof Error ? error.message : '更新持续跟踪失败'
+  } finally {
+    if (workflowActionPending.value === actionKey) {
+      workflowActionPending.value = ''
+    }
+  }
+}
+
 onMounted(async () => {
   bootstrapping.value = true
   const initialRole = parseRoleQuery(route.query.role)
@@ -642,61 +711,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
               <p>真实服务正在回收数字、证据和下一步建议。</p>
             </div>
 
-            <div v-else-if="latestAnswer" class="surface-stack">
-              <section v-if="companySnapshotMetrics.length" class="summary-strip">
-                <article v-for="item in companySnapshotMetrics" :key="item.label" class="summary-chip">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ displayMetricValue(item) }}</strong>
-                  <p v-if="item.hint">{{ item.hint }}</p>
-                </article>
-              </section>
-
-              <section v-for="block in answerBlocks" :key="block.title" class="answer-block">
-                <h3>{{ block.title }}</h3>
-                <p v-for="line in block.paragraphs" :key="line" v-html="renderInlineMarkdown(line)"></p>
-                <ul v-if="block.bullets.length" class="focus-list">
-                  <li v-for="line in block.bullets" :key="line" v-html="renderInlineMarkdown(line)"></li>
-                </ul>
-              </section>
-
-              <section v-if="primaryActionCards.length" class="flow-surface">
-                <div class="section-head">
-                  <span>下一步</span>
-                  <strong>先把动作说清楚</strong>
-                </div>
-                <div class="inline-grid">
-                  <article v-for="item in primaryActionCards" :key="item.title" class="action-card">
-                    <em>{{ item.priority || '动作' }}</em>
-                    <strong>{{ item.title }}</strong>
-                    <p>{{ item.action || item.reason }}</p>
-                  </article>
-                </div>
-              </section>
-
-              <section v-if="latestEvidenceCards.length" class="flow-surface">
-                <div class="section-head">
-                  <span>回到原文</span>
-                  <strong>先看最关键的证据</strong>
-                </div>
-                <div class="inline-grid">
-                  <article v-for="group in latestEvidenceCards" :key="group.title" class="evidence-card">
-                    <strong>{{ group.title }}</strong>
-                    <p>{{ group.subtitle }}</p>
-                    <div class="evidence-links">
-                      <RouterLink
-                        v-for="item in group.items"
-                        :key="`${group.title}-${item.path}-${item.label}`"
-                        :to="{ path: item.path, query: item.query || {} }"
-                        class="surface-link"
-                      >
-                        {{ item.label }}
-                      </RouterLink>
-                    </div>
-                  </article>
-                </div>
-              </section>
-            </div>
-
             <div v-else-if="companyWorkspaceReady" class="surface-stack">
               <section class="summary-strip">
                 <article v-for="item in companySnapshotMetrics" :key="item.label" class="summary-chip">
@@ -706,21 +720,158 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                 </article>
               </section>
 
-              <section class="snapshot-surface">
-                <article v-for="column in focusColumns" :key="column.label" class="snapshot-column">
-                  <span class="focus-label">{{ column.label }}</span>
-                  <ul v-if="column.items.length" class="focus-list">
-                    <li v-for="item in column.items" :key="item">{{ item }}</li>
+              <template v-if="latestAnswer">
+                <section v-for="block in answerBlocks" :key="block.title" class="answer-block">
+                  <h3>{{ block.title }}</h3>
+                  <p v-for="line in block.paragraphs" :key="line" v-html="renderInlineMarkdown(line)"></p>
+                  <ul v-if="block.bullets.length" class="focus-list">
+                    <li v-for="line in block.bullets" :key="line" v-html="renderInlineMarkdown(line)"></li>
                   </ul>
-                  <p v-else class="inline-empty">{{ column.empty }}</p>
-                </article>
-              </section>
+                </section>
 
-              <article class="snapshot-note">
-                <span class="focus-label">这一轮可以从这里接着看</span>
-                <p>{{ researchSummary }}</p>
-                <p v-if="latestRunSummary">{{ latestRunSummary }}</p>
-              </article>
+                <section v-if="primaryActionCards.length" class="flow-surface">
+                  <div class="section-head">
+                    <span>下一步</span>
+                    <strong>先把动作说清楚</strong>
+                  </div>
+                  <div class="inline-grid">
+                    <article v-for="item in primaryActionCards" :key="item.title" class="action-card">
+                      <em>{{ item.priority || '动作' }}</em>
+                      <strong>{{ item.title }}</strong>
+                      <p>{{ item.action || item.reason }}</p>
+                      <div class="card-actions">
+                        <button
+                          type="button"
+                          class="surface-action"
+                          :disabled="isWorkflowPending('task-create', item.title || 'task')"
+                          @click="createTaskFromCard(item)"
+                        >
+                          {{ isWorkflowPending('task-create', item.title || 'task') ? '写入中…' : '写入任务板' }}
+                        </button>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <section v-if="latestEvidenceCards.length" class="flow-surface">
+                  <div class="section-head">
+                    <span>回到原文</span>
+                    <strong>先看最关键的证据</strong>
+                  </div>
+                  <div class="inline-grid">
+                    <article v-for="group in latestEvidenceCards" :key="group.title" class="evidence-card">
+                      <strong>{{ group.title }}</strong>
+                      <p>{{ group.subtitle }}</p>
+                      <div class="evidence-links">
+                        <RouterLink
+                          v-for="item in group.items"
+                          :key="`${group.title}-${item.path}-${item.label}`"
+                          :to="{ path: item.path, query: item.query || {} }"
+                          class="surface-link"
+                        >
+                          {{ item.label }}
+                        </RouterLink>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+              </template>
+
+              <template v-else>
+                <section class="snapshot-surface">
+                  <article v-for="column in focusColumns" :key="column.label" class="snapshot-column">
+                    <span class="focus-label">{{ column.label }}</span>
+                    <ul v-if="column.items.length" class="focus-list">
+                      <li v-for="item in column.items" :key="item">{{ item }}</li>
+                    </ul>
+                    <p v-else class="inline-empty">{{ column.empty }}</p>
+                  </article>
+                </section>
+
+                <article class="snapshot-note">
+                  <span class="focus-label">这一轮可以从这里接着看</span>
+                  <p>{{ researchSummary }}</p>
+                  <p v-if="latestRunSummary">{{ latestRunSummary }}</p>
+                </article>
+              </template>
+
+              <section class="flow-surface">
+                <div class="section-head">
+                  <span>推进执行</span>
+                  <strong>把这一轮判断落进任务和持续跟踪</strong>
+                </div>
+
+                <div class="workflow-toolbar">
+                  <button
+                    type="button"
+                    class="surface-action"
+                    :disabled="!selectedCompany || isWorkflowPending('watchboard', selectedCompany)"
+                    @click="toggleWatchboardTracking()"
+                  >
+                    {{
+                      selectedCompany && isWorkflowPending('watchboard', selectedCompany)
+                        ? '处理中…'
+                        : watchboardActionLabel
+                    }}
+                  </button>
+                  <p class="workflow-summary">{{ watchboardSummary }}</p>
+                </div>
+
+                <div v-if="liveTasks.length" class="inline-grid">
+                  <article v-for="task in liveTasks" :key="task.task_id" class="task-card">
+                    <div class="task-topline">
+                      <em>{{ task.priority || task.task_source_label || '任务' }}</em>
+                      <span class="task-status" :class="`is-${task.status}`">{{ task.status_label || task.status }}</span>
+                    </div>
+                    <strong>{{ task.title }}</strong>
+                    <p>{{ task.summary }}</p>
+                    <p class="task-caption">
+                      {{ task.task_source_label || '任务板' }} · {{ formatRelativeTime(task.updated_at || task.created_at) }}
+                    </p>
+                    <div class="card-actions">
+                      <button
+                        v-if="task.status === 'queued'"
+                        type="button"
+                        class="surface-action"
+                        :disabled="isWorkflowPending('task-status', `${task.task_id}:in_progress`)"
+                        @click="setTaskStatus(task.task_id, 'in_progress')"
+                      >
+                        {{
+                          isWorkflowPending('task-status', `${task.task_id}:in_progress`)
+                            ? '处理中…'
+                            : '开始推进'
+                        }}
+                      </button>
+                      <button
+                        v-if="task.status === 'in_progress'"
+                        type="button"
+                        class="surface-action"
+                        :disabled="isWorkflowPending('task-status', `${task.task_id}:done`)"
+                        @click="setTaskStatus(task.task_id, 'done')"
+                      >
+                        {{ isWorkflowPending('task-status', `${task.task_id}:done`) ? '处理中…' : '标记完成' }}
+                      </button>
+                      <button
+                        v-if="task.status !== 'done' && task.status !== 'blocked'"
+                        type="button"
+                        class="surface-action is-secondary"
+                        :disabled="isWorkflowPending('task-status', `${task.task_id}:blocked`)"
+                        @click="setTaskStatus(task.task_id, 'blocked')"
+                      >
+                        {{
+                          isWorkflowPending('task-status', `${task.task_id}:blocked`)
+                            ? '处理中…'
+                            : '标记阻断'
+                        }}
+                      </button>
+                      <RouterLink :to="task.route" class="surface-link task-link">查看上下文</RouterLink>
+                    </div>
+                  </article>
+                </div>
+                <p v-else class="inline-empty">当前还没有入板任务，可先把上面的动作写入任务板。</p>
+
+                <p v-if="workflowActionError" class="composer-error">{{ workflowActionError }}</p>
+              </section>
             </div>
 
             <div v-else class="surface-empty">
@@ -807,11 +958,14 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .answer-block li,
 .action-card p,
 .evidence-card p,
+.task-card p,
 .surface-empty,
 .surface-loading p,
 .inline-empty,
 .composer-error,
-.snapshot-note p {
+.snapshot-note p,
+.workflow-summary,
+.task-caption {
   color: rgba(203, 213, 225, 0.84);
   line-height: 1.7;
 }
@@ -1061,6 +1215,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .snapshot-note,
 .action-card,
 .evidence-card,
+.task-card,
 .surface-link {
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1071,7 +1226,8 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .snapshot-column,
 .snapshot-note,
 .action-card,
-.evidence-card {
+.evidence-card,
+.task-card {
   display: grid;
   gap: 8px;
   padding: 18px;
@@ -1091,7 +1247,8 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 }
 
 .action-card strong,
-.evidence-card strong {
+.evidence-card strong,
+.task-card strong {
   font-size: 16px;
   line-height: 1.35;
 }
@@ -1113,13 +1270,51 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   letter-spacing: -0.03em;
 }
 
-.action-card em {
+.action-card em,
+.task-topline em {
   font-style: normal;
   color: #73f0c7;
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   font-family: 'JetBrains Mono', monospace;
+}
+
+.task-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-status {
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: #dbe7f3;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.task-status.is-queued {
+  background: rgba(30, 41, 59, 0.78);
+}
+
+.task-status.is-in_progress {
+  background: rgba(83, 52, 13, 0.82);
+  color: #fef3c7;
+}
+
+.task-status.is-done {
+  background: rgba(18, 62, 45, 0.88);
+  color: #dcfce7;
+}
+
+.task-status.is-blocked {
+  background: rgba(69, 10, 10, 0.82);
+  color: #fecaca;
 }
 
 .surface-link {
@@ -1133,6 +1328,48 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
 .surface-link {
   width: fit-content;
+}
+
+.card-actions,
+.workflow-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.workflow-toolbar {
+  justify-content: space-between;
+}
+
+.workflow-summary {
+  margin: 0;
+}
+
+.surface-action {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(52, 211, 153, 0.24);
+  background: rgba(18, 62, 45, 0.72);
+  color: #ecfdf5;
+  cursor: pointer;
+  font: inherit;
+}
+
+.surface-action.is-secondary {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.72);
+  color: #dbe7f3;
+}
+
+.surface-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.task-link {
+  min-height: 38px;
 }
 
 .board-composer {
@@ -1239,6 +1476,11 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
   .composer-submit {
     min-height: 44px;
+  }
+
+  .workflow-toolbar {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 </style>

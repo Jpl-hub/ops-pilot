@@ -150,6 +150,13 @@ function normalizePeriodList(periods: unknown): string[] {
   return normalized
 }
 
+function normalizeTaskPriority(priority: unknown): string {
+  if (typeof priority !== 'string') return 'P1'
+  const normalized = priority.trim().toUpperCase()
+  if (!normalized) return 'P1'
+  return normalized
+}
+
 export const useWorkspaceStore = defineStore('workspace', {
   state: () => ({
     selectedCompany: '',
@@ -351,6 +358,26 @@ export const useWorkspaceStore = defineStore('workspace', {
       })
       await this.loadOverview(role)
       await this.loadCompanyWorkspace(role)
+    },
+    async createTaskFromAction(
+      action: { title?: string; action?: string; reason?: string; priority?: string },
+      role: UserRole,
+      note?: string,
+    ) {
+      if (!this.selectedCompany) return null
+      const payload = await post('/tasks/create', {
+        company_name: this.selectedCompany,
+        title: action.title || '待确认动作',
+        summary: action.action || action.reason || action.title || '待补充任务说明',
+        priority: normalizeTaskPriority(action.priority),
+        user_role: role,
+        report_period: this.selectedPeriod || this.overview?.alert_summary?.preferred_period,
+        note,
+        source_run_id: this.latestPayload?.run_id || null,
+      })
+      await this.loadOverview(role)
+      await this.loadCompanyWorkspace(role)
+      return payload
     },
     async updateAlertStatus(
       alertId: string,

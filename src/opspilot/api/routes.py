@@ -22,6 +22,7 @@ from opspilot.api.schemas import (
     RegisterRequest,
     ScoreRequest,
     StressTestRequest,
+    TaskCreateRequest,
     TaskStatusUpdateRequest,
     WatchCompanyRequest,
     WatchboardDispatchRequest,
@@ -364,6 +365,23 @@ def task_board(
     _: dict = Depends(require_current_user),
 ) -> dict:
     return get_service().task_board(user_role=user_role, report_period=report_period)
+
+
+@router.post("/tasks/create")
+def task_create(request: TaskCreateRequest, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().create_task(
+            company_name=request.company_name,
+            title=request.title,
+            summary=request.summary,
+            priority=request.priority,
+            user_role=request.user_role,
+            report_period=request.report_period,
+            note=request.note,
+            source_run_id=request.source_run_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/tasks/update")

@@ -10,6 +10,7 @@ from opspilot.domain.rules import evaluate_risk_labels
 from opspilot.application.alert_runtime import (
     _alert_workflow,
     _build_alert_board,
+    _create_manual_task,
     _dispatch_alert_to_task,
     _get_company_periods,
     _task_board,
@@ -760,6 +761,30 @@ class OpsPilotService:
             user_role=user_role,
             report_period=report_period,
             note=note,
+        )
+
+    def create_task(
+        self,
+        *,
+        company_name: str,
+        title: str,
+        summary: str,
+        priority: str = "P1",
+        user_role: str = "management",
+        report_period: str | None = None,
+        note: str | None = None,
+        source_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        return _create_manual_task(
+            self,
+            company_name=company_name,
+            title=title,
+            summary=summary,
+            priority=priority,
+            user_role=user_role,
+            report_period=report_period,
+            note=note,
+            source_run_id=source_run_id,
         )
 
     def task_queue(

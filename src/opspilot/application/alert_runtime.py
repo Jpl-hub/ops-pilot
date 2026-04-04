@@ -148,6 +148,62 @@ def _build_workspace_alert_queue(alerts: list[dict[str, Any]], user_role: str) -
     return queue
 
 
+def _build_system_task_route(
+    company_name: str,
+    report_period: str,
+    user_role: str,
+) -> dict[str, Any]:
+    if user_role == "investor":
+        return {"path": "/verify", "query": {"company": company_name, "period": report_period}}
+    if user_role == "regulator":
+        return {"path": "/risk", "query": {"company": company_name, "period": report_period}}
+    return {"path": "/score", "query": {"company": company_name, "period": report_period}}
+
+
+def _build_manual_task_route(
+    company_name: str,
+    report_period: str,
+    user_role: str,
+) -> dict[str, Any]:
+    return {
+        "path": "/workspace",
+        "query": {
+            "company": company_name,
+            "period": report_period,
+            "role": user_role,
+        },
+    }
+
+
+def _build_manual_task_payload(
+    record: dict[str, Any],
+    *,
+    user_role: str,
+    report_period: str,
+) -> dict[str, Any]:
+    company_name = str(record.get("company_name") or "").strip()
+    priority = str(record.get("priority") or "P1").strip() or "P1"
+    title = str(record.get("title") or "").strip()
+    summary = str(record.get("summary") or "").strip()
+    created_at = record.get("created_at") or record.get("updated_at")
+    route = record.get("route") or _build_manual_task_route(company_name, report_period, user_role)
+    return {
+        "task_id": record["task_id"],
+        "company_name": company_name,
+        "report_period": report_period,
+        "priority": priority,
+        "title": title,
+        "summary": summary,
+        "label_names": record.get("label_names", []),
+        "route": route,
+        "owner_role": record.get("owner_role") or user_role,
+        "task_source": "manual",
+        "task_source_label": "协同分析动作",
+        "created_at": created_at,
+        "source_run_id": record.get("source_run_id"),
+    }
+
+
 def _alert_workflow(service: Any, report_period: str | None = None) -> dict[str, Any]:
     period = report_period or service._preferred_period()
     risk_payload = service.risk_scan(period)
@@ -238,11 +294,6 @@ def _task_queue(
         if not action_cards:
             continue
         primary_action = action_cards[0]
-        route = {"path": "/score", "query": {"company": company_name, "period": period}}
-        if user_role == "investor":
-            route = {"path": "/verify", "query": {"company": company_name, "period": period}}
-        elif user_role == "regulator":
-            route = {"path": "/risk", "query": {"company": company_name, "period": period}}
         task_id = _build_task_id(
             period,
             company_name,
@@ -258,7 +309,10 @@ def _task_queue(
                 "title": primary_action["title"],
                 "summary": primary_action["reason"],
                 "label_names": [item["name"] for item in score_payload["scorecard"]["risk_labels"][:3]],
-                "route": route,
+                "route": _build_system_task_route(company_name, period, user_role),
+                "owner_role": user_role,
+                "task_source": "system",
+                "task_source_label": "风险派生任务",
             }
         )
     return tasks
@@ -272,7 +326,20 @@ def _task_board(
 ) -> dict[str, Any]:
     period = report_period or service._preferred_period()
     task_manifest = _load_task_board_manifest(service.settings)
-    tasks = _task_queue(service, user_role=user_role, report_period=period, limit=limit)
+    system_tasks = _task_queue(service, user_role=user_role, report_period=period, limit=limit)
+    manual_tasks = [
+        _build_manual_task_payload(record, user_role=user_role, report_period=period)
+        for record in task_manifest["records"].values()
+        if record.get("task_source") == "manual"
+        and record.get("user_role") == user_role
+        and record.get("report_period") == period
+        and record.get("task_id")
+        and str(record.get("company_name") or "").strip()
+        and str(record.get("title") or "").strip()
+    ]
+    tasks = system_tasks + [
+        item for item in manual_tasks if all(existing["task_id"] != item["task_id"] for existing in system_tasks)
+    ]
     status_counts = {"queued": 0, "in_progress": 0, "done": 0, "blocked": 0}
     enriched_tasks: list[dict[str, Any]] = []
     for task in tasks:
@@ -287,6 +354,7 @@ def _task_board(
                 "note": record.get("note"),
                 "updated_at": record.get("updated_at"),
                 "history": record.get("history", []),
+                "created_at": task.get("created_at"),
             }
         )
     return {
@@ -303,6 +371,77 @@ def _task_board(
     }
 
 
+def _create_manual_task(
+    service: Any,
+    *,
+    company_name: str,
+    title: str,
+    summary: str,
+    priority: str = "P1",
+    user_role: str = "management",
+    report_period: str | None = None,
+    note: str | None = None,
+    source_run_id: str | None = None,
+) -> dict[str, Any]:
+    company = service._resolve_company(company_name, report_period)
+    if company is None:
+        raise ValueError(f"未找到公司：{company_name}")
+    period = report_period or company["report_period"]
+    normalized_title = title.strip()
+    normalized_summary = summary.strip()
+    normalized_priority = priority.strip().upper() or "P1"
+    if not normalized_title:
+        raise ValueError("任务标题不能为空。")
+    if not normalized_summary:
+        raise ValueError("任务说明不能为空。")
+
+    task_id = _build_task_id(period, company_name, normalized_priority, normalized_title)
+    existing_board = _task_board(service, user_role=user_role, report_period=period, limit=200)
+    existing_task = next((item for item in existing_board["tasks"] if item["task_id"] == task_id), None)
+    if existing_task is not None:
+        return {
+            "task": existing_task,
+            "summary": existing_board["summary"],
+            "created": False,
+        }
+
+    manifest = _load_task_board_manifest(service.settings)
+    created_at = _utcnow_iso()
+    manifest["records"][task_id] = {
+        "task_id": task_id,
+        "company_name": company_name,
+        "report_period": period,
+        "user_role": user_role,
+        "priority": normalized_priority,
+        "title": normalized_title,
+        "summary": normalized_summary,
+        "note": note,
+        "status": "queued",
+        "updated_at": created_at,
+        "created_at": created_at,
+        "history": [
+            {
+                "status": "queued",
+                "note": note or "由协同分析动作写入任务板",
+                "updated_at": created_at,
+            }
+        ],
+        "route": _build_manual_task_route(company_name, period, user_role),
+        "owner_role": user_role,
+        "task_source": "manual",
+        "source_run_id": source_run_id,
+        "label_names": [],
+    }
+    _write_task_board_manifest(service.settings, manifest)
+    refreshed = _task_board(service, user_role=user_role, report_period=period, limit=200)
+    created_task = next(item for item in refreshed["tasks"] if item["task_id"] == task_id)
+    return {
+        "task": created_task,
+        "summary": refreshed["summary"],
+        "created": True,
+    }
+
+
 def _update_task_status(
     service: Any,
     task_id: str,
@@ -311,7 +450,7 @@ def _update_task_status(
     report_period: str | None = None,
     note: str | None = None,
 ) -> dict[str, Any]:
-    task_board = _task_board(service, user_role=user_role, report_period=report_period, limit=20)
+    task_board = _task_board(service, user_role=user_role, report_period=report_period, limit=200)
     task = next((item for item in task_board["tasks"] if item["task_id"] == task_id), None)
     if task is None:
         raise ValueError(f"未找到任务：{task_id}")
@@ -335,7 +474,7 @@ def _update_task_status(
         service,
         user_role=user_role,
         report_period=report_period or task_board["report_period"],
-        limit=20,
+        limit=200,
     )
     refreshed_task = next(item for item in refreshed["tasks"] if item["task_id"] == task_id)
     return {"task": refreshed_task, "summary": refreshed["summary"]}
@@ -355,11 +494,20 @@ def _dispatch_alert_to_task(
         raise ValueError(f"未找到预警：{alert_id}")
 
     period = report_period or workflow["report_period"]
-    task_board = _task_board(service, user_role=user_role, report_period=period, limit=20)
+    task_board = _task_board(service, user_role=user_role, report_period=period, limit=200)
     task = next(
-        (item for item in task_board["tasks"] if item["company_name"] == alert["company_name"]),
+        (
+            item
+            for item in task_board["tasks"]
+            if item["company_name"] == alert["company_name"] and item.get("task_source") != "manual"
+        ),
         None,
     )
+    if task is None:
+        task = next(
+            (item for item in task_board["tasks"] if item["company_name"] == alert["company_name"]),
+            None,
+        )
     if task is None:
         raise ValueError(f"未找到可派发任务：{alert['company_name']}")
 
