@@ -1,37 +1,194 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { get } from '@/lib/api'
+import { useSession } from '@/lib/session'
+
+type RouteLink = {
+  label: string
+  path: string
+  detail?: string
+  query?: Record<string, string>
+}
+
+type ReferenceEntry = {
+  title: string
+  detail?: string
+  links?: RouteLink[]
+}
+
+type ReferencePanel = {
+  kind: string
+  title: string
+  subtitle?: string
+  route?: RouteLink | null
+  entries?: ReferenceEntry[]
+}
+
+type ScoreSnapshot = {
+  total_score?: number | string | null
+  grade?: string | null
+  risk_count?: number | null
+  opportunity_count?: number | null
+}
+
+type CompanyContext = {
+  company_name?: string
+  report_period?: string | null
+  subindustry?: string | null
+  ticker?: string | null
+  available_periods?: string[]
+  score_snapshot?: ScoreSnapshot | null
+}
+
+type ReportContext = {
+  title?: string | null
+  publish_date?: string | null
+  source_name?: string | null
+  source_url?: string | null
+  attachment_url?: string | null
+  rating_text?: string | null
+  rating_change?: string | null
+  target_price?: number | string | null
+  forecast_count?: number | null
+}
+
+type EvidenceDetail = {
+  chunk_id: string
+  company_name?: string
+  report_period?: string | null
+  source_title?: string | null
+  excerpt?: string | null
+  source_url?: string | null
+  local_path?: string | null
+  fingerprint?: string | null
+  source_meta?: {
+    type_label?: string | null
+    page_label?: string | null
+  } | null
+  company_context?: CompanyContext | null
+  report_context?: ReportContext | null
+  reference_panels?: ReferencePanel[]
+  workflow_links?: RouteLink[]
+}
 
 const route = useRoute()
-const state = useAsyncState<any>()
+const session = useSession()
+const state = useAsyncState<EvidenceDetail>()
 const latestRequestId = ref(0)
 
-const contextText = computed(() => String(route.query.context || route.params.chunkId))
-const sourceMeta = computed(() => state.data.value?.source_meta || null)
-const companyContext = computed(() => state.data.value?.company_context || null)
-const reportContext = computed(() => state.data.value?.report_context || null)
-const workflowLinks = computed(() => state.data.value?.workflow_links || [])
-const referencePanels = computed(() => state.data.value?.reference_panels || [])
-const scoreSnapshot = computed(() => companyContext.value?.score_snapshot || null)
+const currentRole = computed(() => session.activeRole.value || 'management')
+const detail = computed(() => state.data.value)
+const contextText = computed(() => String(route.query.context || route.params.chunkId || '证据详情'))
 const anchorTerms = computed(() => {
   const rawAnchors =
     typeof route.query.anchors === 'string'
       ? route.query.anchors
       : typeof route.query.terms === 'string'
-      ? route.query.terms
-      : ''
+        ? route.query.terms
+        : ''
   return rawAnchors
     ? rawAnchors.split(/[|,]/).map((term) => term.trim()).filter(Boolean)
     : []
 })
+
+const sourceTypeLabel = computed(() => detail.value?.source_meta?.type_label || '未标注')
+const pageLabel = computed(() => detail.value?.source_meta?.page_label || '页码未标注')
+const companyContext = computed(() => detail.value?.company_context || null)
+const reportContext = computed(() => detail.value?.report_context || null)
+const scoreSnapshot = computed(() => companyContext.value?.score_snapshot || null)
+const referencePanels = computed(() => detail.value?.reference_panels || [])
+const workflowLinks = computed(() => detail.value?.workflow_links || [])
+const sourceFields = computed(() => [
+  {
+    label: '原文链接',
+    href: detail.value?.source_url || reportContext.value?.attachment_url || reportContext.value?.source_url || '',
+    text: detail.value?.source_url ? '打开原文' : reportContext.value?.attachment_url ? '打开附件' : '无外部链接',
+  },
+  {
+    label: '系统路径',
+    text: detail.value?.local_path || '未记录本地路径',
+  },
+  {
+    label: '哈希指纹',
+    text: detail.value?.fingerprint || '未生成指纹',
+  },
+])
+
+const companyFacts = computed(() => {
+  const facts: Array<{ label: string; value: string }> = []
+  if (companyContext.value?.ticker) {
+    facts.push({ label: '证券代码', value: String(companyContext.value.ticker) })
+  }
+  if (companyContext.value?.subindustry) {
+    facts.push({ label: '子行业', value: String(companyContext.value.subindustry) })
+  }
+  if (companyContext.value?.report_period) {
+    facts.push({ label: '当前报期', value: String(companyContext.value.report_period) })
+  }
+  if (companyContext.value?.available_periods?.length) {
+    facts.push({
+      label: '可切换报期',
+      value: companyContext.value.available_periods.filter(Boolean).slice(0, 4).join(' · '),
+    })
+  }
+  return facts
+})
+
+const scoreFacts = computed(() => {
+  if (!scoreSnapshot.value) return []
+  return [
+    {
+      label: '经营总分',
+      value:
+        scoreSnapshot.value.total_score == null
+          ? '未生成'
+          : `${scoreSnapshot.value.total_score}${scoreSnapshot.value.grade ? ` / ${scoreSnapshot.value.grade}` : ''}`,
+    },
+    {
+      label: '风险标签',
+      value: `${scoreSnapshot.value.risk_count ?? 0}`,
+    },
+    {
+      label: '机会标签',
+      value: `${scoreSnapshot.value.opportunity_count ?? 0}`,
+    },
+  ]
+})
+
+const reportFacts = computed(() => {
+  if (!reportContext.value) return []
+  return [
+    {
+      label: '研报来源',
+      value: reportContext.value.source_name || '未标注',
+    },
+    {
+      label: '发布日期',
+      value: reportContext.value.publish_date || '未标注',
+    },
+    {
+      label: '评级',
+      value:
+        [reportContext.value.rating_text, reportContext.value.rating_change].filter(Boolean).join(' · ') || '未标注',
+    },
+    {
+      label: '目标价 / 预测数',
+      value:
+        reportContext.value.target_price != null || reportContext.value.forecast_count != null
+          ? `${reportContext.value.target_price ?? '--'} / ${reportContext.value.forecast_count ?? 0}`
+          : '未标注',
+    },
+  ]
+})
+
 const highlightedExcerpt = computed(() => {
-  const excerpt = String(state.data.value?.excerpt || '')
+  const excerpt = String(detail.value?.excerpt || '')
   if (!excerpt || anchorTerms.value.length === 0) {
     return escapeHtml(excerpt)
   }
@@ -49,17 +206,21 @@ function escapeHtml(text: string) {
     .replace(/>/g, '&gt;')
 }
 
-function displayValue(value: unknown) {
-  if (value === null || value === undefined || value === '') return '--'
-  return String(value)
-}
-
-async function loadEvidenceDetail(chunkId: string) {
+async function loadEvidence() {
   const requestId = ++latestRequestId.value
+  const chunkId = String(route.params.chunkId || '').trim()
+  if (!chunkId) {
+    state.data.value = null
+    state.loading.value = false
+    state.error.value = '未指定证据。'
+    return
+  }
   state.loading.value = true
   state.error.value = null
   try {
-    const payload = await get(`/evidence/${encodeURIComponent(chunkId)}`)
+    const payload = await get<EvidenceDetail>(
+      `/evidence/${encodeURIComponent(chunkId)}?user_role=${encodeURIComponent(currentRole.value)}`,
+    )
     if (requestId !== latestRequestId.value) return
     state.data.value = payload
   } catch (error) {
@@ -74,623 +235,562 @@ async function loadEvidenceDetail(chunkId: string) {
 }
 
 watch(
-  () => route.params.chunkId,
-  (chunkId) => {
-    if (typeof chunkId !== 'string' || !chunkId) {
-      latestRequestId.value += 1
-      state.data.value = null
-      state.loading.value = false
-      state.error.value = '未指定证据。'
-      return
-    }
-    void loadEvidenceDetail(chunkId)
+  [() => route.params.chunkId, () => route.query.anchors, () => route.query.terms, currentRole],
+  () => {
+    void loadEvidence()
   },
   { immediate: true },
 )
 </script>
 
 <template>
-  <AppShell title="证据核验台" compact>
-    <div class="page-shell">
+  <AppShell title="证据核验台" subtitle="证据详情与回流链路" compact>
+    <div class="evidence-wrapper">
       <LoadingState v-if="state.loading.value" class="state-container" />
       <ErrorState v-else-if="state.error.value" :message="state.error.value" class="state-container" />
 
-      <template v-else-if="state.data.value">
-        <section class="glass-panel hero-panel">
-          <div class="hero-copy">
-            <span class="eyebrow">Evidence Review</span>
-            <div class="hero-title-row">
-              <div class="mode-query-icon glow-icon">证</div>
-              <div>
-                <h1>{{ state.data.value.company_name }}</h1>
-                <p>{{ contextText }}</p>
-              </div>
+      <div v-else-if="detail" class="evidence-content glass-panel">
+        <header class="ev-head border-b-subtle">
+          <div class="ev-title-bar">
+            <div class="glow-icon">证</div>
+            <div class="hero-copy">
+              <h3 class="company-name text-gradient">{{ companyContext?.company_name || detail.company_name || '证据详情' }}</h3>
+              <span class="muted">{{ contextText }}</span>
+              <p class="hero-subtitle">{{ detail.source_title || '未标注文档标题' }}</p>
             </div>
           </div>
 
-          <div class="hero-meta">
-            <span class="hero-chip">{{ sourceMeta?.type_label || '未标注来源' }}</span>
-            <span class="hero-chip">{{ sourceMeta?.page_label || '页码未标注' }}</span>
-            <span class="hero-chip">{{ companyContext?.report_period || state.data.value.report_period || '未标注报期' }}</span>
-            <span v-if="companyContext?.subindustry" class="hero-chip">{{ companyContext.subindustry }}</span>
+          <div class="ev-meta-strip">
+            <article class="ev-meta-item">
+              <span class="muted text-xs">证据类型</span>
+              <strong class="text-sm">{{ sourceTypeLabel }}</strong>
+            </article>
+            <article class="ev-meta-item">
+              <span class="muted text-xs">定位点</span>
+              <strong class="text-sm text-accent">{{ pageLabel }}</strong>
+            </article>
+            <article class="ev-meta-item">
+              <span class="muted text-xs">工作流</span>
+              <strong class="text-sm">{{ workflowLinks.length }} 个回流入口</strong>
+            </article>
           </div>
+        </header>
 
-          <div v-if="workflowLinks.length" class="workflow-grid">
-            <RouterLink
-              v-for="link in workflowLinks"
-              :key="`${link.path}-${link.label}`"
-              class="workflow-link"
-              :to="{ path: link.path, query: link.query }"
-            >
-              <strong>{{ link.label }}</strong>
-              <span>{{ link.detail }}</span>
-            </RouterLink>
-          </div>
-        </section>
-
-        <div class="content-grid">
-          <section class="glass-panel excerpt-panel">
-            <div v-if="anchorTerms.length" class="anchor-strip">
-              <span class="eyebrow">高亮词</span>
-              <div class="anchor-list">
-                <span v-for="term in anchorTerms" :key="term" class="anchor-chip">{{ term }}</span>
+        <main class="ev-body">
+          <section class="fact-grid">
+            <article class="fact-card">
+              <span class="card-kicker">公司上下文</span>
+              <strong>{{ companyContext?.company_name || detail.company_name || '未标注公司' }}</strong>
+              <div class="fact-list">
+                <div v-for="item in companyFacts" :key="item.label" class="fact-row">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+                <div v-if="!companyFacts.length" class="fact-row">
+                  <span>上下文</span>
+                  <strong>未加载</strong>
+                </div>
               </div>
-            </div>
+            </article>
 
-            <div class="excerpt-viewer">
-              <div class="viewer-content scroll-area" v-html="highlightedExcerpt"></div>
+            <article class="fact-card">
+              <span class="card-kicker">经营快照</span>
+              <strong>{{ scoreFacts.length ? '这条证据已回挂经营诊断' : '当前没有经营快照' }}</strong>
+              <div class="fact-list">
+                <div v-for="item in scoreFacts" :key="item.label" class="fact-row">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+                <div v-if="!scoreFacts.length" class="fact-row">
+                  <span>诊断状态</span>
+                  <strong>未命中评分链路</strong>
+                </div>
+              </div>
+            </article>
+
+            <article class="fact-card">
+              <span class="card-kicker">研报上下文</span>
+              <strong>{{ reportContext?.title || '当前不是研报主证据' }}</strong>
+              <div class="fact-list">
+                <div v-for="item in reportFacts" :key="item.label" class="fact-row">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+                <div v-if="!reportFacts.length" class="fact-row">
+                  <span>核验状态</span>
+                  <strong>未挂接研报上下文</strong>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section v-if="anchorTerms.length" class="ev-anchors">
+            <span class="text-xs muted uppercase tracking-widest">高亮词</span>
+            <div class="anchors-list">
+              <span v-for="term in anchorTerms" :key="term" class="anchor-tag">{{ term }}</span>
             </div>
           </section>
 
-          <aside class="side-rail">
-            <section class="glass-panel rail-panel">
-              <div class="rail-head">
-                <div>
-                  <span class="eyebrow">Company Context</span>
-                  <h2>主体上下文</h2>
-                </div>
+          <section class="excerpt-viewer">
+            <div class="section-head">
+              <span class="card-kicker">原文摘录</span>
+              <strong>先回到触发判断的文本</strong>
+            </div>
+            <div class="viewer-content scroll-area" v-html="highlightedExcerpt"></div>
+          </section>
+
+          <section v-if="referencePanels.length" class="panel-stack">
+            <article v-for="panel in referencePanels" :key="panel.kind" class="panel-card">
+              <div class="section-head">
+                <span class="card-kicker">{{ panel.title }}</span>
+                <strong>{{ panel.subtitle || '当前没有补充说明。' }}</strong>
               </div>
 
-              <div class="stat-grid">
-                <div class="stat-card">
-                  <span>总分</span>
-                  <strong>{{ displayValue(scoreSnapshot?.total_score) }}</strong>
-                </div>
-                <div class="stat-card">
-                  <span>等级</span>
-                  <strong>{{ displayValue(scoreSnapshot?.grade) }}</strong>
-                </div>
-                <div class="stat-card">
-                  <span>风险标签</span>
-                  <strong>{{ displayValue(scoreSnapshot?.risk_count) }}</strong>
-                </div>
-                <div class="stat-card">
-                  <span>机会标签</span>
-                  <strong>{{ displayValue(scoreSnapshot?.opportunity_count) }}</strong>
-                </div>
-              </div>
-
-              <div class="meta-list">
-                <div class="meta-item">
-                  <span>证券代码</span>
-                  <strong>{{ displayValue(companyContext?.ticker) }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span>当前报期</span>
-                  <strong>{{ displayValue(companyContext?.report_period || state.data.value.report_period) }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span>行业</span>
-                  <strong>{{ displayValue(companyContext?.subindustry) }}</strong>
-                </div>
-                <div class="meta-item periods-item">
-                  <span>可回看报期</span>
-                  <div class="period-chip-row">
-                    <span
-                      v-for="period in companyContext?.available_periods || []"
-                      :key="period"
-                      class="period-chip"
+              <div class="entry-stack">
+                <section v-for="entry in panel.entries || []" :key="`${panel.kind}-${entry.title}`" class="entry-card">
+                  <strong>{{ entry.title }}</strong>
+                  <p>{{ entry.detail || '该引用已经把当前证据挂到对应工序。' }}</p>
+                  <div v-if="entry.links?.length" class="link-stack">
+                    <RouterLink
+                      v-for="link in entry.links"
+                      :key="`${entry.title}-${link.path}-${link.label}`"
+                      :to="{ path: link.path, query: link.query || {} }"
+                      class="jump-link"
                     >
-                      {{ period }}
-                    </span>
-                    <strong v-if="!(companyContext?.available_periods || []).length">--</strong>
+                      <span>{{ link.label }}</span>
+                      <strong>打开</strong>
+                    </RouterLink>
                   </div>
-                </div>
-              </div>
-            </section>
-
-            <section class="glass-panel rail-panel">
-              <div class="rail-head">
-                <div>
-                  <span class="eyebrow">Source Chain</span>
-                  <h2>源文件链路</h2>
-                </div>
+                </section>
               </div>
 
-              <div class="meta-list compact-list">
-                <div class="meta-item">
-                  <span>来源标题</span>
-                  <strong>{{ displayValue(sourceMeta?.source_title) }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span>来源类型</span>
-                  <strong>{{ displayValue(sourceMeta?.type_label) }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span>页码定位</span>
-                  <strong>{{ displayValue(sourceMeta?.page_label) }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span>哈希指纹</span>
-                  <code class="system-code">{{ displayValue(sourceMeta?.fingerprint) }}</code>
-                </div>
-                <div class="meta-item">
-                  <span>系统路径</span>
-                  <code class="system-code">{{ displayValue(sourceMeta?.local_path) }}</code>
-                </div>
-              </div>
-
-              <div class="source-actions">
-                <a
-                  v-if="sourceMeta?.source_url"
-                  class="inline-link"
-                  :href="sourceMeta.source_url"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  打开原文
-                </a>
-                <a
-                  v-if="reportContext?.attachment_url"
-                  class="inline-link"
-                  :href="reportContext.attachment_url"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  原文附件
-                </a>
-              </div>
-            </section>
-
-            <section v-if="reportContext" class="glass-panel rail-panel">
-              <div class="rail-head">
-                <div>
-                  <span class="eyebrow">Report Context</span>
-                  <h2>研报上下文</h2>
-                </div>
-              </div>
-
-              <div class="meta-list compact-list">
-                <div class="meta-item">
-                  <span>机构</span>
-                  <strong>{{ displayValue(reportContext.source_name) }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span>发布日期</span>
-                  <strong>{{ displayValue(reportContext.publish_date) }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span>评级</span>
-                  <strong>{{ displayValue(reportContext.rating_text) }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span>评级动作</span>
-                  <strong>{{ displayValue(reportContext.rating_change) }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span>目标价</span>
-                  <strong>{{ displayValue(reportContext.target_price) }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span>预测条数</span>
-                  <strong>{{ displayValue(reportContext.forecast_count) }}</strong>
-                </div>
-              </div>
-            </section>
-          </aside>
-        </div>
-
-        <section v-if="referencePanels.length" class="reference-grid">
-          <article v-for="panel in referencePanels" :key="panel.kind" class="glass-panel reference-panel">
-            <div class="reference-head">
-              <div>
-                <span class="eyebrow">{{ panel.kind }}</span>
-                <h2>{{ panel.title }}</h2>
-                <p>{{ panel.subtitle }}</p>
-              </div>
               <RouterLink
-                v-if="panel.route"
-                class="inline-link"
-                :to="{ path: panel.route.path, query: panel.route.query }"
+                v-if="panel.route?.path"
+                :to="{ path: panel.route.path, query: panel.route.query || {} }"
+                class="panel-route"
               >
-                {{ panel.route.label }}
+                <span>{{ panel.route.label || '返回对应工作面' }}</span>
+                <strong>进入</strong>
+              </RouterLink>
+            </article>
+          </section>
+
+          <section v-if="workflowLinks.length" class="panel-card">
+            <div class="section-head">
+              <span class="card-kicker">继续推进</span>
+              <strong>顺着这条证据回到判断、图谱和执行动作</strong>
+            </div>
+
+            <div class="workflow-grid">
+              <RouterLink
+                v-for="link in workflowLinks"
+                :key="`${link.path}-${link.label}`"
+                :to="{ path: link.path, query: link.query || {} }"
+                class="workflow-card"
+              >
+                <span>{{ link.label }}</span>
+                <strong>{{ link.detail || '继续查看' }}</strong>
               </RouterLink>
             </div>
+          </section>
+        </main>
 
-            <div class="reference-list">
-              <div v-for="entry in panel.entries" :key="`${panel.kind}-${entry.title}`" class="reference-entry">
-                <div class="reference-copy">
-                  <strong>{{ entry.title }}</strong>
-                  <p>{{ entry.detail || '当前工作面已经引用这条证据。' }}</p>
-                </div>
-                <div v-if="entry.links?.length" class="reference-links">
-                  <RouterLink
-                    v-for="link in entry.links"
-                    :key="`${entry.title}-${link.path}-${link.label}`"
-                    class="sub-link"
-                    :to="{ path: link.path, query: link.query }"
-                  >
-                    {{ link.label }}
-                  </RouterLink>
-                </div>
-              </div>
+        <footer class="ev-foot border-t-subtle">
+          <h4 class="text-xs uppercase muted">源文件链路</h4>
+          <div class="source-grid">
+            <div v-for="field in sourceFields" :key="field.label" class="source-field">
+              <span>{{ field.label }}</span>
+              <a
+                v-if="field.href"
+                class="text-accent underline"
+                :href="field.href"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {{ field.text }}
+              </a>
+              <code v-else class="system-code">{{ field.text }}</code>
             </div>
-          </article>
-        </section>
-      </template>
+          </div>
+        </footer>
+      </div>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-.page-shell {
+.evidence-wrapper {
+  display: flex;
+  justify-content: center;
+  min-height: 100%;
+  padding: 20px;
+}
+
+.evidence-content {
+  width: 100%;
+  max-width: 1180px;
+  border-radius: 24px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  width: 100%;
-  max-width: 1360px;
-  margin: 0 auto;
-  padding: 12px 8px 28px;
+  background: rgba(15, 23, 42, 0.65);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
 }
 
-.state-container {
-  min-height: 420px;
+.ev-head,
+.ev-body,
+.ev-foot {
+  padding-left: 28px;
+  padding-right: 28px;
 }
 
-.hero-panel,
-.excerpt-panel,
-.rail-panel,
-.reference-panel {
-  border-radius: 24px;
-}
-
-.hero-panel {
+.ev-head {
   display: grid;
-  gap: 18px;
-  padding: 26px 28px;
+  gap: 24px;
+  padding-top: 28px;
+  padding-bottom: 24px;
+}
+
+.border-b-subtle {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.border-t-subtle {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ev-title-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.glow-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #f59e0b;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 22px;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.2);
 }
 
 .hero-copy {
   display: grid;
-  gap: 14px;
-}
-
-.hero-title-row {
-  display: flex;
-  gap: 18px;
-  align-items: center;
-}
-
-.glow-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  display: grid;
-  place-items: center;
-  background: rgba(245, 158, 11, 0.15);
-  border: 1px solid rgba(245, 158, 11, 0.34);
-  color: #f59e0b;
-  font-size: 22px;
-  font-weight: 700;
-  box-shadow: 0 0 18px rgba(245, 158, 11, 0.18);
-}
-
-.eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(148, 163, 184, 0.86);
-}
-
-.hero-title-row h1,
-.rail-head h2,
-.reference-head h2 {
-  margin: 0;
-  color: #f8fafc;
-}
-
-.hero-title-row h1 {
-  font-size: 34px;
-  line-height: 1;
-}
-
-.hero-title-row p,
-.reference-head p,
-.reference-copy p {
-  margin: 6px 0 0;
-  color: var(--muted);
-  line-height: 1.7;
-}
-
-.hero-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.hero-chip,
-.anchor-chip,
-.period-chip {
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.04);
-  color: #e2e8f0;
-  font-size: 12px;
-}
-
-.workflow-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.workflow-link {
-  display: grid;
   gap: 6px;
-  padding: 16px 18px;
-  border-radius: 18px;
-  text-decoration: none;
-  color: inherit;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.86), rgba(30, 41, 59, 0.7));
-  border: 1px solid rgba(96, 165, 250, 0.18);
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.workflow-link:hover {
-  transform: translateY(-1px);
-  border-color: rgba(96, 165, 250, 0.34);
-  box-shadow: 0 18px 36px -24px rgba(96, 165, 250, 0.52);
+.company-name {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
 }
 
-.workflow-link strong,
-.reference-copy strong,
-.meta-item strong {
-  color: #f8fafc;
-}
-
-.workflow-link span,
-.meta-item span {
-  color: var(--muted);
+.hero-subtitle {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.88);
   line-height: 1.6;
 }
 
-.content-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr);
-  gap: 20px;
-  align-items: start;
+.text-gradient {
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(90deg, #fde68a, #f59e0b);
 }
 
-.excerpt-panel {
-  display: grid;
-  gap: 16px;
-  min-height: 620px;
-  padding: 24px;
+.muted {
+  color: var(--muted);
 }
 
-.anchor-strip {
+.ev-meta-strip,
+.fact-grid,
+.source-grid,
+.workflow-grid {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
-.anchor-list,
-.period-chip-row,
-.reference-links,
-.source-actions {
+.ev-meta-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ev-meta-item,
+.fact-card,
+.panel-card,
+.entry-card,
+.workflow-card {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.ev-meta-item {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+}
+
+.text-xs {
+  font-size: 12px;
+}
+
+.text-sm {
+  font-size: 14px;
+}
+
+.text-accent {
+  color: #f59e0b;
+}
+
+.ev-body {
+  display: grid;
+  gap: 18px;
+  padding-top: 22px;
+  padding-bottom: 24px;
+}
+
+.fact-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.fact-card,
+.panel-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.fact-card > strong,
+.section-head strong,
+.entry-card strong,
+.workflow-card strong {
+  color: #f8fafc;
+}
+
+.card-kicker {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(120, 143, 172, 0.82);
+}
+
+.fact-list,
+.panel-stack,
+.entry-stack,
+.link-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.fact-row {
   display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.fact-row span,
+.source-field span {
+  color: rgba(148, 163, 184, 0.82);
+  font-size: 12px;
+}
+
+.fact-row strong {
+  font-size: 13px;
+  text-align: right;
+}
+
+.ev-anchors {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   flex-wrap: wrap;
+}
+
+.uppercase {
+  text-transform: uppercase;
+}
+
+.tracking-widest {
+  letter-spacing: 0.1em;
+}
+
+.anchors-list {
+  display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.anchor-tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  background: rgba(245, 158, 11, 0.1);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
 .excerpt-viewer {
-  min-height: 0;
-  height: 100%;
-  padding: 24px;
-  border-radius: 20px;
-  background: rgba(2, 6, 23, 0.72);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.28);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.section-head {
+  display: grid;
+  gap: 6px;
 }
 
 .viewer-content {
-  height: 100%;
+  min-height: 180px;
+  max-height: 360px;
   white-space: pre-wrap;
-  color: #e2e8f0;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.85;
+  color: #e2e8f0;
 }
 
 .scroll-area {
   overflow-y: auto;
 }
 
-.side-rail {
-  display: grid;
-  gap: 20px;
+.scroll-area::-webkit-scrollbar {
+  width: 6px;
 }
 
-.rail-panel {
-  display: grid;
-  gap: 18px;
-  padding: 22px;
+:deep(.glow-mark) {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fff;
+  border-bottom: 2px solid #f59e0b;
+  padding: 0 2px;
+  border-radius: 2px;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
 }
 
-.rail-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
+.entry-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
 }
 
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.entry-card p,
+.workflow-card span,
+.source-field,
+.panel-route span {
+  color: rgba(203, 213, 225, 0.84);
+  line-height: 1.7;
 }
 
-.stat-card {
-  display: grid;
-  gap: 4px;
-  padding: 14px;
-  border-radius: 16px;
+.jump-link,
+.panel-route,
+.workflow-card {
+  text-decoration: none;
+}
+
+.jump-link,
+.panel-route {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.stat-card span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.stat-card strong {
-  color: #f8fafc;
-  font-size: 22px;
-}
-
-.meta-list {
-  display: grid;
-  gap: 14px;
-}
-
-.meta-item {
-  display: grid;
-  gap: 6px;
-}
-
-.compact-list .meta-item {
-  gap: 5px;
-}
-
-.periods-item strong {
-  color: var(--muted);
-}
-
-.reference-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 20px;
-}
-
-.reference-panel {
-  display: grid;
-  gap: 18px;
-  padding: 22px;
-}
-
-.reference-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.reference-list {
-  display: grid;
-  gap: 14px;
-}
-
-.reference-entry {
-  display: grid;
-  gap: 10px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.reference-entry:first-child {
-  padding-top: 0;
-  border-top: none;
-}
-
-.inline-link,
-.sub-link {
+  color: #dbe7f3;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-height: 36px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  text-decoration: none;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  color: #cbd5e1;
-  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.inline-link:hover,
-.sub-link:hover {
-  color: #f8fafc;
-  border-color: rgba(96, 165, 250, 0.3);
-  background: rgba(59, 130, 246, 0.1);
+.panel-route {
+  width: fit-content;
+}
+
+.jump-link strong,
+.panel-route strong {
+  font-size: 12px;
+  color: #73f0c7;
+}
+
+.workflow-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.workflow-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+.workflow-card span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ev-foot {
+  display: grid;
+  gap: 14px;
+  padding-top: 20px;
+  padding-bottom: 24px;
+}
+
+.source-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.source-field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.underline {
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 .system-code {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 6px 10px;
+  border-radius: 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 10px;
-  padding: 8px 10px;
-}
-
-:deep(.glow-mark) {
-  background: rgba(245, 158, 11, 0.22);
-  color: #fff;
-  border-bottom: 2px solid #f59e0b;
-  padding: 0 2px;
-  border-radius: 2px;
-  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+  color: #94a3b8;
 }
 
 @media (max-width: 1080px) {
-  .content-grid {
+  .fact-grid,
+  .workflow-grid,
+  .source-grid {
     grid-template-columns: 1fr;
-  }
-
-  .excerpt-panel {
-    min-height: 520px;
   }
 }
 
 @media (max-width: 720px) {
-  .page-shell {
-    padding: 0 0 22px;
+  .ev-head,
+  .ev-body,
+  .ev-foot {
+    padding-left: 18px;
+    padding-right: 18px;
   }
 
-  .hero-panel,
-  .excerpt-panel,
-  .rail-panel,
-  .reference-panel {
-    padding: 18px;
+  .ev-meta-strip {
+    grid-template-columns: 1fr;
   }
 
-  .hero-title-row {
-    align-items: flex-start;
-  }
-
-  .hero-title-row h1 {
-    font-size: 28px;
-  }
-
-  .stat-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .reference-head {
+  .ev-title-bar {
     flex-direction: column;
   }
 }

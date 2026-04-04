@@ -37,9 +37,12 @@ const visibleNavItems = computed(() =>
   navItems.filter((item) => !item.auth || session.isAuthenticated.value),
 )
 
-const activeNavLabel = computed(
-  () => navItems.find((item) => item.to === route.path)?.label || '协同分析',
-)
+const activeNavLabel = computed(() => {
+  if (route.path.startsWith('/evidence/')) {
+    return '原文证据'
+  }
+  return navItems.find((item) => item.to === route.path)?.label || '协同分析'
+})
 
 const routeContext = computed(() => {
   const mapping: Record<string, { title: string; note: string }> = {
@@ -51,6 +54,9 @@ const routeContext = computed(() => {
     '/score': { title: '先看企业体质', note: '' },
     '/verify': { title: '核对观点靠不靠谱', note: '' },
     '/vision': { title: '回看财报原文结构', note: '' },
+  }
+  if (route.path.startsWith('/evidence/')) {
+    return { title: '回到原文继续追', note: '' }
   }
   return mapping[route.path] || { title: activeNavLabel.value, note: '' }
 })

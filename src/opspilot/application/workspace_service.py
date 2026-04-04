@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from opspilot.config import Settings
+from opspilot.application.evidence_runtime import build_evidence_detail
 from opspilot.domain.audit import build_audit
 from opspilot.domain.catalog import METRIC_BY_CODE
 from opspilot.domain.evidence import deduplicate
@@ -234,12 +235,8 @@ class WorkspaceService:
             "audit": audit,
         }
 
-    def get_evidence(self, chunk_id: str) -> dict[str, Any]:
-        """Retrieve a single evidence chunk by ID."""
-        evidence = self.repository.get_evidence(chunk_id)
-        if evidence is None:
-            raise ValueError(f"未找到证据：{chunk_id}")
-        return evidence
+    def get_evidence(self, chunk_id: str, *, user_role: str = "management") -> dict[str, Any]:
+        return build_evidence_detail(self, chunk_id, user_role=user_role)
 
     def workspace_runs(self, limit: int = 20) -> dict[str, Any]:
         manifest = _load_workspace_run_manifest(self.settings)

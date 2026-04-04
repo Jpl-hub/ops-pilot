@@ -95,11 +95,22 @@ def _describe_external_signal_freshness(latest_publish_date: str | None) -> tupl
     age_days = max(0, (datetime.now(UTC).date() - latest_date).days)
     if age_days <= 1:
         return "fresh", "近 24 小时有更新"
-    if age_days <= 3:
-        return "recent", f"{age_days} 天内有更新"
     if age_days <= 7:
-        return "warm", f"最近 {age_days} 天有更新"
+        return "recent", f"{age_days} 天内有更新"
     return "stale", f"最近更新距今 {age_days} 天"
+
+
+def _topic_partition(topic: str, partition: int) -> Any:
+    if TopicPartition is not None:
+        return TopicPartition(topic, partition)
+    return type(
+        "_TopicPartition",
+        (),
+        {
+            "topic": topic,
+            "partition": partition,
+        },
+    )()
 
 
 def _normalize_external_signal(
@@ -327,7 +338,7 @@ def _build_kafka_signal_runtime(settings: Settings) -> dict[str, Any]:
             "status": "unavailable",
             "freshness_label": "Kafka 未配置",
         }
-    if KafkaConsumer is None or TopicPartition is None:
+    if KafkaConsumer is None:
         return {
             **base_payload,
             "status": "unavailable",
@@ -353,7 +364,7 @@ def _build_kafka_signal_runtime(settings: Settings) -> dict[str, Any]:
                 "freshness_label": "Kafka Topic 未发现",
             }
 
-        topic_partitions = [TopicPartition(topic, partition) for partition in sorted(partitions)]
+        topic_partitions = [_topic_partition(topic, partition) for partition in sorted(partitions)]
         end_offsets = consumer.end_offsets(topic_partitions)
         latest_candidates: list[dict[str, Any]] = []
         for topic_partition in topic_partitions:

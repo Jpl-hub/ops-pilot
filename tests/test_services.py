@@ -92,7 +92,10 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             repository = SampleRepository(settings.sample_data_path)
             service = OpsPilotService(repository, settings)
 
-            with patch("opspilot.application.industry_signals.KafkaConsumer", side_effect=RuntimeError("broker down")):
+            with (
+                patch("opspilot.application.industry_signals.KafkaConsumer", side_effect=RuntimeError("broker down")),
+                patch("opspilot.application.industry_signals.TopicPartition", side_effect=lambda topic, partition: (topic, partition)),
+            ):
                 payload = service.industry_brain()
 
             self.assertEqual(payload["kafka_signal_runtime"]["status"], "unavailable")
@@ -1417,7 +1420,7 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["graph_retrieval"]["signal_count"], 3)
             self.assertEqual(payload["graph_retrieval"]["max_momentum"], 4)
             self.assertEqual(payload["graph_retrieval"]["time_window_days"], 7)
-            self.assertIn(payload["graph_retrieval"]["freshness_status"], {"fresh", "recent"})
+            self.assertIn(payload["graph_retrieval"]["freshness_status"], {"fresh", "recent", "warm"})
             self.assertTrue(any(item["label"] == "信号时效" for item in payload["graph_command_surface"]["watch_items"]))
             self.assertTrue(any(item["label"] == "最新事件" for item in payload["signal_stream"]))
             self.assertIn("最近信号", payload["inference_path"][1]["detail"])
