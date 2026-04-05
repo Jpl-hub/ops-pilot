@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -12,6 +12,8 @@ import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowCo
 
 const overviewState = useAsyncState<any>()
 const stressState = useAsyncState<any>()
+const runsState = useAsyncState<any>()
+const companyState = useAsyncState<any>()
 const route = useRoute()
 const session = useSession()
 
@@ -37,6 +39,8 @@ const scenario = ref('欧盟对动力电池临时加征关税并限制关键材�
 const scenarioDraft = ref(scenario.value)
 const activeStressStep = ref(0)
 const syncingFromRoute = ref(false)
+const actionPending = ref('')
+const actionError = ref('')
 const activeRole = computed(() => session.activeRole.value || 'investor')
 const activeRoleLabel = computed(() => {
   const map: Record<string, string> = {
@@ -59,6 +63,22 @@ const stressWavefront = computed(() => stressState.data.value?.stress_wavefront 
 const stressCommandSurface = computed(() => stressState.data.value?.stress_command_surface || null)
 const recoverySequence = computed(() => stressState.data.value?.stress_recovery_sequence || [])
 const affectedDimensions = computed(() => (stressState.data.value?.affected_dimensions || []).slice(0, 3))
+const stressRelatedRoutes = computed(() => stressState.data.value?.related_routes || [])
+const stressEvidenceLinks = computed(() => stressState.data.value?.evidence_navigation?.links?.slice(0, 4) || [])
+const currentRunId = computed(() => stressState.data.value?.run_id || stressState.data.value?.run_meta?.run_id || '')
+const companyWorkspace = computed(() => companyState.data.value || null)
+const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 4))
+const workflowTasks = computed(() => companyWorkspace.value?.tasks?.items?.slice(0, 3) || [])
+const watchboardActionLabel = computed(() =>
+  companyWorkspace.value?.watchboard?.tracked ? '移出持续跟踪' : '加入持续跟踪',
+)
+const watchboardSummary = computed(() => {
+  if (!selectedCompany.value) return '先选择公司，再把这轮压力场景纳入持续跟踪。'
+  if (companyWorkspace.value?.watchboard?.tracked) {
+    return `已纳入持续跟踪，当前 ${Number(companyWorkspace.value.watchboard.new_alerts || 0)} 条新增预警，${Number(companyWorkspace.value.watchboard.task_count || 0)} 项相关任务。`
+  }
+  return '当前还未进入持续跟踪，可把这轮冲击继续放进监测板。'
+})
 const canRunStress = computed(() => !!selectedCompany.value && !!scenarioDraft.value.trim())
 const focusedPropagationSteps = computed(() => propagationSteps.value.slice(0, 3))
 const primaryRecoveryAction = computed(() => recoverySequence.value[0] || null)
@@ -162,6 +182,28 @@ function displayToneClass(color?: string) {
   return 'tone-warning'
 }
 
+function formatTimestamp(value?: string) {
+  if (!value) return '刚刚'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function displayTaskStatus(status?: string) {
+  const map: Record<string, string> = {
+    queued: '待开工',
+    in_progress: '处理中',
+    done: '已完成',
+    blocked: '已阻断',
+  }
+  return map[(status || '').toLowerCase()] || '已记录'
+}
+
 function readQueryString(value: unknown) {
   const normalized = Array.isArray(value) ? value[0] : value
   return typeof normalized === 'string' ? normalized.trim() : ''
@@ -173,6 +215,21 @@ function parseRoleQuery(value: unknown): UserRole | null {
     return normalized
   }
   return null
+}
+
+function buildStressTaskTitle() {
+  const title = localizeStressText(primaryRecoveryAction.value?.title || activeWavefront.value?.headline || '压力推演动作')
+  return `落实${title}`.slice(0, 60)
+}
+
+function buildStressTaskSummary() {
+  const detail = localizeStressText(primaryRecoveryAction.value?.detail || focusExplanation.value || scenario.value)
+  return `围绕压力场景“${scenario.value}”继续推进：${detail}`.replace(/\s+/g, ' ').slice(0, 220)
+}
+
+function buildStressTaskPriority() {
+  const severityLevel = String(stressState.data.value?.severity?.level || '').toUpperCase()
+  return severityLevel === 'CRITICAL' || severityLevel === 'HIGH' ? 'P1' : 'P2'
 }
 
 async function runStress() {
@@ -187,6 +244,7 @@ async function runStress() {
     }),
   )
   activeStressStep.value = 0
+  await Promise.allSettled([loadStressRuns(), loadCompanyWorkspace()])
 }
 
 async function openStressRun(runId: string) {
@@ -210,6 +268,104 @@ async function openStressRun(runId: string) {
   scenario.value = String(payload.scenario || scenario.value)
   scenarioDraft.value = scenario.value
   activeStressStep.value = 0
+  await Promise.allSettled([loadStressRuns(), loadCompanyWorkspace()])
+}
+
+async function loadStressRuns() {
+  if (!selectedCompany.value) {
+    runsState.data.value = { runs: [] }
+    runsState.error.value = null
+    runsState.loading.value = false
+    return
+  }
+  const query = new URLSearchParams({
+    company_name: selectedCompany.value,
+    user_role: activeRole.value,
+    limit: '6',
+  })
+  if (selectedPeriod.value) {
+    query.set('report_period', selectedPeriod.value)
+  }
+  await runsState.execute(() => get(`/stress-test/runs?${query.toString()}`))
+}
+
+async function loadCompanyWorkspace() {
+  if (!selectedCompany.value) {
+    companyState.data.value = null
+    companyState.error.value = null
+    companyState.loading.value = false
+    return
+  }
+  const query = new URLSearchParams({
+    company_name: selectedCompany.value,
+    user_role: activeRole.value,
+  })
+  if (selectedPeriod.value) {
+    query.set('report_period', selectedPeriod.value)
+  }
+  try {
+    await companyState.execute(() => get(`/company/workspace?${query.toString()}`))
+  } catch {
+    // 错误留给局部状态展示。
+  }
+}
+
+function isActionPending(key: string) {
+  return actionPending.value === key
+}
+
+async function runWorkflowAction(key: string, action: () => Promise<void>) {
+  actionError.value = ''
+  actionPending.value = key
+  try {
+    await action()
+  } catch (error) {
+    actionError.value = error instanceof Error ? error.message : '执行失败'
+  } finally {
+    if (actionPending.value === key) {
+      actionPending.value = ''
+    }
+  }
+}
+
+async function toggleWatchboardTracking() {
+  if (!selectedCompany.value) return
+  await runWorkflowAction(`watchboard:${selectedCompany.value}`, async () => {
+    const reportPeriod = stressState.data.value?.report_period || selectedPeriod.value || null
+    if (companyWorkspace.value?.watchboard?.tracked) {
+      await post('/watchboard/remove', {
+        company_name: selectedCompany.value,
+        user_role: activeRole.value,
+        report_period: reportPeriod,
+      })
+    } else {
+      await post('/watchboard/add', {
+        company_name: selectedCompany.value,
+        user_role: activeRole.value,
+        report_period: reportPeriod,
+        note: `压力推演跟进：${scenario.value}`.slice(0, 180),
+      })
+    }
+    await loadCompanyWorkspace()
+  })
+}
+
+async function createStressTask() {
+  if (!selectedCompany.value) return
+  const taskKey = `task:${currentRunId.value || selectedCompany.value}:${activeStressStep.value}`
+  await runWorkflowAction(taskKey, async () => {
+    await post('/tasks/create', {
+      company_name: selectedCompany.value,
+      title: buildStressTaskTitle(),
+      summary: buildStressTaskSummary(),
+      priority: buildStressTaskPriority(),
+      user_role: activeRole.value,
+      report_period: stressState.data.value?.report_period || selectedPeriod.value || null,
+      note: `来自压力推演：${scenario.value}`.slice(0, 180),
+      source_run_id: currentRunId.value || null,
+    })
+    await loadCompanyWorkspace()
+  })
 }
 
 async function primeStressFromRoute() {
@@ -385,6 +541,81 @@ watch(selectedPeriod, async (period, previous) => {
             </div>
           </div>
 
+          <div class="workflow-strip">
+            <article class="workflow-card">
+              <div class="card-head">
+                <strong>继续推进</strong>
+                <button
+                  type="button"
+                  class="inline-action"
+                  :disabled="!selectedCompany || isActionPending(`watchboard:${selectedCompany}`)"
+                  @click="toggleWatchboardTracking()"
+                >
+                  {{
+                    selectedCompany && isActionPending(`watchboard:${selectedCompany}`)
+                      ? '处理中...'
+                      : watchboardActionLabel
+                  }}
+                </button>
+              </div>
+              <p class="card-copy">{{ watchboardSummary }}</p>
+              <div class="action-row">
+                <button
+                  type="button"
+                  class="inline-action is-secondary"
+                  :disabled="isActionPending(`task:${currentRunId || selectedCompany}:${activeStressStep}`)"
+                  @click="createStressTask()"
+                >
+                  {{
+                    isActionPending(`task:${currentRunId || selectedCompany}:${activeStressStep}`)
+                      ? '写入中...'
+                      : '写入任务板'
+                  }}
+                </button>
+                <RouterLink
+                  v-for="item in stressRelatedRoutes.slice(0, 2)"
+                  :key="`${item.path}-${item.label}`"
+                  :to="{ path: item.path, query: item.query || {} }"
+                  class="inline-link"
+                >
+                  {{ item.label }}
+                </RouterLink>
+              </div>
+              <div v-if="stressEvidenceLinks.length" class="route-links">
+                <RouterLink
+                  v-for="item in stressEvidenceLinks"
+                  :key="`${item.path}-${item.label}`"
+                  :to="{ path: item.path, query: item.query || {} }"
+                  class="inline-link"
+                >
+                  {{ item.label }}
+                </RouterLink>
+              </div>
+              <p v-if="actionError" class="panel-error">{{ actionError }}</p>
+            </article>
+
+            <article v-if="recentRuns.length" class="workflow-card">
+              <div class="card-head">
+                <strong>最近推演</strong>
+                <span class="subtle-copy">{{ activeRoleLabel }}</span>
+              </div>
+              <button
+                v-for="item in recentRuns"
+                :key="item.run_id"
+                type="button"
+                class="run-item-button"
+                :class="{ 'is-active': currentRunId === item.run_id }"
+                @click="openStressRun(item.run_id)"
+              >
+                <div class="run-item-copy">
+                  <strong>{{ item.scenario }}</strong>
+                  <p>{{ displaySeverityBadge(item.severity) }}</p>
+                </div>
+                <span>{{ formatTimestamp(item.created_at) }}</span>
+              </button>
+            </article>
+          </div>
+
           <div class="result-body">
             <article class="chain-panel" v-if="focusedPropagationSteps.length">
               <div class="section-head">
@@ -427,6 +658,19 @@ watch(selectedPeriod, async (period, previous) => {
                 <span>为什么会这样</span>
                 <strong>{{ localizeStressText(activeWavefront?.headline || stressCommandSurface.headline) }}</strong>
                 <p>{{ focusExplanation }}</p>
+              </div>
+
+              <div v-if="workflowTasks.length" class="task-list">
+                <RouterLink
+                  v-for="task in workflowTasks"
+                  :key="task.task_id"
+                  :to="task.route || { path: '/workspace', query: { company: selectedCompany, period: selectedPeriod, role: activeRole } }"
+                  class="task-item"
+                >
+                  <strong>{{ task.title }}</strong>
+                  <p>{{ task.summary }}</p>
+                  <span>{{ displayTaskStatus(task.status) }} · {{ task.priority || 'P1' }}</span>
+                </RouterLink>
               </div>
             </article>
           </div>
@@ -724,6 +968,84 @@ watch(selectedPeriod, async (period, previous) => {
   border: 1px solid rgba(16, 185, 129, 0.24);
 }
 
+.workflow-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  gap: 12px;
+}
+
+.workflow-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.card-head strong,
+.run-item-copy strong,
+.task-item strong {
+  color: #f8fafc;
+}
+
+.card-copy,
+.subtle-copy,
+.run-item-copy p,
+.run-item-button span,
+.panel-error,
+.task-item p,
+.task-item span {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.inline-link {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.inline-link:hover {
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.28);
+}
+
+.inline-action {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  background: rgba(16, 185, 129, 0.1);
+  color: #d1fae5;
+  cursor: pointer;
+}
+
+.inline-action.is-secondary {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.72);
+  color: #dbe7f3;
+}
+
+.inline-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .impact-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -755,6 +1077,43 @@ watch(selectedPeriod, async (period, previous) => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 336px;
   gap: 14px;
+}
+
+.action-row,
+.route-links,
+.task-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.task-list {
+  flex-direction: column;
+}
+
+.run-item-button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.run-item-button.is-active {
+  border-color: rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.run-item-copy {
+  display: grid;
+  gap: 4px;
 }
 
 .chain-panel,
@@ -820,7 +1179,19 @@ watch(selectedPeriod, async (period, previous) => {
   background: rgba(10, 18, 32, 0.72);
 }
 
+.task-item {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 16px;
+  text-decoration: none;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
 @media (max-width: 1120px) {
+  .workflow-strip,
   .impact-strip,
   .stress-layout,
   .result-body {

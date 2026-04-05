@@ -17,6 +17,8 @@ type GraphEdge = { source: string; target: string; label: string }
 
 const overviewState = useAsyncState<any>()
 const graphState = useAsyncState<any>()
+const runsState = useAsyncState<any>()
+const companyState = useAsyncState<any>()
 const route = useRoute()
 const session = useSession()
 
@@ -31,6 +33,8 @@ const nodeLayout = ref<Record<string, { x: number; y: number }>>({})
 const dragNodeId = ref<string | null>(null)
 const bootstrapping = ref(false)
 const syncingFromRoute = ref(false)
+const actionPending = ref('')
+const actionError = ref('')
 let graphTicker: number | null = null
 let moveHandler: ((event: PointerEvent) => void) | null = null
 let upHandler: ((event: PointerEvent) => void) | null = null
@@ -71,6 +75,25 @@ const graphCommandSurface = computed(() => graphState.data.value?.graph_command_
 const graphLiveFrames = computed(() => graphState.data.value?.graph_live_frames || [])
 const currentFrame = computed(() => graphLiveFrames.value[activePathStep.value] || null)
 const pathEvidenceLinks = computed(() => evidenceNavigation.value.slice(0, 1))
+const graphEvidenceLinks = computed(() => evidenceNavigation.value.slice(0, 4))
+const graphRelatedRoutes = computed(() => graphState.data.value?.related_routes || [])
+const currentRunId = computed(() => graphState.data.value?.run_id || graphState.data.value?.run_meta?.run_id || '')
+const companyWorkspace = computed(() => companyState.data.value || null)
+const recentRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 4))
+const workflowTasks = computed(() => companyWorkspace.value?.tasks?.items?.slice(0, 3) || [])
+const activeGraphFocus = computed(
+  () => inferencePath.value[activePathStep.value] || inferencePath.value[0] || null,
+)
+const watchboardActionLabel = computed(() =>
+  companyWorkspace.value?.watchboard?.tracked ? '移出持续跟踪' : '加入持续跟踪',
+)
+const watchboardSummary = computed(() => {
+  if (!selectedCompany.value) return '先选择公司，再把这条链路纳入持续跟踪。'
+  if (companyWorkspace.value?.watchboard?.tracked) {
+    return `已纳入持续跟踪，当前 ${Number(companyWorkspace.value.watchboard.new_alerts || 0)} 条新增预警，${Number(companyWorkspace.value.watchboard.task_count || 0)} 项相关任务。`
+  }
+  return '当前还未进入持续跟踪，可把这次图谱链路继续放进监测板。'
+})
 const visibleNodeIds = computed(() => {
   const nodes = rawGraphNodes.value
   const edges = rawGraphEdges.value
@@ -167,12 +190,50 @@ function readQueryString(value: unknown) {
   return typeof normalized === 'string' ? normalized.trim() : ''
 }
 
+function formatTimestamp(value?: string) {
+  if (!value) return '刚刚'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function displayTaskStatus(status?: string) {
+  const map: Record<string, string> = {
+    queued: '待开工',
+    in_progress: '处理中',
+    done: '已完成',
+    blocked: '已阻断',
+  }
+  return map[(status || '').toLowerCase()] || '已记录'
+}
+
 function parseRoleQuery(value: unknown): UserRole | null {
   const normalized = readQueryString(value)
   if (normalized === 'investor' || normalized === 'management' || normalized === 'regulator') {
     return normalized
   }
   return null
+}
+
+function buildGraphTaskTitle() {
+  const title = activeGraphFocus.value?.title || selectedNode.value?.label || '图谱链路'
+  return `跟进${title}`.slice(0, 60)
+}
+
+function buildGraphTaskSummary() {
+  const detail = activeGraphFocus.value?.detail || selectedNode.value?.detail || graphIntent.value
+  return `继续围绕图谱链路核对：${detail}`.replace(/\s+/g, ' ').slice(0, 220)
+}
+
+function buildGraphTaskPriority() {
+  const nodeType = selectedNode.value?.type || ''
+  const riskLike = ['risk_label', 'alert', 'task'].includes(nodeType)
+  return riskLike || /风险|预警|处置/.test(buildGraphTaskSummary()) ? 'P1' : 'P2'
 }
 
 function initializeGraphLayout() {
@@ -249,6 +310,7 @@ async function loadGraph() {
     }),
   )
   activePathStep.value = 0
+  await Promise.allSettled([loadGraphRuns(), loadCompanyWorkspace()])
 }
 
 async function openGraphRun(runId: string) {
@@ -272,6 +334,104 @@ async function openGraphRun(runId: string) {
   graphIntent.value = String(meta.intent || payload.intent || graphIntent.value)
   graphIntentDraft.value = graphIntent.value
   activePathStep.value = 0
+  await Promise.allSettled([loadGraphRuns(), loadCompanyWorkspace()])
+}
+
+async function loadGraphRuns() {
+  if (!selectedCompany.value) {
+    runsState.data.value = { runs: [] }
+    runsState.error.value = null
+    runsState.loading.value = false
+    return
+  }
+  const query = new URLSearchParams({
+    company_name: selectedCompany.value,
+    user_role: activeRole.value,
+    limit: '6',
+  })
+  if (selectedPeriod.value) {
+    query.set('report_period', selectedPeriod.value)
+  }
+  await runsState.execute(() => get(`/graph-query/runs?${query.toString()}`))
+}
+
+async function loadCompanyWorkspace() {
+  if (!selectedCompany.value) {
+    companyState.data.value = null
+    companyState.error.value = null
+    companyState.loading.value = false
+    return
+  }
+  const query = new URLSearchParams({
+    company_name: selectedCompany.value,
+    user_role: activeRole.value,
+  })
+  if (selectedPeriod.value) {
+    query.set('report_period', selectedPeriod.value)
+  }
+  try {
+    await companyState.execute(() => get(`/company/workspace?${query.toString()}`))
+  } catch {
+    // 错误留给局部状态卡展示。
+  }
+}
+
+function isActionPending(key: string) {
+  return actionPending.value === key
+}
+
+async function runWorkflowAction(key: string, action: () => Promise<void>) {
+  actionError.value = ''
+  actionPending.value = key
+  try {
+    await action()
+  } catch (error) {
+    actionError.value = error instanceof Error ? error.message : '执行失败'
+  } finally {
+    if (actionPending.value === key) {
+      actionPending.value = ''
+    }
+  }
+}
+
+async function toggleWatchboardTracking() {
+  if (!selectedCompany.value) return
+  await runWorkflowAction(`watchboard:${selectedCompany.value}`, async () => {
+    const reportPeriod = graphState.data.value?.report_period || selectedPeriod.value || null
+    if (companyWorkspace.value?.watchboard?.tracked) {
+      await post('/watchboard/remove', {
+        company_name: selectedCompany.value,
+        user_role: activeRole.value,
+        report_period: reportPeriod,
+      })
+    } else {
+      await post('/watchboard/add', {
+        company_name: selectedCompany.value,
+        user_role: activeRole.value,
+        report_period: reportPeriod,
+        note: `图谱检索跟进：${graphIntent.value}`.slice(0, 180),
+      })
+    }
+    await loadCompanyWorkspace()
+  })
+}
+
+async function createGraphTask() {
+  if (!selectedCompany.value) return
+  const taskKey = `task:${currentRunId.value || selectedCompany.value}:${activeGraphFocus.value?.step || selectedNode.value?.id || 'graph'}`
+  await runWorkflowAction(taskKey, async () => {
+    await post('/tasks/create', {
+      company_name: selectedCompany.value,
+      title: buildGraphTaskTitle(),
+      summary: buildGraphTaskSummary(),
+      priority: buildGraphTaskPriority(),
+      user_role: activeRole.value,
+      report_period: graphState.data.value?.report_period || selectedPeriod.value || null,
+      note: `来自图谱检索：${graphIntent.value}`.slice(0, 180),
+      source_run_id: currentRunId.value || null,
+    })
+    await loadCompanyWorkspace()
+  })
 }
 
 async function primeGraphFromRoute() {
@@ -436,13 +596,39 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
       </section>
 
       <section class="graph-query-strip">
-          <div class="query-strip-main">
-            <div>
-              <h2>{{ graphIntent }}</h2>
-              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '直接沿这条链继续追下去。' }}</p>
-            </div>
+        <div class="query-strip-main">
+          <div>
+            <h2>{{ graphIntent }}</h2>
+            <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '直接沿这条链继续追下去。' }}</p>
           </div>
+        </div>
 
+        <div v-if="selectedCompany" class="query-strip-actions">
+          <button
+            type="button"
+            class="panel-action"
+            :disabled="isActionPending(`watchboard:${selectedCompany}`)"
+            @click="toggleWatchboardTracking()"
+          >
+            {{
+              isActionPending(`watchboard:${selectedCompany}`)
+                ? '处理中...'
+                : watchboardActionLabel
+            }}
+          </button>
+          <button
+            type="button"
+            class="panel-action is-secondary"
+            :disabled="isActionPending(`task:${currentRunId || selectedCompany}:${activeGraphFocus?.step || selectedNode?.id || 'graph'}`)"
+            @click="createGraphTask()"
+          >
+            {{
+              isActionPending(`task:${currentRunId || selectedCompany}:${activeGraphFocus?.step || selectedNode?.id || 'graph'}`)
+                ? '写入中...'
+                : '写入任务板'
+            }}
+          </button>
+        </div>
       </section>
 
       <section class="graph-intent-dock">
@@ -534,20 +720,83 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
             </div>
           </div>
 
-          <div v-if="selectedNode" class="graph-node-focus">
-            <span class="graph-node-kind">{{ displayNodeType(selectedNode.type) }}</span>
-            <strong>{{ selectedNode.label }}</strong>
-            <p>{{ selectedNode.detail }}</p>
-            <div v-if="pathEvidenceLinks.length" class="selected-node-links">
-              <RouterLink
-                v-for="item in pathEvidenceLinks"
-                :key="`${item.label}-${item.path}`"
-                :to="{ path: item.path, query: item.query || {} }"
-                class="selected-node-link"
-              >
-                {{ item.label }}
-              </RouterLink>
+          <div class="graph-side-stack">
+            <div v-if="selectedNode" class="graph-node-focus">
+              <span class="graph-node-kind">{{ displayNodeType(selectedNode.type) }}</span>
+              <strong>{{ selectedNode.label }}</strong>
+              <p>{{ selectedNode.detail }}</p>
+              <div v-if="pathEvidenceLinks.length" class="selected-node-links">
+                <RouterLink
+                  v-for="item in pathEvidenceLinks"
+                  :key="`${item.label}-${item.path}`"
+                  :to="{ path: item.path, query: item.query || {} }"
+                  class="selected-node-link"
+                >
+                  {{ item.label }}
+                </RouterLink>
+              </div>
             </div>
+
+            <article class="graph-side-card">
+              <div class="card-head">
+                <strong>工作流状态</strong>
+                <span class="subtle-copy">{{ companyWorkspace?.watchboard?.tracked ? '已跟踪' : '未跟踪' }}</span>
+              </div>
+              <p class="panel-copy">{{ watchboardSummary }}</p>
+              <div v-if="workflowTasks.length" class="mini-list">
+                <RouterLink
+                  v-for="task in workflowTasks"
+                  :key="task.task_id"
+                  :to="task.route || { path: '/workspace', query: { company: selectedCompany, period: selectedPeriod, role: activeRole } }"
+                  class="mini-item"
+                >
+                  <strong>{{ task.title }}</strong>
+                  <span>{{ displayTaskStatus(task.status) }} · {{ task.priority || 'P1' }}</span>
+                </RouterLink>
+              </div>
+              <div v-if="graphRelatedRoutes.length" class="selected-node-links">
+                <RouterLink
+                  v-for="item in graphRelatedRoutes"
+                  :key="`${item.path}-${item.label}`"
+                  :to="{ path: item.path, query: item.query || {} }"
+                  class="selected-node-link"
+                >
+                  {{ item.label }}
+                </RouterLink>
+              </div>
+              <div v-if="graphEvidenceLinks.length" class="selected-node-links">
+                <RouterLink
+                  v-for="item in graphEvidenceLinks"
+                  :key="`${item.path}-${item.label}`"
+                  :to="{ path: item.path, query: item.query || {} }"
+                  class="selected-node-link"
+                >
+                  {{ item.label }}
+                </RouterLink>
+              </div>
+              <p v-if="actionError" class="panel-error">{{ actionError }}</p>
+            </article>
+
+            <article v-if="recentRuns.length" class="graph-side-card">
+              <div class="card-head">
+                <strong>最近图谱检索</strong>
+                <span class="subtle-copy">{{ activeRoleLabel }}</span>
+              </div>
+              <button
+                v-for="item in recentRuns"
+                :key="item.run_id"
+                type="button"
+                class="run-item-button"
+                :class="{ 'is-active': currentRunId === item.run_id }"
+                @click="openGraphRun(item.run_id)"
+              >
+                <div class="run-item-copy">
+                  <strong>{{ item.intent }}</strong>
+                  <p>{{ item.report_period || selectedPeriod || '默认主周期' }}</p>
+                </div>
+                <span>{{ formatTimestamp(item.created_at) }}</span>
+              </button>
+            </article>
           </div>
         </section>
 
@@ -678,6 +927,13 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   min-width: 0;
 }
 
+.query-strip-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .query-strip-main h2 {
   font-size: clamp(16px, 1.6vw, 18px);
   line-height: 1.12;
@@ -760,6 +1016,111 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
 .selected-node-link.is-muted {
   color: rgba(148, 163, 184, 0.84);
+}
+
+.graph-side-stack {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.graph-side-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-head strong,
+.mini-item strong,
+.run-item-copy strong {
+  color: #f8fafc;
+}
+
+.panel-copy,
+.subtle-copy,
+.mini-item span,
+.run-item-copy p,
+.run-item-button span,
+.panel-error {
+  margin: 0;
+  color: rgba(148, 163, 184, 0.9);
+  line-height: 1.6;
+}
+
+.panel-action {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.24);
+  background: rgba(18, 62, 45, 0.78);
+  color: #ecfdf5;
+  cursor: pointer;
+  font: inherit;
+}
+
+.panel-action.is-secondary {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.72);
+  color: #dbe7f3;
+}
+
+.panel-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.mini-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mini-item {
+  display: grid;
+  gap: 4px;
+  text-decoration: none;
+  color: inherit;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mini-item:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.run-item-button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.run-item-button.is-active {
+  border-color: rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.run-item-copy {
+  display: grid;
+  gap: 4px;
 }
 
 .graph-svg {
@@ -1011,7 +1372,8 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   .graph-controls,
   .graph-query-strip,
   .query-strip-main,
-  .graph-intent-dock {
+  .graph-intent-dock,
+  .query-strip-actions {
     flex-direction: column;
     grid-template-columns: 1fr;
     align-items: stretch;
