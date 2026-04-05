@@ -8,7 +8,7 @@ import ErrorState from '@/components/ErrorState.vue'
 import LoadingState from '@/components/LoadingState.vue'
 import TagPill from '@/components/TagPill.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { get, post } from '@/lib/api'
+import { get, post, type UserRole } from '@/lib/api'
 import { buildEvidenceLink } from '@/lib/format'
 import { useSession } from '@/lib/session'
 import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
@@ -19,10 +19,14 @@ const selectedPeriod = ref<string>('')
 const scoreState = useAsyncState<any>()
 const timelineState = useAsyncState<any>()
 const companyState = useAsyncState<any>()
+const runsState = useAsyncState<any>()
 const route = useRoute()
-const syncingFromRoute = ref(false)
-const watchboardBusy = ref(false)
 const session = useSession()
+const syncingFromRoute = ref(false)
+const bootstrapping = ref(false)
+const watchboardBusy = ref(false)
+const actionPending = ref('')
+const actionError = ref('')
 
 const scoreCommandSurface = computed(() => scoreState.data.value?.score_command_surface || null)
 const scoreSignalTape = computed(() => scoreState.data.value?.score_signal_tape || [])
@@ -57,6 +61,11 @@ const companyTaskSummary = computed(() => companyWorkspace.value?.tasks?.summary
 const companyRuntimeSummary = computed(() => companyWorkspace.value?.intelligence_runtime?.summary || null)
 const companyRuntimePulses = computed(
   () => companyWorkspace.value?.intelligence_runtime?.module_pulses?.slice(0, 4) || [],
+)
+const recentScoreRuns = computed(() => (runsState.data.value?.runs || []).slice(0, 4))
+const currentRunId = computed(() => scoreState.data.value?.run_id || scoreState.data.value?.run_meta?.run_id || '')
+const currentRunTimestamp = computed(
+  () => scoreState.data.value?.run_meta?.created_at || scoreState.data.value?.created_at || '',
 )
 const documentStageSummary = computed(() => companyWorkspace.value?.document_upgrades?.stage_summary || {})
 const documentStageItems = computed(() =>
@@ -96,6 +105,31 @@ const workflowStatCards = computed(() => {
     },
   ]
 })
+
+function readQueryString(value: unknown) {
+  const normalized = Array.isArray(value) ? value[0] : value
+  return typeof normalized === 'string' ? normalized.trim() : ''
+}
+
+function parseRoleQuery(value: unknown): UserRole | null {
+  const normalized = readQueryString(value)
+  if (normalized === 'investor' || normalized === 'management' || normalized === 'regulator') {
+    return normalized
+  }
+  return null
+}
+
+function formatTimestamp(value?: string) {
+  if (!value) return '刚刚'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 
 function normalizePeriodOption(period: any) {
   if (typeof period === 'string') {
@@ -160,24 +194,56 @@ function displayStageLabel(stage: string) {
   return map[stage] || stage
 }
 
+function setSelectionFromPayload(payload: any) {
+  syncingFromRoute.value = true
+  try {
+    if (payload?.company_name) {
+      selectedCompany.value = payload.company_name
+    }
+    if (payload?.report_period) {
+      selectedPeriod.value = payload.report_period
+    }
+  } finally {
+    syncingFromRoute.value = false
+  }
+}
+
+function resetScoreState() {
+  scoreState.data.value = null
+  scoreState.error.value = null
+  scoreState.loading.value = false
+}
+
+function isActionPending(key: string) {
+  return actionPending.value === key
+}
+
+function buildActionTaskSummary(action: any) {
+  const summary = [action.reason, action.action].filter(Boolean).join('；')
+  return summary.slice(0, 220)
+}
+
 async function loadCompanies() {
   const data = await get<any>('/workspace/companies')
   companies.value = data.companies
 }
 
-async function loadScore() {
+async function loadRuns() {
   if (!selectedCompany.value) {
-    scoreState.data.value = null
-    scoreState.error.value = null
-    scoreState.loading.value = false
+    runsState.data.value = { runs: [] }
+    runsState.error.value = null
+    runsState.loading.value = false
     return
   }
-  await scoreState.execute(() =>
-    post('/company/score', {
-      company_name: selectedCompany.value,
-      report_period: selectedPeriod.value || null,
-    }),
-  )
+  const query = new URLSearchParams({
+    company_name: selectedCompany.value,
+    user_role: activeRole.value,
+    limit: '6',
+  })
+  if (selectedPeriod.value) {
+    query.set('report_period', selectedPeriod.value)
+  }
+  await runsState.execute(() => get(`/company/score/runs?${query.toString()}`))
 }
 
 async function loadTimeline() {
@@ -215,6 +281,80 @@ async function loadCompanyWorkspace() {
   }
 }
 
+async function openScoreRun(runId: string) {
+  if (!runId) return
+  await scoreState.execute(() => get(`/company/score/runs/${encodeURIComponent(runId)}`))
+  setSelectionFromPayload(scoreState.data.value)
+  await Promise.allSettled([loadTimeline(), loadRuns(), loadCompanyWorkspace()])
+}
+
+async function runScore() {
+  if (!selectedCompany.value) {
+    resetScoreState()
+    return
+  }
+  await scoreState.execute(() =>
+    post('/company/score', {
+      company_name: selectedCompany.value,
+      report_period: selectedPeriod.value || null,
+      user_role: activeRole.value,
+    }),
+  )
+  setSelectionFromPayload(scoreState.data.value)
+  await Promise.allSettled([loadTimeline(), loadRuns(), loadCompanyWorkspace()])
+}
+
+async function syncScoreSurface(options?: { forceRun?: boolean; runId?: string }) {
+  if (!selectedCompany.value) {
+    resetScoreState()
+    await Promise.allSettled([loadTimeline(), loadCompanyWorkspace(), loadRuns()])
+    return
+  }
+  await loadRuns()
+  if (options?.runId) {
+    await openScoreRun(options.runId)
+    return
+  }
+  const matchedRun = (runsState.data.value?.runs || [])[0]
+  if (!options?.forceRun && matchedRun) {
+    await openScoreRun(matchedRun.run_id)
+    return
+  }
+  await runScore()
+}
+
+async function runWorkflowAction(key: string, action: () => Promise<void>) {
+  actionError.value = ''
+  actionPending.value = key
+  try {
+    await action()
+  } catch (error) {
+    actionError.value = error instanceof Error ? error.message : '执行失败'
+  } finally {
+    if (actionPending.value === key) {
+      actionPending.value = ''
+    }
+  }
+}
+
+async function createTaskFromAction(action: any) {
+  if (!selectedCompany.value) return
+  const key = `task:${action.title}`
+  await runWorkflowAction(key, async () => {
+    await post('/tasks/create', {
+      company_name: selectedCompany.value,
+      title: action.title,
+      summary: buildActionTaskSummary(action),
+      priority: action.priority || 'P1',
+      user_role: activeRole.value,
+      report_period: scoreState.data.value?.report_period || selectedPeriod.value || null,
+      note: `来自经营诊断：${scoreCommandSurface.value?.headline || action.title}`.slice(0, 180),
+      source_run_id: currentRunId.value || null,
+    })
+    await loadCompanyWorkspace()
+  })
+}
+
 async function toggleWatchboardTracking() {
   if (!selectedCompany.value || watchboardBusy.value) return
   watchboardBusy.value = true
@@ -241,79 +381,75 @@ async function toggleWatchboardTracking() {
   }
 }
 
-function applyQuerySelection() {
-  const workflowContext = resolveWorkflowContext(route.query)
-  syncingFromRoute.value = true
-  if (workflowContext.company && companies.value.includes(workflowContext.company)) {
-    selectedCompany.value = workflowContext.company
-  }
-  if (workflowContext.period) {
-    selectedPeriod.value = workflowContext.period
-  }
-  syncingFromRoute.value = false
-}
-
 onMounted(async () => {
-  await loadCompanies()
-  if (!selectedCompany.value) {
-    selectedCompany.value = companies.value[0] || ''
+  bootstrapping.value = true
+  try {
+    const targetRole = parseRoleQuery(route.query.role)
+    if (targetRole && session.activeRole.value !== targetRole) {
+      session.setActiveRole(targetRole)
+    }
+    const workflowContext = resolveWorkflowContext(route.query)
+    const routeRunId = readQueryString(route.query.run_id)
+    await loadCompanies()
+    syncingFromRoute.value = true
+    if (workflowContext.company && companies.value.includes(workflowContext.company)) {
+      selectedCompany.value = workflowContext.company
+    } else {
+      selectedCompany.value = companies.value[0] || ''
+    }
+    if (workflowContext.period) {
+      selectedPeriod.value = workflowContext.period
+    }
+    syncingFromRoute.value = false
+    await syncScoreSurface({ runId: routeRunId || undefined })
+  } finally {
+    bootstrapping.value = false
   }
-  applyQuerySelection()
-  await loadScore()
-  await loadTimeline()
-  if (!selectedPeriod.value) {
-    selectedPeriod.value = normalizePeriodValue(scoreState.data.value?.report_period) || availablePeriods.value[0]?.value || ''
-  }
-  await loadCompanyWorkspace()
 })
 
 watch(selectedCompany, async (_, oldValue) => {
-  if (syncingFromRoute.value) {
-    return
-  }
+  if (syncingFromRoute.value || bootstrapping.value) return
   if (oldValue && selectedCompany.value !== oldValue) {
     selectedPeriod.value = ''
-    await loadScore()
     await loadTimeline()
-    selectedPeriod.value = normalizePeriodValue(scoreState.data.value?.report_period) || availablePeriods.value[0]?.value || ''
-    await loadCompanyWorkspace()
+    await syncScoreSurface()
   }
 })
 
-watch(selectedPeriod, async (_, oldValue) => {
-  if (syncingFromRoute.value) {
-    return
-  }
-  if (oldValue && selectedPeriod.value !== oldValue) {
-    await loadScore()
-    await loadCompanyWorkspace()
+watch(selectedPeriod, async (value, oldValue) => {
+  if (syncingFromRoute.value || bootstrapping.value) return
+  if (value !== oldValue) {
+    await syncScoreSurface()
   }
 })
 
 watch(
-  () => [route.query.company, route.query.period],
-  async ([companyQuery, periodQuery]) => {
-    const company = typeof companyQuery === 'string' ? companyQuery : ''
-    const period = typeof periodQuery === 'string' ? periodQuery : ''
-    if (company && company !== selectedCompany.value && companies.value.includes(company)) {
-      syncingFromRoute.value = true
-      selectedCompany.value = company
-      selectedPeriod.value = period || ''
-      syncingFromRoute.value = false
-      await loadScore()
-      await loadTimeline()
-      if (!period) {
-        selectedPeriod.value = normalizePeriodValue(scoreState.data.value?.report_period) || availablePeriods.value[0]?.value || ''
-      }
-      await loadCompanyWorkspace()
+  () => [route.query.company, route.query.period, route.query.run_id, route.query.role],
+  async ([companyQuery, periodQuery, runIdQuery, roleQuery]) => {
+    if (bootstrapping.value) return
+    const targetRole = parseRoleQuery(roleQuery)
+    if (targetRole && session.activeRole.value !== targetRole) {
+      session.setActiveRole(targetRole)
       return
     }
+    const company = readQueryString(companyQuery)
+    const period = readQueryString(periodQuery)
+    const runId = readQueryString(runIdQuery)
+    let companyChanged = false
+    syncingFromRoute.value = true
+    if (company && company !== selectedCompany.value && companies.value.includes(company)) {
+      selectedCompany.value = company
+      companyChanged = true
+    }
     if (period && period !== selectedPeriod.value) {
-      syncingFromRoute.value = true
       selectedPeriod.value = period
-      syncingFromRoute.value = false
-      await loadScore()
-      await loadCompanyWorkspace()
+    }
+    syncingFromRoute.value = false
+    if (companyChanged) {
+      await loadTimeline()
+    }
+    if (companyChanged || period || runId) {
+      await syncScoreSurface({ runId: runId || undefined })
     }
   },
 )
@@ -321,8 +457,8 @@ watch(
 watch(
   () => session.activeRole.value,
   async (value, oldValue) => {
-    if (!selectedCompany.value || !value || value === oldValue) return
-    await loadCompanyWorkspace()
+    if (bootstrapping.value || !selectedCompany.value || !value || value === oldValue) return
+    await syncScoreSurface({ runId: readQueryString(route.query.run_id) || undefined })
   },
 )
 
@@ -345,7 +481,11 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
           <div class="mode-query-copy">
             <span class="control-kicker">经营体检</span>
             <h3 class="company-name text-gradient">{{ selectedCompany || '经营诊断' }}</h3>
-            <p class="control-meta">{{ scoreCommandSurface?.headline || '先看这次判断' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
+            <p class="control-meta">
+              {{ scoreCommandSurface?.headline || '先看这次判断' }}
+              <span v-if="selectedPeriod"> · {{ selectedPeriod }}</span>
+              <span v-if="currentRunId"> · 体检于 {{ formatTimestamp(currentRunTimestamp) }}</span>
+            </p>
           </div>
           <span class="role-pill">{{ activeRoleLabel }}</span>
         </div>
@@ -369,12 +509,16 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
               </option>
             </select>
           </label>
-          <button class="button-primary glow-button" @click="loadScore">重新体检</button>
+          <button class="button-primary glow-button" @click="runScore">重新体检</button>
         </div>
       </section>
 
-      <LoadingState v-if="scoreState.loading.value" class="state-container" />
-      <ErrorState v-else-if="scoreState.error.value" :message="scoreState.error.value" class="state-container" />
+      <LoadingState v-if="bootstrapping || scoreState.loading.value || runsState.loading.value" class="state-container" />
+      <ErrorState
+        v-else-if="scoreState.error.value || runsState.error.value"
+        :message="String(scoreState.error.value || runsState.error.value)"
+        class="state-container"
+      />
       <section v-else-if="!selectedCompany" class="glass-panel empty-panel">
         <div class="empty-content">
           <h3 class="text-gradient mb-2">公司池为空</h3>
@@ -480,7 +624,39 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                 </div>
                 <p class="action-desc">{{ action.reason }}</p>
                 <p v-if="action.action" class="action-next">{{ action.action }}</p>
+                <div class="action-footer">
+                  <span class="action-priority">{{ action.priority }}</span>
+                  <button
+                    class="inline-glass-link action-link"
+                    type="button"
+                    :disabled="isActionPending(`task:${action.title}`)"
+                    @click="createTaskFromAction(action)"
+                  >
+                    {{ isActionPending(`task:${action.title}`) ? '写入中...' : '写入任务板' }}
+                  </button>
+                </div>
               </div>
+            </div>
+            <p v-if="actionError" class="panel-inline-error">{{ actionError }}</p>
+
+            <div v-if="recentScoreRuns.length" class="recent-run-panel">
+              <div class="recent-run-head">
+                <strong>最近体检</strong>
+                <span>{{ recentScoreRuns.length }} 次</span>
+              </div>
+              <button
+                v-for="run in recentScoreRuns"
+                :key="run.run_id"
+                class="recent-run-item"
+                type="button"
+                @click="openScoreRun(run.run_id)"
+              >
+                <div>
+                  <strong>{{ run.headline || run.title || '经营诊断' }}</strong>
+                  <small>{{ run.grade }} · {{ Number(run.total_score || 0).toFixed(0) }} 分 · {{ formatTimestamp(run.created_at) }}</small>
+                </div>
+                <span>{{ run.status_label || '已完成' }}</span>
+              </button>
             </div>
           </article>
         </div>
@@ -1011,6 +1187,70 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .action-item h4 { margin: 0; font-size: 16px; font-weight: 500; color: #fff; }
 .action-desc { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.6; }
 .action-next { margin: 10px 0 0; font-size: 12px; line-height: 1.6; color: #cbd5e1; }
+.action-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.action-priority {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.action-link {
+  cursor: pointer;
+}
+.action-link:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.panel-inline-error {
+  margin: 12px 0 0;
+  color: #fda4af;
+  font-size: 12px;
+}
+.recent-run-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+.recent-run-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.recent-run-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.025);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.recent-run-item strong {
+  display: block;
+  color: #f8fafc;
+  font-size: 13px;
+}
+.recent-run-item small,
+.recent-run-item span {
+  color: var(--muted);
+  font-size: 12px;
+}
 
 /* Right Col Layout */
 .charts-row {

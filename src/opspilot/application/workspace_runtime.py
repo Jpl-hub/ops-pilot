@@ -9,7 +9,11 @@ from opspilot.application.runtime_manifests import (
     _workspace_run_detail_path,
     _write_workspace_run_manifest,
 )
-from opspilot.application.runtime_views import _build_frontend_route, _build_verify_frontend_route
+from opspilot.application.runtime_views import (
+    _build_frontend_route,
+    _build_score_frontend_route,
+    _build_verify_frontend_route,
+)
 
 
 def _workspace_history(
@@ -157,6 +161,29 @@ def _workspace_history(
             limit=source_limit,
         )["runs"]
     ]
+    score_runs = [
+        {
+            "history_type": "company_score",
+            "id": item["run_id"],
+            "title": f"经营诊断 · {item['company_name']}",
+            "company_name": item.get("company_name"),
+            "report_period": item.get("report_period"),
+            "user_role": item.get("user_role"),
+            "status": item.get("status_label", "completed"),
+            "created_at": item.get("created_at"),
+            "meta": {
+                "headline": item.get("headline"),
+                "grade": item.get("grade"),
+                "total_score": item.get("total_score"),
+                "route": _build_score_frontend_route(item),
+            },
+        }
+        for item in service.score_runs(
+            report_period=period,
+            user_role=user_role,
+            limit=source_limit,
+        )["runs"]
+    ]
     verify_runs = [
         {
             "history_type": "claim_verify",
@@ -237,7 +264,7 @@ def _workspace_history(
             limit=source_limit,
         )["runs"]
     ]
-    records = analysis_runs + watch_runs + document_jobs + document_runs + stress_runs
+    records = analysis_runs + watch_runs + document_jobs + document_runs + stress_runs + score_runs
     records += verify_runs + graph_runs + vision_runs
     records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     return {

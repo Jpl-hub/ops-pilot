@@ -366,12 +366,17 @@ def _bus_type_label(bus_type: str | None) -> str:
         "alert": "预警处置",
         "watchboard": "重点监测",
         "analysis_run": "分析执行",
+        "company_score": "经营诊断",
         "watchboard_scan": "监测扫描",
         "document_pipeline": "文档工序",
         "document_pipeline_run": "整改运行",
         "stress_run": "压力推演",
+        "stress_test": "压力推演",
         "graph_run": "图谱演算",
+        "graph_query": "图谱演算",
+        "claim_verify": "观点核验",
         "vision_run": "多模态核验",
+        "vision_analyze": "多模态核验",
     }
     return mapping.get(bus_type or "", bus_type or "-")
 

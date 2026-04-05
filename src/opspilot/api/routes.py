@@ -526,7 +526,35 @@ async def chat_turn(request: ChatTurnRequest, _: dict = Depends(require_current_
 @router.post("/company/score")
 def company_score(request: ScoreRequest, _: dict = Depends(require_current_user)) -> dict:
     try:
-        return get_service().score_company(request.company_name, request.report_period)
+        return get_service().run_company_score(
+            request.company_name,
+            request.report_period,
+            user_role=request.user_role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/company/score/runs")
+def company_score_runs(
+    company_name: str | None = None,
+    report_period: str | None = None,
+    user_role: str = "management",
+    limit: int = 20,
+    _: dict = Depends(require_current_user),
+) -> dict:
+    return get_service().score_runs(
+        company_name=company_name,
+        report_period=report_period,
+        user_role=user_role,
+        limit=limit,
+    )
+
+
+@router.get("/company/score/runs/{run_id}")
+def company_score_run_detail(run_id: str, _: dict = Depends(require_current_user)) -> dict:
+    try:
+        return get_service().score_run_detail(run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -12,6 +12,7 @@ from opspilot.application.admin_delivery import (
 from opspilot.application.runtime_manifests import (
     _load_document_pipeline_run_manifest,
     _load_graph_query_run_manifest,
+    _load_score_run_manifest,
     _load_stress_test_run_manifest,
     _load_verify_run_manifest,
     _load_vision_run_manifest,
@@ -76,6 +77,103 @@ def _build_verify_frontend_route(record: dict[str, Any] | None) -> dict[str, Any
             "report_title": record.get("report_title"),
         },
     )
+
+
+def _build_score_frontend_route(record: dict[str, Any] | None) -> dict[str, Any]:
+    if record is None:
+        return _build_frontend_route("/score")
+    return _build_frontend_route(
+        "/score",
+        query={
+            "company": record.get("company_name"),
+            "period": record.get("report_period"),
+            "role": record.get("user_role"),
+            "run_id": record.get("run_id"),
+        },
+    )
+
+
+def _find_run_record(records: list[dict[str, Any]], run_id: str) -> dict[str, Any] | None:
+    return next((item for item in records if item.get("run_id") == run_id), None)
+
+
+def _resolve_source_run_route(
+    settings: Settings,
+    *,
+    source_run_id: str | None,
+    company_name: str,
+    report_period: str,
+    user_role: str,
+) -> dict[str, Any]:
+    default_route = _build_frontend_route(
+        "/workspace",
+        query={
+            "company": company_name,
+            "period": report_period,
+            "role": user_role,
+            "run": source_run_id,
+        },
+    )
+    if not source_run_id:
+        return default_route
+
+    workspace_record = _find_run_record(_load_workspace_run_manifest(settings)["records"], source_run_id)
+    if workspace_record is not None:
+        return _build_frontend_route(
+            "/workspace",
+            query={
+                "company": workspace_record.get("company_name"),
+                "period": workspace_record.get("report_period"),
+                "role": workspace_record.get("user_role"),
+                "run_id": workspace_record.get("run_id"),
+            },
+        )
+
+    score_record = _find_run_record(_load_score_run_manifest(settings)["records"], source_run_id)
+    if score_record is not None:
+        return _build_score_frontend_route(score_record)
+
+    verify_record = _find_run_record(_load_verify_run_manifest(settings)["records"], source_run_id)
+    if verify_record is not None:
+        return _build_verify_frontend_route(verify_record)
+
+    graph_record = _find_run_record(_load_graph_query_run_manifest(settings)["records"], source_run_id)
+    if graph_record is not None:
+        return _build_frontend_route(
+            "/graph",
+            query={
+                "company": graph_record.get("company_name"),
+                "period": graph_record.get("report_period"),
+                "role": graph_record.get("user_role"),
+                "run_id": graph_record.get("run_id"),
+            },
+        )
+
+    stress_record = _find_run_record(_load_stress_test_run_manifest(settings)["records"], source_run_id)
+    if stress_record is not None:
+        return _build_frontend_route(
+            "/stress",
+            query={
+                "company": stress_record.get("company_name"),
+                "period": stress_record.get("report_period"),
+                "role": stress_record.get("user_role"),
+                "run_id": stress_record.get("run_id"),
+            },
+        )
+
+    vision_record = _find_run_record(_load_vision_run_manifest(settings)["records"], source_run_id)
+    if vision_record is not None:
+        return _build_frontend_route(
+            "/vision",
+            query={
+                "company": vision_record.get("company_name"),
+                "period": vision_record.get("report_period"),
+                "role": vision_record.get("user_role"),
+                "run_id": vision_record.get("run_id"),
+            },
+        )
+
+    return default_route
 
 
 def _build_runtime_capsule_module(
@@ -286,6 +384,18 @@ def _build_industry_brain_history_snapshot(
         for item in _load_stress_test_run_manifest(settings)["records"]
         if item.get("user_role") == user_role and item.get("report_period") == report_period
     ]
+    score_runs = [
+        {
+            "history_type": "company_score",
+            "title": f"经营诊断 · {item.get('company_name')}",
+            "created_at": item.get("created_at"),
+            "status_label": item.get("status_label") or "已完成",
+            "type_label": "经营诊断",
+            "route": _build_score_frontend_route(item),
+        }
+        for item in _load_score_run_manifest(settings)["records"]
+        if item.get("user_role") == user_role and item.get("report_period") == report_period
+    ]
     graph_runs = [
         {
             "history_type": "graph_query",
@@ -339,7 +449,7 @@ def _build_industry_brain_history_snapshot(
         if item.get("user_role") == user_role and item.get("report_period") == report_period
     ]
 
-    records = analysis_runs + watch_runs + document_runs + stress_runs + verify_runs + graph_runs + vision_runs
+    records = analysis_runs + watch_runs + document_runs + stress_runs + score_runs + verify_runs + graph_runs + vision_runs
     records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     return {
         "user_role": user_role,

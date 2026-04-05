@@ -15,6 +15,7 @@ from opspilot.application.industry_signals import _build_company_signal_graph_co
 from opspilot.application.runtime_manifests import _find_watchboard_record
 from opspilot.application.runtime_views import (
     _build_frontend_route,
+    _build_score_frontend_route,
     _build_verify_frontend_route,
     _build_runtime_capsule_module,
     _filter_workspace_runs_for_company,
@@ -197,6 +198,12 @@ def _build_company_runtime_capsule(
         user_role=user_role,
         limit=1,
     )["runs"]
+    latest_score = service.score_runs(
+        company_name=company_name,
+        report_period=period,
+        user_role=user_role,
+        limit=1,
+    )["runs"]
     latest_verify = service.verify_runs(
         company_name=company_name,
         report_period=period,
@@ -248,6 +255,16 @@ def _build_company_runtime_capsule(
             detail_keys=("created_at",),
         ),
         _build_runtime_capsule_module(
+            module_key="score",
+            label="经营诊断",
+            route_path="/score",
+            company_name=company_name,
+            report_period=period,
+            record=latest_score[0] if latest_score else None,
+            summary_key="headline",
+            detail_keys=("grade", "created_at"),
+        ),
+        _build_runtime_capsule_module(
             module_key="verify",
             label="观点核验",
             route_path="/verify",
@@ -275,6 +292,7 @@ def _build_company_runtime_capsule(
             latest_analysis[0] if latest_analysis else None,
             latest_graph[0] if latest_graph else None,
             latest_stress[0] if latest_stress else None,
+            latest_score[0] if latest_score else None,
             latest_verify[0] if latest_verify else None,
             latest_vision[0] if latest_vision else None,
         )
@@ -288,8 +306,8 @@ def _build_company_runtime_capsule(
             latest_record.get("query")
             or latest_record.get("intent")
             or latest_record.get("scenario")
-            or latest_record.get("report_title")
             or latest_record.get("headline")
+            or latest_record.get("report_title")
         )
     return {
         "company_name": company_name,
@@ -344,6 +362,12 @@ def _build_company_intelligence_runtime(
         user_role=user_role,
         limit=1,
     )["runs"]
+    latest_score_runs = service.score_runs(
+        company_name=company_name,
+        report_period=period,
+        user_role=user_role,
+        limit=1,
+    )["runs"]
     latest_verify_runs = service.verify_runs(
         company_name=company_name,
         report_period=period,
@@ -390,6 +414,7 @@ def _build_company_intelligence_runtime(
             latest_analysis[0] if latest_analysis else None,
             latest_graph_runs[0] if latest_graph_runs else None,
             latest_stress_runs[0] if latest_stress_runs else None,
+            latest_score_runs[0] if latest_score_runs else None,
             latest_verify_runs[0] if latest_verify_runs else None,
             latest_vision_runs[0] if latest_vision_runs else None,
         )
@@ -432,6 +457,35 @@ def _build_company_intelligence_runtime(
                 else 0
             ),
             "route": {"path": "/stress", "query": {"company": company_name, "period": period}},
+        },
+        {
+            "module_key": "score",
+            "label": "经营诊断",
+            "status": "ready" if latest_score_runs else "idle",
+            "headline": latest_score_runs[0].get("headline") if latest_score_runs else "等待经营诊断",
+            "signal": (
+                f"{latest_score_runs[0].get('grade') or '--'} / {latest_score_runs[0].get('risk_count', 0)} 项风险"
+                if latest_score_runs
+                else "pending"
+            ),
+            "intensity": (
+                min(
+                    100,
+                    24
+                    + int(float(latest_score_runs[0].get("total_score") or 0) * 0.8)
+                    + int(latest_score_runs[0].get("risk_count") or 0) * 6,
+                )
+                if latest_score_runs
+                else 0
+            ),
+            "route": (
+                _build_score_frontend_route(latest_score_runs[0])
+                if latest_score_runs
+                else _build_frontend_route(
+                    "/score",
+                    query={"company": company_name, "period": period},
+                )
+            ),
         },
         {
             "module_key": "verify",
@@ -492,6 +546,8 @@ def _build_company_intelligence_runtime(
                     if pulse["module_key"] == "graph" and latest_graph_runs
                     else latest_stress_runs[0].get("created_at")
                     if pulse["module_key"] == "stress" and latest_stress_runs
+                    else latest_score_runs[0].get("created_at")
+                    if pulse["module_key"] == "score" and latest_score_runs
                     else latest_verify_runs[0].get("created_at")
                     if pulse["module_key"] == "verify" and latest_verify_runs
                     else latest_vision_runs[0].get("created_at")
@@ -505,6 +561,8 @@ def _build_company_intelligence_runtime(
                     if pulse["module_key"] == "graph" and latest_graph_runs
                     else latest_stress_runs[0].get("run_id")
                     if pulse["module_key"] == "stress" and latest_stress_runs
+                    else latest_score_runs[0].get("run_id")
+                    if pulse["module_key"] == "score" and latest_score_runs
                     else latest_verify_runs[0].get("run_id")
                     if pulse["module_key"] == "verify" and latest_verify_runs
                     else latest_vision_runs[0].get("run_id")
@@ -572,7 +630,8 @@ def _build_company_execution_stream(
             "meta": {
                 "priority": item.get("priority"),
                 "owner": item.get("owner_role"),
-                "route": _build_frontend_route(
+                "route": item.get("route")
+                or _build_frontend_route(
                     "/workspace",
                     query={"company": company_name, "period": period},
                 ),
@@ -648,6 +707,28 @@ def _build_company_execution_stream(
             },
         }
         for item in service.stress_test_runs(
+            company_name=company_name,
+            report_period=period,
+            user_role=user_role,
+            limit=100,
+        )["runs"]
+    ]
+    score_items = [
+        {
+            "stream_type": "company_score",
+            "id": item["run_id"],
+            "title": "经营诊断",
+            "status": item.get("status_label", "completed"),
+            "created_at": item.get("created_at"),
+            "meta": {
+                "headline": item.get("headline"),
+                "grade": item.get("grade"),
+                "total_score": item.get("total_score"),
+                "risk_count": item.get("risk_count"),
+                "route": _build_score_frontend_route(item),
+            },
+        }
+        for item in service.score_runs(
             company_name=company_name,
             report_period=period,
             user_role=user_role,
@@ -754,7 +835,7 @@ def _build_company_execution_stream(
         and item.get("report_period") == period
         and item.get("user_role") == user_role
     ]
-    records = alert_items + task_items + watch_records + document_items + stress_items + verify_items + graph_items + vision_items + analysis_runs
+    records = alert_items + task_items + watch_records + document_items + stress_items + score_items + verify_items + graph_items + vision_items + analysis_runs
     records.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     return {
         "company_name": company_name,
@@ -766,6 +847,7 @@ def _build_company_execution_stream(
             "tasks": len(task_items),
             "watch_records": len(watch_records),
             "document_upgrades": len(document_items),
+            "score_runs": len(score_items),
             "verify_runs": len(verify_items),
             "graph_queries": len(graph_items),
             "vision_runs": len(vision_items),

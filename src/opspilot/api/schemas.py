@@ -15,6 +15,7 @@ class ChatTurnRequest(BaseModel):
 class ScoreRequest(BaseModel):
     company_name: str
     report_period: str | None = None
+    user_role: Literal["investor", "management", "regulator"] = "management"
 
 
 class BenchmarkRequest(BaseModel):

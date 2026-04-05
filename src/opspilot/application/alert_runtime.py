@@ -14,6 +14,7 @@ from opspilot.application.runtime_manifests import (
     _write_alert_board_manifest,
     _write_task_board_manifest,
 )
+from opspilot.application.runtime_views import _resolve_source_run_route
 
 
 def _get_company_periods(repository: Any, company_name: str) -> set[str]:
@@ -432,11 +433,12 @@ def _create_manual_task(
                 "updated_at": created_at,
             }
         ],
-        "route": _build_manual_task_route(
-            company_name,
-            period,
-            user_role,
+        "route": _resolve_source_run_route(
+            service.settings,
             source_run_id=source_run_id,
+            company_name=company_name,
+            report_period=period,
+            user_role=user_role,
         ),
         "owner_role": user_role,
         "task_source": "manual",

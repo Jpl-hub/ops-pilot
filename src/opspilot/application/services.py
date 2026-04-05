@@ -103,6 +103,11 @@ from opspilot.application.verify_runtime import (
     _verify_run_detail,
     _verify_runs,
 )
+from opspilot.application.score_runtime import (
+    _persist_score_run,
+    _score_run_detail,
+    _score_runs,
+)
 from opspilot.application.stress_service import StressService
 from opspilot.application.industry_brain_runtime import (
     _build_industry_brain_payload,
@@ -460,6 +465,35 @@ class OpsPilotService:
         result = self._scoring.score_company(company_name, report_period)
         self._cache_set(ck, result)
         return result
+
+    def run_company_score(
+        self,
+        company_name: str,
+        report_period: str | None = None,
+        *,
+        user_role: str = "management",
+    ) -> dict[str, Any]:
+        payload = self.score_company(company_name, report_period)
+        return _persist_score_run(self, payload, user_role=user_role)
+
+    def score_runs(
+        self,
+        *,
+        company_name: str | None = None,
+        report_period: str | None = None,
+        user_role: str = "management",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return _score_runs(
+            self,
+            company_name=company_name,
+            report_period=report_period,
+            user_role=user_role,
+            limit=limit,
+        )
+
+    def score_run_detail(self, run_id: str) -> dict[str, Any]:
+        return _score_run_detail(self, run_id)
 
     def benchmark_company(self, company_name: str, report_period: str | None = None) -> dict[str, Any]:
         ck = f"benchmark:{company_name}:{report_period or ''}"

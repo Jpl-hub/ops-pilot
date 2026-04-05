@@ -22,7 +22,7 @@ from opspilot.application.research_reports import (
     _extract_research_payload,
     _select_research_report,
 )
-from opspilot.application.runtime_views import _build_verify_frontend_route
+from opspilot.application.runtime_views import _build_score_frontend_route, _build_verify_frontend_route
 from opspilot.delivery_report import build_delivery_report_markdown
 from opspilot.runtime_checks import build_runtime_report, validate_delivery_runtime
 from opspilot.infra.sample_repository import SampleRepository
@@ -3447,11 +3447,14 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(workspace["alerts"]["items"])
             self.assertGreaterEqual(workspace["execution_stream"]["total"], 3)
             self.assertEqual(intelligence_runtime["company_name"], "测试公司")
-            self.assertEqual(len(intelligence_runtime["module_pulses"]), 5)
+            self.assertEqual(len(intelligence_runtime["module_pulses"]), 6)
             self.assertGreaterEqual(intelligence_runtime["runtime_bus"]["total"], 1)
-            self.assertEqual(len(intelligence_runtime["runtime_bus"]["records"]), 5)
+            self.assertEqual(len(intelligence_runtime["runtime_bus"]["records"]), 6)
             self.assertTrue(
                 any(item["module_key"] == "graph" and item["intensity"] >= 0 for item in intelligence_runtime["module_pulses"])
+            )
+            self.assertTrue(
+                any(item["module_key"] == "score" for item in intelligence_runtime["module_pulses"])
             )
             self.assertIn("intelligence_runtime", workspace)
             self.assertGreaterEqual(workspace["intelligence_runtime"]["runtime_bus"]["total"], 1)
@@ -5968,6 +5971,106 @@ class ServicesTestCase(unittest.IsolatedAsyncioTestCase):
             self.assertIn("偏差", verify_pulse["signal"])
             self.assertEqual(verify_pulse["route"]["path"], "/verify")
             self.assertEqual(verify_pulse["route"]["query"]["run_id"], payload["run_id"])
+
+    def test_score_run_persists_and_flows_into_runtime_surfaces(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            settings = type(
+                "StubSettings",
+                (),
+                {
+                    "app_name": "OpsPilot",
+                    "env": "test",
+                    "default_period": "2025Q3",
+                    "audit_min_evidence": 0,
+                    "sample_data_path": Path(__file__).resolve().parents[1] / "data" / "bootstrap",
+                    "official_data_path": root / "raw" / "official",
+                    "bronze_data_path": root / "bronze" / "official",
+                    "silver_data_path": root / "silver" / "official",
+                },
+            )()
+            repository = SampleRepository(settings.sample_data_path)
+            service = OpsPilotService(repository, settings)
+            first_company = repository.list_companies()[0]
+            period = first_company["report_period"]
+            company_name = first_company["company_name"]
+
+            payload = service.run_company_score(
+                company_name,
+                period,
+                user_role="management",
+            )
+
+            self.assertIn("run_id", payload)
+            self.assertTrue((root / "bronze" / "official" / "manifests" / "score_runs.json").exists())
+
+            runs = service.score_runs(
+                company_name=company_name,
+                report_period=period,
+                user_role="management",
+            )
+            self.assertEqual(runs["total"], 1)
+            self.assertEqual(runs["runs"][0]["run_id"], payload["run_id"])
+
+            detail = service.score_run_detail(payload["run_id"])
+            self.assertEqual(detail["run_meta"]["company_name"], company_name)
+            self.assertEqual(detail["run_meta"]["run_id"], payload["run_id"])
+
+            score_route = _build_score_frontend_route(runs["runs"][0])
+            self.assertEqual(score_route["path"], "/score")
+            self.assertEqual(score_route["query"]["run_id"], payload["run_id"])
+
+            history = service.workspace_history(user_role="management", report_period=period)
+            score_history = next(item for item in history["records"] if item["history_type"] == "company_score")
+            self.assertEqual(score_history["meta"]["route"]["path"], "/score")
+            self.assertEqual(score_history["meta"]["route"]["query"]["run_id"], payload["run_id"])
+
+            execution_stream = service.company_execution_stream(
+                company_name,
+                period,
+                user_role="management",
+            )
+            score_stream = next(item for item in execution_stream["records"] if item["stream_type"] == "company_score")
+            self.assertEqual(score_stream["meta"]["route"]["path"], "/score")
+            self.assertEqual(score_stream["meta"]["route"]["query"]["run_id"], payload["run_id"])
+
+            company_workspace = service.company_workspace(
+                company_name,
+                period,
+                user_role="management",
+            )
+            score_module = next(
+                item
+                for item in company_workspace["runtime_capsule"]["modules"]
+                if item["module_key"] == "score"
+            )
+            self.assertEqual(score_module["route"]["path"], "/score")
+            self.assertEqual(score_module["route"]["query"]["run_id"], payload["run_id"])
+
+            intelligence_runtime = service.company_intelligence_runtime(
+                company_name,
+                period,
+                user_role="management",
+            )
+            score_pulse = next(
+                item for item in intelligence_runtime["module_pulses"] if item["module_key"] == "score"
+            )
+            self.assertEqual(score_pulse["status"], "ready")
+            self.assertEqual(score_pulse["route"]["path"], "/score")
+            self.assertEqual(score_pulse["route"]["query"]["run_id"], payload["run_id"])
+
+            task_payload = service.create_task(
+                company_name=company_name,
+                title="把体检动作写入任务板",
+                summary="围绕最新经营诊断的主判断拆成执行任务。",
+                priority="P1",
+                user_role="management",
+                report_period=period,
+                note="来自经营诊断动作卡",
+                source_run_id=payload["run_id"],
+            )
+            self.assertEqual(task_payload["task"]["route"]["path"], "/score")
+            self.assertEqual(task_payload["task"]["route"]["query"]["run_id"], payload["run_id"])
 
     def test_list_research_reports_returns_ranked_catalog(self) -> None:
         class StubRepository:

@@ -306,6 +306,23 @@ def _workspace_run_detail_path(settings: Settings, run_id: str) -> Path:
     return settings.bronze_data_path / "runs" / f"{run_id}.json"
 
 
+def _load_score_run_manifest(settings: Settings) -> dict[str, Any]:
+    return _load_simple_run_manifest(settings.bronze_data_path / "manifests" / "score_runs.json")
+
+
+def _write_score_run_manifest(settings: Settings, payload: dict[str, Any]) -> None:
+    _write_simple_run_manifest(settings.bronze_data_path / "manifests" / "score_runs.json", payload)
+
+
+def _build_score_run_id(company_name: str) -> str:
+    company_slug = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fff]+", "-", company_name).strip("-").lower()
+    return f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{company_slug}-score"
+
+
+def _score_run_detail_path(settings: Settings, run_id: str) -> Path:
+    return settings.bronze_data_path / "score_runs" / f"{run_id}.json"
+
+
 def _load_stress_test_run_manifest(settings: Settings) -> dict[str, Any]:
     return _load_simple_run_manifest(settings.bronze_data_path / "manifests" / "stress_test_runs.json")
 
