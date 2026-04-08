@@ -913,92 +913,34 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
         </section>
 
         <section class="workspace-body">
-          <section class="main-surface">
-            <header class="surface-head">
-              <div class="surface-headline">
-                <span class="surface-kicker">{{ latestAnswer ? '当前判断' : '先看当前状态' }}</span>
-                <strong>{{ surfaceTitle }}</strong>
-                <p class="surface-summary">{{ surfaceSummary }}</p>
+          <div class="workspace-layout">
+            <section class="main-surface">
+              <header class="surface-head">
+                <div class="surface-headline">
+                  <span class="surface-kicker">{{ latestAnswer ? '当前判断' : '先看当前状态' }}</span>
+                  <strong>{{ surfaceTitle }}</strong>
+                  <p class="surface-summary">{{ surfaceSummary }}</p>
+                </div>
+                <div class="surface-meta">
+                  <span v-for="item in workspaceStatus" :key="item">{{ item }}</span>
+                </div>
+              </header>
+
+              <div v-if="loadingTurn" class="surface-loading">
+                <strong>正在整理这一轮结果</strong>
+                <p>真实服务正在回收数字、证据和下一步建议。</p>
               </div>
-              <div class="surface-meta">
-                <span v-for="item in workspaceStatus" :key="item">{{ item }}</span>
-              </div>
-            </header>
 
-            <div v-if="loadingTurn" class="surface-loading">
-              <strong>正在整理这一轮结果</strong>
-              <p>真实服务正在回收数字、证据和下一步建议。</p>
-            </div>
-
-            <div v-else-if="latestAnswer || companyWorkspaceReady" class="surface-stack">
-              <section v-if="decisionMetrics.length" class="summary-strip">
-                <article v-for="item in decisionMetrics" :key="item.label" class="summary-chip">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ displayMetricValue(item) }}</strong>
-                  <p v-if="item.hint">{{ item.hint }}</p>
-                </article>
-              </section>
-
-              <template v-if="latestAnswer">
-                <section v-for="block in answerBlocks" :key="block.title" class="answer-block">
-                  <h3>{{ block.title }}</h3>
-                  <p v-for="line in block.paragraphs" :key="line" v-html="renderInlineMarkdown(line)"></p>
-                  <ul v-if="block.bullets.length" class="focus-list">
-                    <li v-for="line in block.bullets" :key="line" v-html="renderInlineMarkdown(line)"></li>
-                  </ul>
+              <div v-else-if="latestAnswer || companyWorkspaceReady" class="surface-stack">
+                <section v-if="decisionMetrics.length" class="metric-pills">
+                  <article v-for="item in decisionMetrics" :key="item.label" class="metric-pill">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ displayMetricValue(item) }}</strong>
+                  </article>
                 </section>
 
-                <section v-if="primaryActionCards.length" class="flow-surface">
-                  <div class="section-head">
-                    <span>下一步</span>
-                    <strong>先把动作说清楚</strong>
-                  </div>
-                  <div class="inline-grid">
-                    <article v-for="item in primaryActionCards" :key="item.title" class="action-card">
-                      <em>{{ item.priority || '动作' }}</em>
-                      <strong>{{ item.title }}</strong>
-                      <p>{{ item.action || item.reason }}</p>
-                      <div class="card-actions">
-                        <button
-                          type="button"
-                          class="surface-action"
-                          :disabled="isWorkflowPending('task-create', item.title || 'task')"
-                          @click="createTaskFromCard(item)"
-                        >
-                          {{ isWorkflowPending('task-create', item.title || 'task') ? '写入中…' : '写入任务板' }}
-                        </button>
-                      </div>
-                    </article>
-                  </div>
-                </section>
-
-                <section v-if="latestEvidenceCards.length" class="flow-surface">
-                  <div class="section-head">
-                    <span>回到原文</span>
-                    <strong>先看最关键的证据</strong>
-                  </div>
-                  <div class="inline-grid">
-                    <article v-for="group in latestEvidenceCards" :key="group.title" class="evidence-card">
-                      <strong>{{ group.title }}</strong>
-                      <p>{{ group.subtitle }}</p>
-                      <div class="evidence-links">
-                        <RouterLink
-                          v-for="item in group.items"
-                          :key="`${group.title}-${item.path}-${item.label}`"
-                          :to="{ path: item.path, query: item.query || {} }"
-                          class="surface-link"
-                        >
-                          {{ item.label }}
-                        </RouterLink>
-                      </div>
-                    </article>
-                  </div>
-                </section>
-              </template>
-
-              <template v-else>
-                <section class="snapshot-surface">
-                  <article v-for="column in focusColumns" :key="column.label" class="snapshot-column">
+                <section class="focus-band">
+                  <article v-for="column in focusColumns" :key="column.label" class="focus-panel">
                     <span class="focus-label">{{ column.label }}</span>
                     <ul v-if="column.items.length" class="focus-list">
                       <li v-for="item in column.items" :key="item">{{ item }}</li>
@@ -1007,172 +949,141 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                   </article>
                 </section>
 
-                <article class="snapshot-note">
-                  <span class="focus-label">这一轮可以从这里接着看</span>
-                  <p>{{ researchSummary }}</p>
-                  <p v-if="latestRunSummary">{{ latestRunSummary }}</p>
-                </article>
-              </template>
+                <template v-if="latestAnswer">
+                  <section class="answer-surface">
+                    <article v-for="block in answerBlocks" :key="block.title" class="answer-block">
+                      <h3>{{ block.title }}</h3>
+                      <p v-for="line in block.paragraphs" :key="line" v-html="renderInlineMarkdown(line)"></p>
+                      <ul v-if="block.bullets.length" class="focus-list">
+                        <li v-for="line in block.bullets" :key="line" v-html="renderInlineMarkdown(line)"></li>
+                      </ul>
+                    </article>
+                  </section>
 
-              <section class="flow-surface">
-                <div class="section-head">
-                  <span>推进执行</span>
-                  <strong>把这一轮判断落进任务和持续跟踪</strong>
-                </div>
-
-                <div class="workflow-toolbar">
-                  <button
-                    type="button"
-                    class="surface-action"
-                    :disabled="!selectedCompany || isWorkflowPending('watchboard', selectedCompany)"
-                    @click="toggleWatchboardTracking()"
-                  >
-                    {{
-                      selectedCompany && isWorkflowPending('watchboard', selectedCompany)
-                        ? '处理中…'
-                        : watchboardActionLabel
-                    }}
-                  </button>
-                  <p class="workflow-summary">{{ watchboardSummary }}</p>
-                </div>
-
-                <div v-if="liveTasks.length" class="inline-grid">
-                  <article v-for="task in liveTasks" :key="task.task_id" class="task-card">
-                    <div class="task-topline">
-                      <em>{{ task.priority || task.task_source_label || '任务' }}</em>
-                      <span class="task-status" :class="`is-${task.status}`">{{ task.status_label || task.status }}</span>
+                  <section v-if="primaryActionCards.length" class="flow-surface">
+                    <div class="section-head">
+                      <span>下一步</span>
+                      <strong>先把动作说清楚</strong>
                     </div>
-                    <strong>{{ task.title }}</strong>
-                    <p>{{ task.summary }}</p>
-                    <p class="task-caption">
-                      {{ task.task_source_label || '任务板' }} · {{ formatRelativeTime(task.updated_at || task.created_at) }}
-                    </p>
-                    <div class="card-actions">
-                      <button
-                        v-if="task.status === 'queued'"
-                        type="button"
-                        class="surface-action"
-                        :disabled="isWorkflowPending('task-status', `${task.task_id}:in_progress`)"
-                        @click="setTaskStatus(task.task_id, 'in_progress')"
-                      >
-                        {{
-                          isWorkflowPending('task-status', `${task.task_id}:in_progress`)
-                            ? '处理中…'
-                            : '开始推进'
-                        }}
-                      </button>
-                      <button
-                        v-if="task.status === 'in_progress'"
-                        type="button"
-                        class="surface-action"
-                        :disabled="isWorkflowPending('task-status', `${task.task_id}:done`)"
-                        @click="setTaskStatus(task.task_id, 'done')"
-                      >
-                        {{ isWorkflowPending('task-status', `${task.task_id}:done`) ? '处理中…' : '标记完成' }}
-                      </button>
-                      <button
-                        v-if="task.status !== 'done' && task.status !== 'blocked'"
-                        type="button"
-                        class="surface-action is-secondary"
-                        :disabled="isWorkflowPending('task-status', `${task.task_id}:blocked`)"
-                        @click="setTaskStatus(task.task_id, 'blocked')"
-                      >
-                        {{
-                          isWorkflowPending('task-status', `${task.task_id}:blocked`)
-                            ? '处理中…'
-                            : '标记阻断'
-                        }}
-                      </button>
-                      <RouterLink :to="task.route" class="surface-link task-link">查看上下文</RouterLink>
+                    <div class="action-list">
+                      <article v-for="item in primaryActionCards" :key="item.title" class="action-row">
+                        <div class="action-copy">
+                          <em>{{ item.priority || '动作' }}</em>
+                          <strong>{{ item.title }}</strong>
+                          <p>{{ item.action || item.reason }}</p>
+                        </div>
+                        <button
+                          type="button"
+                          class="surface-action"
+                          :disabled="isWorkflowPending('task-create', item.title || 'task')"
+                          @click="createTaskFromCard(item)"
+                        >
+                          {{ isWorkflowPending('task-create', item.title || 'task') ? '写入中…' : '写入任务板' }}
+                        </button>
+                      </article>
                     </div>
+                  </section>
+
+                  <section v-if="latestEvidenceCards.length" class="flow-surface">
+                    <div class="section-head">
+                      <span>回到原文</span>
+                      <strong>先看最关键的证据</strong>
+                    </div>
+                    <div class="evidence-stack">
+                      <article v-for="group in latestEvidenceCards" :key="group.title" class="evidence-row">
+                        <div class="evidence-copy">
+                          <strong>{{ group.title }}</strong>
+                          <p>{{ group.subtitle }}</p>
+                        </div>
+                        <div class="evidence-links">
+                          <RouterLink
+                            v-for="item in group.items"
+                            :key="`${group.title}-${item.path}-${item.label}`"
+                            :to="{ path: item.path, query: item.query || {} }"
+                            class="surface-link"
+                          >
+                            {{ item.label }}
+                          </RouterLink>
+                        </div>
+                      </article>
+                    </div>
+                  </section>
+                </template>
+
+                <template v-else>
+                  <article class="snapshot-note">
+                    <span class="focus-label">这一轮可以从这里接着看</span>
+                    <p>{{ researchSummary }}</p>
+                    <p v-if="latestRunSummary">{{ latestRunSummary }}</p>
                   </article>
-                </div>
-                <p v-else class="inline-empty">当前还没有入板任务，可先把上面的动作写入任务板。</p>
+                </template>
+              </div>
 
+              <div v-else class="surface-empty">
+                当前公司运行态还没加载完成。
+              </div>
+            </section>
+
+            <aside class="workspace-rail">
+              <section class="rail-panel">
+                <div class="section-head">
+                  <span>直接发问</span>
+                  <strong>先从这三个问题开始</strong>
+                </div>
+                <div class="rail-prompts">
+                  <button
+                    v-for="question in starterQueries.slice(0, 3)"
+                    :key="question"
+                    type="button"
+                    class="prompt-chip"
+                    @click="pickStarterQuery(question)"
+                  >
+                    {{ question }}
+                  </button>
+                </div>
+              </section>
+
+              <section class="rail-panel">
+                <div class="section-head">
+                  <span>持续跟踪</span>
+                  <strong>把这一轮判断接到后续动作</strong>
+                </div>
+                <p class="workflow-summary">{{ watchboardSummary }}</p>
+                <button
+                  type="button"
+                  class="surface-action"
+                  :disabled="!selectedCompany || isWorkflowPending('watchboard', selectedCompany)"
+                  @click="toggleWatchboardTracking()"
+                >
+                  {{
+                    selectedCompany && isWorkflowPending('watchboard', selectedCompany)
+                      ? '处理中…'
+                      : watchboardActionLabel
+                  }}
+                </button>
                 <p v-if="workflowActionError" class="composer-error">{{ workflowActionError }}</p>
               </section>
 
-              <section v-if="companySignals.length || continuationLinks.length" class="flow-surface">
+              <section v-if="latestRunSummary || researchSummary || continuationLinks.length" class="rail-panel">
                 <div class="section-head">
-                  <span>继续推进</span>
-                  <strong>把这一轮判断接到下一步</strong>
+                  <span>继续往下看</span>
+                  <strong>把这一轮判断接到证据和模块</strong>
                 </div>
-                <div class="continuation-layout">
-                  <div v-if="companySignals.length" class="signal-grid">
-                    <RouterLink
-                      v-for="item in companySignals"
-                      :key="`${item.label}-${item.title}`"
-                      :to="item.route || { path: '/workspace' }"
-                      class="signal-card"
-                    >
-                      <span>{{ item.label }}</span>
-                      <strong>{{ item.title }}</strong>
-                      <p>{{ item.detail }}</p>
-                    </RouterLink>
-                  </div>
-
-                  <article v-if="continuationLinks.length" class="continuation-panel">
-                    <span class="focus-label">继续看哪里</span>
-                    <div class="continuation-links">
-                      <RouterLink
-                        v-for="item in continuationLinks"
-                        :key="`${item.path}-${item.label}`"
-                        :to="{ path: item.path, query: item.query || {} }"
-                        class="surface-link"
-                      >
-                        {{ item.label }}
-                      </RouterLink>
-                    </div>
-                  </article>
+                <p v-if="latestRunSummary">{{ latestRunSummary }}</p>
+                <p>{{ researchSummary }}</p>
+                <div v-if="continuationLinks.length" class="continuation-links">
+                  <RouterLink
+                    v-for="item in continuationLinks"
+                    :key="`${item.path}-${item.label}`"
+                    :to="{ path: item.path, query: item.query || {} }"
+                    class="surface-link"
+                  >
+                    {{ item.label }}
+                  </RouterLink>
                 </div>
               </section>
-
-              <section v-if="runtimeCapsuleModules.length || executionHighlights.length" class="flow-surface">
-                <div class="section-head">
-                  <span>当前运行态</span>
-                  <strong>看这家公司现在卡在哪一段</strong>
-                </div>
-                <div class="runtime-layout">
-                  <div v-if="runtimeCapsuleModules.length" class="runtime-grid">
-                    <RouterLink
-                      v-for="item in runtimeCapsuleModules"
-                      :key="item.module_key"
-                      :to="{ path: item.route.path, query: item.route.query || {} }"
-                      class="runtime-card"
-                      :class="`is-${moduleTone(item.status)}`"
-                    >
-                      <div class="runtime-card-top">
-                        <span>{{ item.label }}</span>
-                        <em>{{ displayModuleStatus(item.status) }}</em>
-                      </div>
-                      <strong>{{ item.summary }}</strong>
-                      <p>{{ item.details?.length ? item.details.join(' · ') : '继续进入这个模块。' }}</p>
-                    </RouterLink>
-                  </div>
-
-                  <div v-if="executionHighlights.length" class="execution-list">
-                    <RouterLink
-                      v-for="item in executionHighlights"
-                      :key="`${item.stream_type}-${item.id}`"
-                      :to="resolveExecutionRoute(item) || { path: '/workspace' }"
-                      class="execution-card"
-                    >
-                      <div class="execution-card-top">
-                        <span>{{ displayExecutionType(item.stream_type) }}</span>
-                        <em>{{ displayExecutionStatus(item.status) }}</em>
-                      </div>
-                      <strong>{{ item.title }}</strong>
-                      <p>{{ describeExecutionMeta(item) }}</p>
-                    </RouterLink>
-                  </div>
-                </div>
-              </section>
-            </div>
-
-            <div v-else class="surface-empty">
-              当前公司运行态还没加载完成。
-            </div>
-          </section>
+            </aside>
+          </div>
         </section>
 
         <footer class="board-composer">
@@ -1397,11 +1308,23 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   padding: 20px;
 }
 
-.main-surface {
+.workspace-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.main-surface,
+.workspace-rail {
   min-height: 0;
   display: grid;
   gap: 18px;
   align-content: start;
+}
+
+.workspace-rail {
+  align-self: stretch;
 }
 
 .surface-head {
@@ -1415,18 +1338,18 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 }
 
 .surface-head strong {
-  font-size: clamp(34px, 4vw, 52px);
-  line-height: 1.02;
-  letter-spacing: -0.05em;
-  max-width: 980px;
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  max-width: 760px;
 }
 
 .surface-summary {
   margin: 0;
-  max-width: 840px;
+  max-width: 760px;
   color: rgba(203, 213, 225, 0.82);
-  font-size: 17px;
-  line-height: 1.65;
+  font-size: 16px;
+  line-height: 1.7;
 }
 
 .surface-meta {
@@ -1496,85 +1419,54 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   gap: 6px;
 }
 
-.summary-strip,
-.snapshot-surface,
-.inline-grid,
-.evidence-links,
-.continuation-layout,
-.runtime-layout,
-.signal-grid,
-.runtime-grid,
-.execution-list,
-.continuation-links {
+.metric-pills,
+.focus-band,
+.continuation-links,
+.rail-prompts,
+.evidence-links {
   display: grid;
   gap: 14px;
 }
 
-.summary-strip {
+.metric-pills {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.snapshot-surface {
+.focus-band {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.summary-chip,
-.snapshot-column,
+.metric-pill,
+.focus-panel,
 .snapshot-note,
-.action-card,
-.evidence-card,
-.task-card,
-.signal-card,
-.continuation-panel,
-.runtime-card,
-.execution-card,
+.rail-panel,
+.answer-surface,
 .surface-link {
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.025);
 }
 
-.summary-chip,
-.snapshot-column,
+.metric-pill,
+.focus-panel,
 .snapshot-note,
-.action-card,
-.evidence-card,
-.task-card,
-.signal-card,
-.continuation-panel,
-.runtime-card,
-.execution-card {
+.rail-panel,
+.answer-surface {
   display: grid;
   gap: 8px;
   padding: 18px;
 }
 
-.summary-chip strong {
-  font-size: 28px;
+.metric-pill strong {
+  font-size: 22px;
   line-height: 1.05;
   letter-spacing: -0.04em;
 }
 
-.summary-chip p {
-  margin: 0;
-  color: rgba(148, 163, 184, 0.86);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.action-card strong,
-.evidence-card strong,
-.task-card strong,
-.signal-card strong,
-.runtime-card strong,
-.execution-card strong {
-  font-size: 16px;
-  line-height: 1.35;
-}
-
-.snapshot-column,
-.snapshot-note {
-  min-height: 200px;
+.focus-panel,
+.snapshot-note,
+.rail-panel,
+.answer-surface {
   align-content: start;
 }
 
@@ -1589,8 +1481,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   letter-spacing: -0.03em;
 }
 
-.action-card em,
-.task-topline em {
+.action-copy em {
   font-style: normal;
   color: #73f0c7;
   font-size: 11px;
@@ -1599,98 +1490,55 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   font-family: 'JetBrains Mono', monospace;
 }
 
-.task-topline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+.answer-surface {
+  gap: 18px;
 }
 
-.task-status {
-  min-height: 26px;
-  padding: 0 10px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  font-size: 12px;
-  color: #dbe7f3;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.task-status.is-queued {
-  background: rgba(30, 41, 59, 0.78);
-}
-
-.task-status.is-in_progress {
-  background: rgba(83, 52, 13, 0.82);
-  color: #fef3c7;
-}
-
-.task-status.is-done {
-  background: rgba(18, 62, 45, 0.88);
-  color: #dcfce7;
-}
-
-.task-status.is-blocked {
-  background: rgba(69, 10, 10, 0.82);
-  color: #fecaca;
-}
-
-.continuation-layout,
-.runtime-layout {
-  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
-}
-
-.signal-grid,
-.runtime-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.signal-card,
-.runtime-card,
-.execution-card {
-  text-decoration: none;
-  color: inherit;
-}
-
-.signal-card span,
-.runtime-card-top span,
-.execution-card-top span {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(120, 143, 172, 0.82);
-}
-
-.runtime-card-top,
-.execution-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.action-list,
+.evidence-stack {
+  display: grid;
   gap: 12px;
 }
 
-.runtime-card-top em,
-.execution-card-top em {
-  font-style: normal;
-  color: rgba(226, 232, 240, 0.88);
-  font-size: 12px;
+.action-row,
+.evidence-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
 }
 
-.runtime-card.is-success {
-  border-color: rgba(52, 211, 153, 0.2);
-  background: rgba(15, 41, 31, 0.52);
+.action-copy,
+.evidence-copy {
+  display: grid;
+  gap: 8px;
 }
 
-.runtime-card.is-accent {
-  border-color: rgba(59, 130, 246, 0.2);
-  background: rgba(16, 24, 42, 0.58);
+.action-copy strong,
+.evidence-copy strong {
+  font-size: 16px;
+  line-height: 1.35;
 }
 
-.runtime-card.is-risk {
-  border-color: rgba(244, 63, 94, 0.24);
-  background: rgba(58, 18, 28, 0.46);
+.action-copy p,
+.evidence-copy p,
+.rail-panel p,
+.metric-pill p {
+  margin: 0;
+  color: rgba(203, 213, 225, 0.84);
+  line-height: 1.7;
+}
+
+.rail-prompts {
+  grid-template-columns: 1fr;
+}
+
+.continuation-links {
+  grid-template-columns: 1fr;
 }
 
 .surface-link {
@@ -1704,18 +1552,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
 .surface-link {
   width: fit-content;
-}
-
-.card-actions,
-.workflow-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-.workflow-toolbar {
-  justify-content: space-between;
 }
 
 .workflow-summary {
@@ -1742,10 +1578,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 .surface-action:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-}
-
-.task-link {
-  min-height: 38px;
 }
 
 .board-composer {
@@ -1816,18 +1648,19 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 }
 
 @media (max-width: 1240px) {
-  .summary-strip,
-  .snapshot-surface,
-  .inline-grid,
-  .signal-grid,
-  .runtime-grid,
-  .continuation-layout,
-  .runtime-layout {
+  .workspace-layout,
+  .metric-pills,
+  .focus-band {
     grid-template-columns: 1fr;
   }
 
   .surface-head strong {
-    font-size: clamp(28px, 8vw, 40px);
+    font-size: clamp(22px, 8vw, 32px);
+  }
+
+  .action-row,
+  .evidence-row {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1858,9 +1691,5 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
     min-height: 44px;
   }
 
-  .workflow-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
 }
 </style>
