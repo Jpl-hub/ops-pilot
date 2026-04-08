@@ -22,39 +22,40 @@ const navSections = computed(() => {
     {
       title: '一、投资者：智能问数与洞察',
       items: [
-        { to: '/brain', label: '全景数据监控', note: '高频流式数据与事件监控', auth: true },
-        { to: '/workspace', label: '多智能体协同研判', note: '围绕问题直接判断', auth: true },
-        { to: '/graph', label: '图谱增强检索', note: '顺着证据继续追', auth: true },
+        { to: '/brain', label: '新能源产业大脑', note: '高频流式数据与事件监控', auth: true },
+        { to: '/workspace', label: '多智能体协同研判', note: '围绕问题直接发起判断', auth: true },
+        { to: '/graph', label: '图谱增强检索', note: '沿着主链继续追证据', auth: true },
       ],
     },
     {
       title: '二、管理者：运营评估与推演',
       items: [
-        { to: '/score', label: '经营诊断与行业对标', note: '看企业体征与对比', auth: true },
-        { to: '/stress', label: '产业链压力测试', note: '看冲击如何传导', auth: true },
+        { to: '/score', label: '经营诊断与行业对标', note: '五维评分与自动化策略优化', auth: true },
+        { to: '/stress', label: '产业链压力测试', note: '宏观冲击与传导模拟', auth: true },
       ],
     },
     {
       title: '三、监管机构：合规与风险筛查',
       items: [
-        { to: '/verify', label: '观点核验与成因追溯', note: '研报与财报一致性校验', auth: true },
-        { to: '/vision', label: '文档复核与自动化监控', note: '回到原文继续核对', auth: true },
+        { to: '/verify', label: '观点核验与成因追溯', note: '研报与财报原文一致性校验', auth: true },
+        { to: '/vision', label: '文档复核与结构监控', note: 'OCR产物与原文结构治理', auth: true },
       ],
     },
   ]
-  return sections
-    .map((section) => ({
-      ...section,
-      items: section.items.filter((item) => !item.auth || session.isAuthenticated.value),
-    }))
-    .filter((section) => section.items.length)
-})
 
-const flatNavItems = computed(() => navSections.value.flatMap((section) => section.items))
+  return sections.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => !item.auth || session.isAuthenticated.value),
+  }))
+})
 
 const activeNavLabel = computed(() => {
   if (route.path.startsWith('/evidence/')) return '原文证据'
-  return flatNavItems.value.find((item) => item.to === route.path)?.label || '全景数据监控'
+  for (const section of navSections.value) {
+    const match = section.items.find((item) => item.to === route.path)
+    if (match) return match.label
+  }
+  return '新能源产业大脑'
 })
 
 const routeContext = computed(() => {
@@ -101,37 +102,35 @@ function buildNavTarget(path: string) {
           </svg>
         </div>
         <div class="app-brand-copy">
-          <strong>N.E.W.S. Agent</strong>
-          <span>NEW ENERGY WISDOM SYSTEM</span>
+          <strong>OpsPilot-X</strong>
+          <span>新能源运营决策智能体</span>
         </div>
       </RouterLink>
 
       <nav class="app-nav">
         <section v-for="section in navSections" :key="section.title" class="nav-section">
-          <h3 class="nav-section-title">{{ section.title }}</h3>
-          <div class="nav-section-items">
-            <RouterLink
-              v-for="item in section.items"
-              :key="item.to"
-              :to="buildNavTarget(item.to)"
-              class="app-nav-item"
-            >
-              <strong>{{ item.label }}</strong>
-              <span>{{ item.note }}</span>
-            </RouterLink>
-          </div>
+          <h3>{{ section.title }}</h3>
+          <RouterLink
+            v-for="item in section.items"
+            :key="item.to"
+            :to="buildNavTarget(item.to)"
+            class="app-nav-item"
+          >
+            <strong>{{ item.label }}</strong>
+            <span>{{ item.note }}</span>
+          </RouterLink>
         </section>
       </nav>
 
       <div class="app-sidebar-footer">
-        <div class="app-system-row">
-          <span class="system-dot"></span>
-          <strong>System Online: 99.9%</strong>
+        <div class="app-context-card">
+          <span>当前视角</span>
+          <strong>{{ activeNavLabel }}</strong>
+          <p>{{ routeContext }}</p>
         </div>
-        <div class="app-footer-row">
-          <button v-if="session.isAuthenticated.value" type="button" class="app-footer-link" @click="logout">
-            退出
-          </button>
+        <div class="app-footer-row" v-if="session.isAuthenticated.value">
+          <RouterLink to="/profile" class="app-footer-link">个人中心</RouterLink>
+          <button type="button" class="app-footer-link" @click="logout">退出</button>
         </div>
       </div>
     </aside>
@@ -151,14 +150,14 @@ function buildNavTarget(path: string) {
   grid-template-columns: 320px minmax(0, 1fr);
   background:
     linear-gradient(180deg, rgba(9, 11, 16, 0.995), rgba(8, 11, 16, 0.98)),
-    radial-gradient(circle at top left, rgba(16, 185, 129, 0.06), transparent 26%);
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.05), transparent 24%);
 }
 
 .app-sidebar {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 18px;
-  padding: 20px 14px 16px;
+  gap: 16px;
+  padding: 18px 12px 14px;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.98);
 }
@@ -167,19 +166,19 @@ function buildNavTarget(path: string) {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 8px 16px;
+  padding: 0 10px 16px;
   text-decoration: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .app-brand-mark {
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 14px;
   color: #58f0c0;
-  border: 1px solid rgba(88, 240, 192, 0.28);
+  border: 1px solid rgba(88, 240, 192, 0.26);
   background: rgba(16, 185, 129, 0.08);
 }
 
@@ -194,79 +193,64 @@ function buildNavTarget(path: string) {
 }
 
 .app-brand-copy strong {
-  font-size: 20px;
-  letter-spacing: 0.02em;
+  font-size: 18px;
+  letter-spacing: 0.01em;
   color: #f8fafc;
 }
 
 .app-brand-copy span {
   color: rgba(88, 240, 192, 0.78);
-  font-size: 9px;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.12em;
 }
 
 .app-nav {
   display: grid;
-  gap: 20px;
+  gap: 18px;
   align-content: start;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 2px;
 }
 
 .nav-section {
   display: grid;
-  gap: 10px;
-}
-
-.nav-section-title {
-  margin: 0;
-  padding: 0 8px;
-  color: rgba(168, 179, 194, 0.6);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.nav-section-items {
-  display: grid;
   gap: 8px;
+}
+
+.nav-section h3 {
+  margin: 0;
+  padding: 0 10px;
+  color: rgba(148, 163, 184, 0.62);
+  font-size: 11px;
+  letter-spacing: 0.08em;
 }
 
 .app-nav-item {
   display: grid;
-  gap: 5px;
-  min-height: 78px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  gap: 4px;
+  min-height: 62px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  border: 1px solid transparent;
   text-decoration: none;
-  background: transparent;
   transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
 .app-nav-item strong {
   color: #eef2f7;
-}
-
-.app-nav-item strong {
-  font-size: 16px;
-  line-height: 1.18;
+  font-size: 15px;
+  line-height: 1.2;
 }
 
 .app-nav-item span {
-  color: rgba(168, 179, 194, 0.78);
-}
-
-.app-nav-item span {
-  font-size: 10px;
-  line-height: 1.35;
+  color: rgba(168, 179, 194, 0.72);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .app-nav-item:hover {
-  background: rgba(255, 255, 255, 0.025);
-  border-color: rgba(255, 255, 255, 0.12);
-  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .app-nav-item.router-link-active {
@@ -277,75 +261,92 @@ function buildNavTarget(path: string) {
 .app-sidebar-footer {
   display: grid;
   gap: 10px;
-  padding-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.app-system-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
+.app-context-card {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
 }
 
-.system-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: #22c55e;
-  box-shadow: 0 0 18px rgba(34, 197, 94, 0.45);
+.app-context-card span {
+  color: rgba(160, 174, 192, 0.68);
+  font-size: 10px;
+  letter-spacing: 0.08em;
 }
 
-.app-system-row strong {
-  color: rgba(168, 179, 194, 0.82);
+.app-context-card strong {
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+.app-context-card p {
+  margin: 0;
+  color: rgba(191, 207, 228, 0.72);
   font-size: 12px;
-  font-weight: 500;
-  font-family: 'JetBrains Mono', monospace;
+  line-height: 1.45;
 }
 
 .app-footer-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
 }
 
 .app-footer-link {
-  min-height: 38px;
+  flex: 1;
+  min-height: 42px;
   padding: 0 14px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
-  color: #d7dee8;
-  font-size: 12px;
+  color: #dbe4ee;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .app-main {
   min-width: 0;
-  display: grid;
-  min-height: 100vh;
-  background: rgba(18, 18, 18, 0.92);
+  background: rgba(15, 18, 23, 0.94);
 }
 
 .app-content {
-  min-width: 0;
-  padding: 0;
+  min-height: 100vh;
+  padding: 22px 24px 28px;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1100px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
 
   .app-sidebar {
+    grid-template-rows: auto;
+    gap: 12px;
     border-right: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
-}
 
-@media (max-width: 820px) {
+  .app-nav {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(220px, 1fr);
+    overflow-x: auto;
+  }
+
+  .nav-section {
+    min-width: 220px;
+  }
+
   .app-content {
-    padding: 16px;
+    padding: 18px 16px 24px;
   }
 }
 </style>
