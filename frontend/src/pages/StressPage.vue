@@ -457,8 +457,7 @@ watch(selectedPeriod, async (period, previous) => {
       <section class="stress-header">
         <div class="stress-heading">
           <h1>压力推演</h1>
-          <p>{{ primaryScenarioLabel }} · {{ scenarioStatusLine }}</p>
-          <span class="stress-role-pill">{{ activeRoleLabel }}</span>
+          <p>{{ selectedCompany ? `${selectedCompany} · ${scenarioStatusLine}` : '先选公司，再给一个冲击假设' }}</p>
         </div>
       </section>
 
@@ -472,7 +471,7 @@ watch(selectedPeriod, async (period, previous) => {
         <aside class="scenario-panel">
           <div class="scenario-panel-head">
             <h2>给一个冲击假设</h2>
-            <p>先定对象，再说这轮会发生什么。</p>
+            <p>先定对象，再说这轮冲击会从哪里开始。</p>
           </div>
 
           <div class="scenario-context">
@@ -541,81 +540,6 @@ watch(selectedPeriod, async (period, previous) => {
             </div>
           </div>
 
-          <div class="workflow-strip">
-            <article class="workflow-card">
-              <div class="card-head">
-                <strong>继续推进</strong>
-                <button
-                  type="button"
-                  class="inline-action"
-                  :disabled="!selectedCompany || isActionPending(`watchboard:${selectedCompany}`)"
-                  @click="toggleWatchboardTracking()"
-                >
-                  {{
-                    selectedCompany && isActionPending(`watchboard:${selectedCompany}`)
-                      ? '处理中...'
-                      : watchboardActionLabel
-                  }}
-                </button>
-              </div>
-              <p class="card-copy">{{ watchboardSummary }}</p>
-              <div class="action-row">
-                <button
-                  type="button"
-                  class="inline-action is-secondary"
-                  :disabled="isActionPending(`task:${currentRunId || selectedCompany}:${activeStressStep}`)"
-                  @click="createStressTask()"
-                >
-                  {{
-                    isActionPending(`task:${currentRunId || selectedCompany}:${activeStressStep}`)
-                      ? '写入中...'
-                      : '写入任务板'
-                  }}
-                </button>
-                <RouterLink
-                  v-for="item in stressRelatedRoutes.slice(0, 2)"
-                  :key="`${item.path}-${item.label}`"
-                  :to="{ path: item.path, query: item.query || {} }"
-                  class="inline-link"
-                >
-                  {{ item.label }}
-                </RouterLink>
-              </div>
-              <div v-if="stressEvidenceLinks.length" class="route-links">
-                <RouterLink
-                  v-for="item in stressEvidenceLinks"
-                  :key="`${item.path}-${item.label}`"
-                  :to="{ path: item.path, query: item.query || {} }"
-                  class="inline-link"
-                >
-                  {{ item.label }}
-                </RouterLink>
-              </div>
-              <p v-if="actionError" class="panel-error">{{ actionError }}</p>
-            </article>
-
-            <article v-if="recentRuns.length" class="workflow-card">
-              <div class="card-head">
-                <strong>最近推演</strong>
-                <span class="subtle-copy">{{ activeRoleLabel }}</span>
-              </div>
-              <button
-                v-for="item in recentRuns"
-                :key="item.run_id"
-                type="button"
-                class="run-item-button"
-                :class="{ 'is-active': currentRunId === item.run_id }"
-                @click="openStressRun(item.run_id)"
-              >
-                <div class="run-item-copy">
-                  <strong>{{ item.scenario }}</strong>
-                  <p>{{ displaySeverityBadge(item.severity) }}</p>
-                </div>
-                <span>{{ formatTimestamp(item.created_at) }}</span>
-              </button>
-            </article>
-          </div>
-
           <div class="result-body">
             <article class="chain-panel" v-if="focusedPropagationSteps.length">
               <div class="section-head">
@@ -658,6 +582,49 @@ watch(selectedPeriod, async (period, previous) => {
                 <span>为什么会这样</span>
                 <strong>{{ localizeStressText(activeWavefront?.headline || stressCommandSurface.headline) }}</strong>
                 <p>{{ focusExplanation }}</p>
+              </div>
+
+              <div class="action-focus action-focus-compact">
+                <span>继续推进</span>
+                <strong>{{ watchboardActionLabel }}</strong>
+                <p>{{ watchboardSummary }}</p>
+                <div class="action-row">
+                  <button
+                    type="button"
+                    class="inline-action"
+                    :disabled="!selectedCompany || isActionPending(`watchboard:${selectedCompany}`)"
+                    @click="toggleWatchboardTracking()"
+                  >
+                    {{
+                      selectedCompany && isActionPending(`watchboard:${selectedCompany}`)
+                        ? '处理中...'
+                        : watchboardActionLabel
+                    }}
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-action is-secondary"
+                    :disabled="isActionPending(`task:${currentRunId || selectedCompany}:${activeStressStep}`)"
+                    @click="createStressTask()"
+                  >
+                    {{
+                      isActionPending(`task:${currentRunId || selectedCompany}:${activeStressStep}`)
+                        ? '写入中...'
+                        : '写入任务板'
+                    }}
+                  </button>
+                </div>
+                <div v-if="stressRelatedRoutes.length || stressEvidenceLinks.length" class="route-links">
+                  <RouterLink
+                    v-for="item in [...stressRelatedRoutes.slice(0, 1), ...stressEvidenceLinks.slice(0, 1)]"
+                    :key="`${item.path}-${item.label}`"
+                    :to="{ path: item.path, query: item.query || {} }"
+                    class="inline-link"
+                  >
+                    {{ item.label }}
+                  </RouterLink>
+                </div>
+                <p v-if="actionError" class="panel-error">{{ actionError }}</p>
               </div>
 
               <div v-if="workflowTasks.length" class="task-list">
@@ -752,19 +719,6 @@ watch(selectedPeriod, async (period, previous) => {
 
 .stress-select {
   gap: 8px;
-}
-
-.stress-role-pill {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  min-height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(245, 158, 11, 0.18);
-  background: rgba(245, 158, 11, 0.12);
-  color: #fde68a;
-  font-size: 12px;
 }
 
 .stress-select select {
@@ -968,38 +922,10 @@ watch(selectedPeriod, async (period, previous) => {
   border: 1px solid rgba(16, 185, 129, 0.24);
 }
 
-.workflow-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
-  gap: 12px;
-}
-
-.workflow-card {
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.card-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-}
-
-.card-head strong,
-.run-item-copy strong,
 .task-item strong {
   color: #f8fafc;
 }
 
-.card-copy,
-.subtle-copy,
-.run-item-copy p,
-.run-item-button span,
 .panel-error,
 .task-item p,
 .task-item span {
@@ -1075,7 +1001,7 @@ watch(selectedPeriod, async (period, previous) => {
 .result-body {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 336px;
+  grid-template-columns: minmax(0, 1fr) 348px;
   gap: 14px;
 }
 
@@ -1089,31 +1015,6 @@ watch(selectedPeriod, async (period, previous) => {
 
 .task-list {
   flex-direction: column;
-}
-
-.run-item-button {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
-}
-
-.run-item-button.is-active {
-  border-color: rgba(16, 185, 129, 0.28);
-  background: rgba(16, 185, 129, 0.08);
-}
-
-.run-item-copy {
-  display: grid;
-  gap: 4px;
 }
 
 .chain-panel,
@@ -1177,6 +1078,10 @@ watch(selectedPeriod, async (period, previous) => {
 .reason-focus {
   border-color: rgba(96, 165, 250, 0.18);
   background: rgba(10, 18, 32, 0.72);
+}
+
+.action-focus-compact {
+  gap: 10px;
 }
 
 .task-item {
