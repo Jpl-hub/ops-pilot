@@ -148,7 +148,7 @@ function buildNavTarget(path: string) {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: 320px minmax(0, 1fr);
   background:
     linear-gradient(180deg, rgba(9, 11, 16, 0.995), rgba(8, 11, 16, 0.98)),
     radial-gradient(circle at top left, rgba(16, 185, 129, 0.06), transparent 26%);
@@ -157,8 +157,8 @@ function buildNavTarget(path: string) {
 .app-sidebar {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 22px;
-  padding: 24px 16px 18px;
+  gap: 18px;
+  padding: 20px 14px 16px;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.98);
 }
@@ -166,15 +166,15 @@ function buildNavTarget(path: string) {
 .app-brand {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 2px 8px 18px;
+  gap: 12px;
+  padding: 0 8px 16px;
   text-decoration: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .app-brand-mark {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   border-radius: 12px;
@@ -194,21 +194,21 @@ function buildNavTarget(path: string) {
 }
 
 .app-brand-copy strong {
-  font-size: 22px;
+  font-size: 20px;
   letter-spacing: 0.02em;
   color: #f8fafc;
 }
 
 .app-brand-copy span {
   color: rgba(88, 240, 192, 0.78);
-  font-size: 10px;
+  font-size: 9px;
   letter-spacing: 0.28em;
   text-transform: uppercase;
 }
 
 .app-nav {
   display: grid;
-  gap: 24px;
+  gap: 20px;
   align-content: start;
   overflow-y: auto;
   padding-right: 4px;
@@ -216,29 +216,29 @@ function buildNavTarget(path: string) {
 
 .nav-section {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .nav-section-title {
   margin: 0;
   padding: 0 8px;
-  color: rgba(168, 179, 194, 0.68);
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  color: rgba(168, 179, 194, 0.6);
+  font-size: 10px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .nav-section-items {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .app-nav-item {
   display: grid;
-  gap: 6px;
-  min-height: 92px;
-  padding: 18px 18px;
-  border-radius: 18px;
+  gap: 5px;
+  min-height: 78px;
+  padding: 14px 16px;
+  border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.07);
   text-decoration: none;
   background: transparent;
@@ -250,7 +250,7 @@ function buildNavTarget(path: string) {
 }
 
 .app-nav-item strong {
-  font-size: 17px;
+  font-size: 16px;
   line-height: 1.18;
 }
 
@@ -259,7 +259,7 @@ function buildNavTarget(path: string) {
 }
 
 .app-nav-item span {
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.35;
 }
 

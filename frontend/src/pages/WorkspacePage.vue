@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
+import type { UserRole } from '@/lib/api'
 import { useSession } from '@/lib/session'
 import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 import { useWorkspaceStore } from '@/stores/workspace'
-import type { UserRole } from '@/lib/api'
+import type { WorkspaceMessage } from '@/stores/workspace'
 
 type ResultSection = {
   title: string
@@ -16,18 +17,10 @@ type ResultSection = {
 const store = useWorkspaceStore()
 const session = useSession()
 const route = useRoute()
-const router = useRouter()
 
-const draftQuery = ref('')
 const bootstrapping = ref(false)
 const syncingFromRoute = ref(false)
-const currentRole = computed(() => session.activeRole.value || 'investor')
-
-const roleLabelMap: Record<UserRole, string> = {
-  investor: '投资者',
-  management: '管理层',
-  regulator: '监管风控',
-}
+const draftQuery = ref('')
 
 const defaultQuestions = [
   '这家公司当前最值得警惕的风险是什么？',
@@ -35,71 +28,21 @@ const defaultQuestions = [
   '最新研报和真实财报有没有偏差？',
 ]
 
+const roleLabelMap: Record<UserRole, string> = {
+  investor: '投资者',
+  management: '管理层',
+  regulator: '监管风控',
+}
+
+const currentRole = computed<UserRole>(() => (session.activeRole.value || 'investor') as UserRole)
 const roleLabel = computed(() => roleLabelMap[currentRole.value] || '投资者')
 const companies = computed(() => store.companies)
 const periodOptions = computed(() => store.availablePeriods)
 const latestPayload = computed(() => store.latestPayload || {})
 const companyWorkspace = computed(() => store.companyWorkspace || null)
-const scoreSummary = computed(() => companyWorkspace.value?.score_summary || null)
-const watchboard = computed(() => companyWorkspace.value?.watchboard || null)
 const companyName = computed(() => companyWorkspace.value?.company_name || store.selectedCompany || '请选择公司')
 const reportPeriod = computed(() => companyWorkspace.value?.report_period || store.selectedPeriod || '')
-
-const resultSections = computed<ResultSection[]>(() => {
-  const sections = latestPayload.value?.answer_sections
-  if (Array.isArray(sections) && sections.length) {
-    return sections
-      .slice(0, 3)
-      .map((item: any) => ({
-        title: String(item?.title || '当前判断'),
-        lines: Array.isArray(item?.lines)
-          ? item.lines.map((line: unknown) => String(line || '').trim()).filter(Boolean)
-          : [],
-      }))
-      .filter((item) => item.lines.length)
-  }
-
-  const raw = String(latestPayload.value?.answer_markdown || '').trim()
-  if (!raw) return [{ title: '当前判断', lines: ['先围绕一个问题发起判断。'] }]
-
-  const lines = raw
-    .replace(/[*#>`-]/g, ' ')
-    .split(/\r?\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-  return [{ title: '当前判断', lines: lines.slice(0, 3) }]
-})
-
-const summaryLine = computed(() => {
-  return resultSections.value[0]?.lines[0] || '先围绕一个问题发起判断。'
-})
-
-const statCards = computed(() => [
-  {
-    label: '经营总分',
-    value: scoreSummary.value
-      ? `${scoreSummary.value.total_score ?? '--'}${scoreSummary.value.grade ? ` / ${scoreSummary.value.grade}` : ''}`
-      : '--',
-  },
-  {
-    label: '风险标签',
-    value: `${scoreSummary.value?.risk_count ?? 0}`,
-  },
-  {
-    label: '机会标签',
-    value: `${scoreSummary.value?.opportunity_count ?? 0}`,
-  },
-])
-
-const riskLines = computed(() => {
-  const items = companyWorkspace.value?.top_risks?.slice(0, 3) || []
-  return items.length ? items : ['当前没有显著新增风险标签。']
-})
-
-const opportunityLines = computed(() => {
-  const items = companyWorkspace.value?.top_opportunities?.slice(0, 3) || []
-  return items.length ? items : ['当前没有显著机会标签。']
-})
+const watchboard = computed(() => companyWorkspace.value?.watchboard || null)
 
 const quickQuestions = computed(() => {
   const items = store.followUps.length
@@ -108,50 +51,76 @@ const quickQuestions = computed(() => {
   return items.slice(0, 3)
 })
 
-const actionTitle = computed(() => {
-  const firstAction = latestPayload.value?.action_cards?.[0]
-  if (firstAction?.title) return String(firstAction.title)
-  if (watchboard.value?.tracked) return '这轮判断已经接到持续跟踪'
-  return '把这一轮判断接到后续动作'
+const stageItems = computed(() => {
+  const flow = store.agentFlow || []
+  if (!flow.length) return ['明确问题', '拉取关键数据', '回到原文', '落到动作']
+  return flow.slice(0, 4).map((item: any, index: number) => ({
+    title: String(item?.title || item?.agent_label || `步骤 ${index + 1}`),
+    done: item?.status === 'done' || item?.state === 'done' || item?.completed === true,
+  }))
 })
 
-const actionBody = computed(() => {
-  const firstAction = latestPayload.value?.action_cards?.[0]
-  if (firstAction?.reason) return String(firstAction.reason)
-  if (firstAction?.action) return String(firstAction.action)
-  if (watchboard.value?.tracked) {
-    return `当前已纳入持续跟踪，新增预警 ${Number(watchboard.value.new_alerts || 0)} 条，相关任务 ${Number(watchboard.value.task_count || 0)} 项。`
+const latestUserMessage = computed(() => {
+  return [...store.messages].reverse().find((message: WorkspaceMessage) => message.role === 'user' && message.kind === 'query') || null
+})
+
+const welcomeMessage = computed(() => {
+  return store.messages.find((message: WorkspaceMessage) => message.role === 'assistant' && message.kind === 'welcome') || null
+})
+
+const resultSections = computed<ResultSection[]>(() => {
+  const sections = latestPayload.value?.answer_sections
+  if (Array.isArray(sections) && sections.length) {
+    return sections
+      .map((item: any) => ({
+        title: String(item?.title || '当前判断'),
+        lines: Array.isArray(item?.lines)
+          ? item.lines.map((line: unknown) => String(line || '').trim()).filter(Boolean)
+          : [],
+      }))
+      .filter((item) => item.lines.length)
+      .slice(0, 3)
   }
-  return '当前未加入持续跟踪，适合把需要继续盯防的主体放进监测板。'
+
+  const raw = String(latestPayload.value?.answer_markdown || '').trim()
+  if (!raw) return []
+  const cleaned = raw
+    .replace(/[`*_>#-]/g, ' ')
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 6)
+
+  if (!cleaned.length) return []
+  return [{ title: '当前判断', lines: cleaned }]
 })
 
-const continuationCards = computed(() => [
+const actionCard = computed(() => latestPayload.value?.action_cards?.[0] || null)
+const evidenceLinks = computed(() => {
+  const groups = store.evidenceGroups || []
+  const links = groups.flatMap((group: any) => group?.items || group?.links || [])
+  return links.slice(0, 3)
+})
+
+const continuationLinks = computed(() => [
   {
-    label: '把这一轮判断接到证据和模块',
-    detail: companyWorkspace.value?.recent_runs?.items?.[0]?.query || '继续回到原文、图谱和经营诊断。',
-    to: '/graph',
+    title: watchboard.value?.tracked ? '继续跟踪' : '把这一轮判断接到后续动作',
+    detail: watchboard.value?.tracked
+      ? `当前已纳入持续跟踪，新增预警 ${Number(watchboard.value.new_alerts || 0)} 条。`
+      : '把需要继续盯防的主体放进监测板。',
   },
   {
-    label: '继续往下看',
-    detail: '把这轮判断带到图谱检索、观点核验或经营诊断。',
-    to: '/verify',
+    title: '继续往下看',
+    detail: latestUserMessage.value?.text || '继续回到图谱、核验或经营诊断。',
   },
 ])
-
-const stageItems = computed(() => {
-  const flow = store.agentFlow
-  if (!flow.length) {
-    return ['明确问题', '拉取关键数据', '回到原文', '落到动作']
-  }
-  return flow.slice(0, 4).map((item: any) => String(item?.title || item?.agent_label || '当前步骤'))
-})
 
 async function bootstrapPage() {
   if (bootstrapping.value) return
   bootstrapping.value = true
   try {
     if (!store.messages.length) {
-      store.resetConversation('协同分析', '围绕问题直接判断')
+      store.resetConversation('多智能体协同研判', '围绕问题直接判断')
     }
     await store.loadCompanies()
 
@@ -192,36 +161,16 @@ function readQuery(value: unknown): string {
 
 async function submitQuery(query?: string) {
   const content = (query || draftQuery.value).trim()
-  if (!content || !store.selectedCompany) return
+  if (!content || !store.selectedCompany || store.loadingTurn) return
   await store.sendQuery(currentRole.value, content)
   draftQuery.value = ''
-}
-
-async function toggleWatchboard() {
-  if (!store.selectedCompany) return
-  if (watchboard.value?.tracked) {
-    await store.removeCurrentCompanyFromWatchboard(currentRole.value)
-  } else {
-    await store.addCurrentCompanyToWatchboard(currentRole.value)
-  }
-}
-
-function openContinuation(path: string) {
-  router.push({
-    path,
-    query: {
-      company: store.selectedCompany,
-      period: store.selectedPeriod,
-      role: currentRole.value,
-    },
-  })
 }
 
 watch(
   currentRole,
   async (next, previous) => {
     if (next === previous) return
-    store.resetConversation('协同分析', '围绕问题直接判断')
+    store.resetConversation('多智能体协同研判', '围绕问题直接判断')
     await bootstrapPage()
   },
 )
@@ -254,119 +203,150 @@ onMounted(async () => {
 <template>
   <AppShell title="协同分析" compact>
     <div class="workspace-shell">
-      <header class="workspace-topbar">
-        <div class="workspace-topbar-fields">
-          <label class="field">
+      <header class="workspace-header">
+        <div class="workspace-header-main">
+          <div class="workspace-title">
+            <h1>多智能体协同研判</h1>
+            <p>{{ roleLabel }} · {{ companyName }}<span v-if="reportPeriod"> · {{ reportPeriod }}</span></p>
+          </div>
+          <ol class="workflow-strip">
+            <li v-for="(item, index) in stageItems" :key="`${index}-${typeof item === 'string' ? item : item.title}`" :class="{ done: typeof item !== 'string' && item.done }">
+              <span>{{ String(index + 1).padStart(2, '0') }}</span>
+              <strong>{{ typeof item === 'string' ? item : item.title }}</strong>
+            </li>
+          </ol>
+        </div>
+
+        <div class="workspace-controls">
+          <label class="control-field">
             <span>公司</span>
             <select v-model="store.selectedCompany">
               <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
             </select>
           </label>
-          <label class="field">
+          <label class="control-field">
             <span>报期</span>
             <select v-model="store.selectedPeriod">
               <option v-for="period in periodOptions" :key="period" :value="period">{{ period }}</option>
             </select>
           </label>
-          <span class="role-chip">{{ roleLabel }}</span>
         </div>
-        <ol class="stage-strip">
-          <li v-for="(item, index) in stageItems" :key="item">
-            <span>{{ String(index + 1).padStart(2, '0') }}</span>
-            <strong>{{ item }}</strong>
-          </li>
-        </ol>
       </header>
 
-      <div class="workspace-grid">
-        <section class="workspace-main">
-          <div class="hero-block">
-            <p class="eyebrow">先看当前状态</p>
-            <h1>{{ companyName }}</h1>
-            <p class="summary">{{ summaryLine }}</p>
-            <div class="meta-row">
-              <span>报期 {{ reportPeriod || '未选择' }}</span>
-            </div>
+      <section class="thread-shell">
+        <article v-if="welcomeMessage" class="thread-row assistant-row">
+          <div class="thread-avatar">研</div>
+          <div class="thread-bubble assistant-bubble intro-bubble">
+            <p class="intro-title">{{ welcomeMessage.title }}</p>
+            <p v-for="line in welcomeMessage.lines" :key="line">{{ line }}</p>
           </div>
+        </article>
 
-          <div class="stat-row">
-            <article v-for="item in statCards" :key="item.label" class="stat-panel">
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-            </article>
+        <article v-if="latestUserMessage" class="thread-row user-row">
+          <div class="thread-bubble user-bubble">
+            {{ latestUserMessage.text }}
           </div>
+          <div class="thread-avatar user-avatar">问</div>
+        </article>
 
-          <div class="signal-grid">
-            <article class="signal-panel">
-              <span>当前风险</span>
-              <ul>
-                <li v-for="item in riskLines" :key="item">{{ item }}</li>
-              </ul>
-            </article>
-            <article class="signal-panel">
-              <span>可继续放大</span>
-              <ul>
-                <li v-for="item in opportunityLines" :key="item">{{ item }}</li>
-              </ul>
-            </article>
-          </div>
-
-          <article v-for="section in resultSections" :key="section.title" class="result-panel">
-            <span>{{ section.title }}</span>
-            <ul>
-              <li v-for="line in section.lines" :key="line">{{ line }}</li>
+        <article v-if="store.agentFlow.length" class="thread-row assistant-row">
+          <div class="thread-avatar">流</div>
+          <div class="thread-bubble workflow-bubble">
+            <p class="panel-label">当前执行</p>
+            <ul class="workflow-list">
+              <li v-for="item in store.agentFlow.slice(0, 4)" :key="item.id || item.title || item.agent_label">
+                <strong>{{ item.title || item.agent_label || '当前步骤' }}</strong>
+                <span>{{ item.detail || item.summary || '已纳入本轮判断。' }}</span>
+              </li>
             </ul>
-          </article>
-        </section>
+          </div>
+        </article>
 
-        <aside class="workspace-side">
-          <section class="side-panel">
+        <article class="thread-row assistant-row">
+          <div class="thread-avatar">答</div>
+          <div class="thread-bubble result-bubble">
+            <template v-if="resultSections.length">
+              <section v-for="section in resultSections" :key="section.title" class="result-section">
+                <h2>{{ section.title }}</h2>
+                <ul>
+                  <li v-for="line in section.lines" :key="line">{{ line }}</li>
+                </ul>
+              </section>
+            </template>
+            <section v-else class="result-section">
+              <h2>当前判断</h2>
+              <ul>
+                <li>先围绕一个问题发起判断。</li>
+              </ul>
+            </section>
+
+            <section v-if="actionCard" class="action-section">
+              <span>这轮动作</span>
+              <strong>{{ actionCard.title || '把这轮判断接到后续动作' }}</strong>
+              <p>{{ actionCard.reason || actionCard.action || '当前还没有额外动作建议。' }}</p>
+            </section>
+          </div>
+        </article>
+
+        <section class="workspace-sidecar">
+          <article class="sidecar-panel">
             <span>直接发问</span>
-            <h2>先从这三个问题开始</h2>
+            <strong>先从这三个问题开始</strong>
             <button
               v-for="question in quickQuestions"
               :key="question"
               type="button"
-              class="question-button"
+              class="quick-question"
               @click="submitQuery(question)"
             >
               {{ question }}
             </button>
-          </section>
+          </article>
 
-          <section class="side-panel action-panel">
+          <article class="sidecar-panel">
             <span>持续跟踪</span>
-            <h2>{{ actionTitle }}</h2>
-            <p>{{ actionBody }}</p>
-            <button type="button" class="watch-button" @click="toggleWatchboard">
-              {{ watchboard?.tracked ? '移出持续跟踪' : '加入持续跟踪' }}
-            </button>
-          </section>
+            <strong>{{ continuationLinks[0].title }}</strong>
+            <p>{{ continuationLinks[0].detail }}</p>
+          </article>
 
-          <section class="side-panel">
+          <article class="sidecar-panel">
             <span>继续往下看</span>
-            <button
-              v-for="item in continuationCards"
-              :key="item.label"
-              type="button"
-              class="continuation-card"
-              @click="openContinuation(item.to)"
-            >
-              <strong>{{ item.label }}</strong>
-              <p>{{ item.detail }}</p>
-            </button>
-          </section>
-        </aside>
-      </div>
+            <strong>{{ continuationLinks[1].title }}</strong>
+            <p>{{ continuationLinks[1].detail }}</p>
+            <ul v-if="evidenceLinks.length" class="evidence-list">
+              <li v-for="(item, index) in evidenceLinks" :key="item.id || item.label || index">
+                {{ item.label || item.title || item.text || '回到原文继续核对' }}
+              </li>
+            </ul>
+          </article>
+        </section>
+      </section>
 
-      <footer class="composer">
-        <textarea
-          v-model="draftQuery"
-          rows="2"
-          placeholder="输入你要围绕这家公司继续判断的问题"
-          @keydown.enter.exact.prevent="submitQuery()"
-        />
-        <button type="button" @click="submitQuery()">开始判断</button>
+      <footer class="composer-shell">
+        <div class="prompt-row">
+          <button
+            v-for="question in quickQuestions"
+            :key="`prompt-${question}`"
+            type="button"
+            class="prompt-chip"
+            @click="submitQuery(question)"
+          >
+            {{ question }}
+          </button>
+        </div>
+        <div class="composer-row">
+          <textarea
+            v-model="draftQuery"
+            rows="2"
+            class="composer-input"
+            :disabled="store.loadingTurn"
+            placeholder="输入你要围绕这家公司继续判断的问题。"
+            @keydown.enter.exact.prevent="submitQuery()"
+          />
+          <button type="button" class="composer-submit" :disabled="store.loadingTurn || !draftQuery.trim()" @click="submitQuery()">
+            {{ store.loadingTurn ? '判断中' : '开始判断' }}
+          </button>
+        </div>
       </footer>
     </div>
   </AppShell>
@@ -374,274 +354,406 @@ onMounted(async () => {
 
 <style scoped>
 .workspace-shell {
-  min-height: 100vh;
-  padding: 24px 28px 28px;
-  background: #0c1116;
-  color: #eef2f7;
+  display: grid;
+  gap: 18px;
+  min-height: calc(100vh - 72px);
 }
 
-.workspace-topbar,
-.workspace-main,
-.workspace-side > .side-panel,
-.composer {
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(16, 19, 25, 0.92);
-}
-
-.workspace-topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 28px;
-  padding: 20px 24px;
-  border-radius: 26px;
-}
-
-.workspace-topbar-fields {
-  display: flex;
-  align-items: center;
+.workspace-header {
+  display: grid;
   gap: 16px;
+  padding: 8px 4px 0;
 }
 
-.field {
+.workspace-header-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: end;
+}
+
+.workspace-title {
   display: grid;
   gap: 6px;
-  min-width: 200px;
 }
 
-.field span,
-.eyebrow,
-.result-panel span,
-.side-panel > span,
-.stat-panel span,
-.signal-panel > span {
-  color: rgba(168, 179, 194, 0.76);
-  font-size: 13px;
-}
-
-.field select {
-  height: 68px;
-  padding: 0 20px;
-  border-radius: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(18, 22, 29, 0.96);
-  color: #f8fafc;
-  font-size: 18px;
-}
-
-.role-chip {
-  margin-top: 27px;
-  display: inline-flex;
-  align-items: center;
-  height: 48px;
-  padding: 0 20px;
-  border-radius: 999px;
-  background: rgba(33, 84, 60, 0.72);
-  color: #d4ffe9;
-  font-weight: 600;
-}
-
-.stage-strip {
-  display: flex;
-  gap: 14px;
-  list-style: none;
-  padding: 0;
+.workspace-title h1 {
   margin: 0;
+  color: #f8fafc;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
-.stage-strip li {
-  display: grid;
-  gap: 6px;
-  min-width: 132px;
-  padding: 14px 18px;
-  border-radius: 20px;
-  border: 1px solid rgba(120, 255, 196, 0.12);
-  background: rgba(16, 24, 20, 0.72);
-}
-
-.stage-strip li span {
-  color: #7cf0bd;
+.workspace-title p {
+  margin: 0;
+  color: rgba(160, 174, 192, 0.76);
   font-size: 12px;
 }
 
-.stage-strip li strong {
-  font-size: 15px;
-}
-
-.workspace-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 24px;
-  margin-top: 24px;
-}
-
-.workspace-main {
-  display: grid;
-  gap: 22px;
-  padding: 28px;
-  border-radius: 30px;
-}
-
-.hero-block h1 {
-  margin: 10px 0 0;
-  font-size: 62px;
-  line-height: 0.96;
-}
-
-.summary {
-  margin: 16px 0 0;
-  max-width: 880px;
-  font-size: 28px;
-  line-height: 1.18;
-}
-
-.meta-row {
-  margin-top: 18px;
+.workspace-controls {
   display: flex;
-  gap: 12px;
-}
-
-.meta-row span {
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  color: #eef2f7;
-}
-
-.stat-row,
-.signal-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-}
-
-.signal-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.stat-panel,
-.signal-panel,
-.result-panel {
-  padding: 24px 26px;
-  border-radius: 26px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(17, 20, 27, 0.96);
-}
-
-.stat-panel strong {
-  margin-top: 12px;
-  display: block;
-  font-size: 30px;
-}
-
-.signal-panel ul,
-.result-panel ul {
-  margin: 16px 0 0;
-  padding-left: 22px;
-  display: grid;
-  gap: 12px;
-  font-size: 18px;
-  line-height: 1.5;
-}
-
-.workspace-side {
-  display: grid;
-  gap: 20px;
-  align-content: start;
-}
-
-.side-panel {
-  display: grid;
+  justify-content: flex-end;
   gap: 14px;
-  padding: 24px;
-  border-radius: 26px;
 }
 
-.side-panel h2 {
-  margin: 0;
-  font-size: 28px;
-  line-height: 1.15;
+.control-field {
+  display: grid;
+  gap: 8px;
+  min-width: 220px;
 }
 
-.question-button,
-.continuation-card,
-.watch-button {
+.control-field span {
+  color: rgba(160, 174, 192, 0.72);
+  font-size: 11px;
+}
+
+.control-field select {
   width: 100%;
-  text-align: left;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(17, 20, 27, 0.95);
-  color: #eef2f7;
-  border-radius: 22px;
+  height: 68px;
+  padding: 0 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(13, 18, 24, 0.94);
+  color: #f8fafc;
+  font-size: 17px;
 }
 
-.question-button {
-  padding: 18px 20px;
-  font-size: 20px;
-}
-
-.action-panel p,
-.continuation-card p {
+.workflow-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin: 0;
-  color: rgba(216, 224, 235, 0.82);
+  padding: 0;
+  list-style: none;
+}
+
+.workflow-strip li {
+  display: grid;
+  gap: 6px;
+  min-width: 116px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(14, 18, 24, 0.92);
+}
+
+.workflow-strip li.done {
+  border-color: rgba(84, 240, 186, 0.24);
+  background: rgba(13, 34, 27, 0.88);
+}
+
+.workflow-strip span {
+  color: rgba(84, 240, 186, 0.72);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.workflow-strip strong {
+  color: #eef2f7;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.thread-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 28px;
+  align-items: start;
+}
+
+.thread-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.assistant-row {
+  justify-content: flex-start;
+}
+
+.user-row {
+  justify-content: flex-end;
+}
+
+.thread-avatar {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  border: 1px solid rgba(84, 240, 186, 0.22);
+  background: rgba(13, 34, 27, 0.82);
+  color: #79f7c8;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.user-avatar {
+  border-color: rgba(76, 132, 255, 0.2);
+  background: rgba(18, 32, 62, 0.86);
+  color: #9fb7ff;
+}
+
+.thread-bubble {
+  max-width: 940px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(13, 17, 22, 0.94);
+}
+
+.intro-bubble,
+.workflow-bubble,
+.result-bubble {
+  padding: 24px 26px;
+}
+
+.intro-title,
+.panel-label {
+  margin: 0 0 10px;
+  color: rgba(84, 240, 186, 0.82);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.intro-bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.intro-bubble p {
+  margin: 0 0 8px;
+  color: #e7edf5;
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+.user-bubble {
+  max-width: 820px;
+  padding: 22px 28px;
+  background: rgba(17, 30, 75, 0.92);
+  border-color: rgba(76, 132, 255, 0.18);
+  color: #f8fbff;
+  font-size: 17px;
   line-height: 1.6;
 }
 
-.watch-button {
-  padding: 18px 20px;
-  text-align: center;
-  font-size: 24px;
-  background: rgba(42, 96, 69, 0.88);
+.workflow-list,
+.result-section ul,
+.evidence-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.continuation-card {
+.workflow-list {
+  display: grid;
+  gap: 16px;
+}
+
+.workflow-list li {
+  display: grid;
+  gap: 6px;
+}
+
+.workflow-list strong,
+.result-section h2,
+.action-section strong,
+.sidecar-panel strong {
+  color: #f4f7fb;
+}
+
+.workflow-list strong {
+  font-size: 16px;
+}
+
+.workflow-list span,
+.result-section li,
+.action-section p,
+.sidecar-panel p,
+.evidence-list li {
+  color: rgba(220, 228, 239, 0.82);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.result-bubble {
+  display: grid;
+  gap: 22px;
+}
+
+.result-section {
   display: grid;
   gap: 10px;
-  padding: 18px 20px;
 }
 
-.continuation-card strong {
-  font-size: 20px;
+.result-section h2,
+.action-section strong {
+  margin: 0;
+  font-size: 16px;
 }
 
-.composer {
+.result-section ul {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 8px;
+}
+
+.action-section {
+  display: grid;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.action-section span,
+.sidecar-panel span {
+  color: rgba(160, 174, 192, 0.7);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.workspace-sidecar {
+  display: grid;
   gap: 18px;
-  margin-top: 24px;
+}
+
+.sidecar-panel {
+  display: grid;
+  gap: 14px;
+  padding: 22px 22px 24px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(13, 17, 22, 0.94);
+}
+
+.quick-question,
+.prompt-chip {
+  width: 100%;
+  min-height: 54px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: #edf2f8;
+  font-size: 15px;
+  text-align: center;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.quick-question:hover,
+.prompt-chip:hover {
+  border-color: rgba(84, 240, 186, 0.24);
+  background: rgba(13, 34, 27, 0.3);
+}
+
+.evidence-list {
+  display: grid;
+  gap: 8px;
+}
+
+.composer-shell {
+  display: grid;
+  gap: 14px;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.prompt-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.prompt-chip {
+  width: auto;
+  min-height: 44px;
+  padding: 0 18px;
+  font-size: 14px;
+}
+
+.composer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px;
+  gap: 18px;
+  align-items: stretch;
   padding: 18px;
   border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(13, 17, 22, 0.96);
 }
 
-.composer textarea {
+.composer-input {
   width: 100%;
-  min-height: 110px;
+  min-height: 96px;
   resize: none;
   border: 0;
   outline: none;
-  border-radius: 20px;
-  background: rgba(17, 20, 27, 0.96);
-  color: #eef2f7;
-  padding: 18px 20px;
-  font-size: 22px;
-  line-height: 1.5;
+  background: transparent;
+  color: #f8fafc;
+  font-size: 18px;
+  line-height: 1.7;
 }
 
-.composer button {
-  border: 0;
-  border-radius: 22px;
-  background: rgba(42, 96, 69, 0.92);
-  color: #f2fff8;
-  font-size: 32px;
+.composer-input::placeholder {
+  color: rgba(160, 174, 192, 0.66);
+}
+
+.composer-submit {
+  width: 100%;
+  border-radius: 24px;
+  border: 1px solid rgba(84, 240, 186, 0.16);
+  background: rgba(17, 63, 44, 0.96);
+  color: #f7fff9;
+  font-size: 18px;
   font-weight: 700;
 }
 
+.composer-submit:disabled {
+  opacity: 0.58;
+}
+
 @media (max-width: 1400px) {
-  .workspace-grid {
+  .thread-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-sidecar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .workspace-header-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-controls {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .workflow-strip {
+    flex-wrap: wrap;
+  }
+
+  .workspace-sidecar {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .composer-row {
     grid-template-columns: 1fr;
   }
 
-  .workspace-side {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .control-field {
+    min-width: 100%;
+  }
+
+  .thread-bubble {
+    max-width: 100%;
   }
 }
 </style>
