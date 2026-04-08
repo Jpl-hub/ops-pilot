@@ -454,144 +454,116 @@ watch(selectedPeriod, async (period, previous) => {
 <template>
   <AppShell title="">
     <div class="stress-console">
-      <section class="stress-header">
-        <div class="stress-heading">
-          <h1>压力推演</h1>
-          <p>{{ selectedCompany ? `${selectedCompany} · ${scenarioStatusLine}` : '先选公司，再给一个冲击假设' }}</p>
-        </div>
-      </section>
-
       <LoadingState v-if="overviewState.loading.value || stressState.loading.value" class="stress-state" />
-      <ErrorState v-else-if="stressState.error.value" :message="String(stressState.error.value)" class="stress-state" />
+      <ErrorState v-else-if="stressState.error.value" class="stress-state" :message="String(stressState.error.value)" />
       <section v-else-if="!hasCompanies" class="stress-state stress-empty">
-        <p>当前还没有可推演企业，请先完成正式公司池和产业链数据接入。</p>
+        <p>当前无可推演企业，请先完成正式公司池接入。</p>
       </section>
-
-      <section v-else class="stress-layout">
-        <aside class="scenario-panel">
-          <div class="scenario-panel-head">
-            <h2>给一个冲击假设</h2>
-            <p>先定对象，再说这轮冲击会从哪里开始。</p>
+      <section v-else class="stress-shell">
+        <header class="stress-topbar">
+          <div class="stress-topbar-left">
+            <span class="page-kicker">压力推演</span>
           </div>
-
-          <div class="scenario-context">
-            <label class="stress-select">
+          <div class="stress-topbar-right">
+            <label class="control-field">
               <span>公司</span>
               <select v-model="selectedCompany">
                 <option v-if="!companies.length" value="">暂无公司</option>
                 <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
               </select>
             </label>
-            <label class="stress-select">
+            <label class="control-field">
               <span>报期</span>
               <select v-model="selectedPeriod">
                 <option value="">默认主周期</option>
                 <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
               </select>
             </label>
+            <span class="role-chip">{{ activeRoleLabel }}</span>
           </div>
+        </header>
 
-          <div class="scenario-shell">
-            <textarea
-              v-model="scenarioDraft"
-              class="scenario-input"
-              :placeholder="selectedCompany ? '例如：欧洲市场补贴骤降，需求在一个季度内快速回落' : '当前无可推演企业，请先完成公司池接入'"
-              :disabled="stressState.loading.value || !selectedCompany"
-            />
-            <button class="scenario-submit" :disabled="stressState.loading.value || !canRunStress" @click="runStress">
-              {{ stressState.loading.value ? '推演中...' : '开始推演' }}
-            </button>
-          </div>
+        <section class="stress-frame">
+          <aside class="stress-side">
+            <article class="stress-panel">
+              <span class="panel-kicker">给一个冲击假设</span>
+              <textarea
+                v-model="scenarioDraft"
+                class="scenario-input"
+                :disabled="stressState.loading.value || !selectedCompany"
+                :placeholder="selectedCompany ? '输入一个冲击假设，例如：上游原料价格急涨并持续三个月' : '当前无可推演企业，请先完成公司池接入'"
+              />
+              <button class="panel-button" :disabled="stressState.loading.value || !canRunStress" @click="runStress">
+                {{ stressState.loading.value ? '推演中...' : '开始推演' }}
+              </button>
+            </article>
 
-          <div class="preset-strip">
-            <span class="preset-strip-label">直接试这几种</span>
-            <button
-              v-for="item in presetScenarios"
-              :key="item"
-              class="preset-chip"
-              :disabled="!selectedCompany"
-              @click="selectPreset(item)"
-            >
-              {{ item }}
-            </button>
-          </div>
-        </aside>
-
-        <section class="result-panel" v-if="stressCommandSurface">
-          <div class="result-head">
-            <div>
-              <h2>{{ localizeStressText(stressCommandSurface.headline) }}</h2>
-              <p>{{ scenario }}</p>
-            </div>
-            <div class="severity-badge" :class="displayToneClass(stressState.data.value?.severity?.color)">
-              {{ displaySeverityBadge(stressState.data.value?.severity) }}
-            </div>
-          </div>
-
-          <div v-if="affectedDimensions.length" class="impact-strip">
-            <div
-              v-for="item in affectedDimensions"
-              :key="item.label"
-              class="impact-chip"
-            >
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-              <small>{{ item.hint }}</small>
-            </div>
-          </div>
-
-          <div class="result-body">
-            <article class="chain-panel" v-if="focusedPropagationSteps.length">
-              <div class="section-head">
-                <strong>冲击会先传到哪里</strong>
-              </div>
-
-              <div class="chain-steps">
-                <div
-                  v-for="(item, idx) in focusedPropagationSteps"
-                  :key="item.step"
-                  class="chain-step"
-                  :class="{ 'is-active': idx <= activeStressStep }"
+            <article class="stress-panel">
+              <span class="panel-kicker">可以直接从这里开始</span>
+              <div class="preset-list">
+                <button
+                  v-for="item in presetScenarios"
+                  :key="item"
+                  type="button"
+                  class="preset-button"
+                  @click="scenarioDraft = item"
                 >
-                  <em>{{ String(item.step).padStart(2, '0') }}</em>
-                  <div>
-                    <strong>{{ localizeStressText(item.title) }}</strong>
-                    <p>{{ localizeStressText(item.detail) }}</p>
-                  </div>
-                </div>
+                  {{ item }}
+                </button>
+              </div>
+            </article>
+          </aside>
+
+          <section class="stress-main">
+            <article class="stress-hero">
+              <div class="stress-hero-copy">
+                <span class="panel-kicker">本轮判断</span>
+                <h1>{{ localizeStressText(stressCommandSurface?.headline || activeWavefront?.headline || '先把这轮冲击说清楚') }}</h1>
+                <p>{{ scenario }}</p>
+              </div>
+              <div class="severity-badge" :class="displayToneClass(stressState.data.value?.severity?.color)">
+                {{ displaySeverityBadge(stressState.data.value?.severity) }}
               </div>
             </article>
 
-            <article class="action-panel">
-              <div class="section-head">
-                <strong>这一轮先做什么</strong>
+            <div v-if="affectedDimensions.length" class="impact-strip">
+              <div v-for="item in affectedDimensions" :key="item.label" class="impact-chip">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+                <small>{{ item.hint }}</small>
               </div>
+            </div>
 
-              <div v-if="primaryRecoveryAction" class="action-focus">
-                <span>优先动作</span>
-                <strong>{{ localizeStressText(primaryRecoveryAction.title) }}</strong>
-                <p>{{ localizeStressText(primaryRecoveryAction.detail) }}</p>
-              </div>
-              <div v-else class="action-focus">
-                <span>优先动作</span>
-                <strong>先把冲击路径说清楚</strong>
-                <p>当前还没有收敛出明确动作，先看传导链和最先受影响的环节。</p>
-              </div>
+            <section class="stress-grid">
+              <article class="stress-panel stress-panel-wide">
+                <span class="panel-kicker">冲击会先传到哪里</span>
+                <div v-if="focusedPropagationSteps.length" class="chain-list">
+                  <button
+                    v-for="(item, idx) in focusedPropagationSteps"
+                    :key="item.step"
+                    type="button"
+                    class="chain-step"
+                    :class="{ 'is-active': idx === activeStressStep }"
+                    @click="activeStressStep = idx"
+                  >
+                    <em>{{ String(item.step).padStart(2, '0') }}</em>
+                    <div>
+                      <strong>{{ localizeStressText(item.title) }}</strong>
+                      <p>{{ localizeStressText(item.detail) }}</p>
+                    </div>
+                  </button>
+                </div>
+                <p v-else class="panel-muted">当前还没有形成完整传导链。</p>
+              </article>
 
-              <div class="reason-focus">
-                <span>为什么会这样</span>
-                <strong>{{ localizeStressText(activeWavefront?.headline || stressCommandSurface.headline) }}</strong>
-                <p>{{ focusExplanation }}</p>
-              </div>
-
-              <div class="action-focus action-focus-compact">
-                <span>继续推进</span>
-                <strong>{{ watchboardActionLabel }}</strong>
-                <p>{{ watchboardSummary }}</p>
+              <article class="stress-panel">
+                <span class="panel-kicker">这一轮先做什么</span>
+                <strong class="panel-title">{{ localizeStressText(primaryRecoveryAction?.title || '先把冲击路径说清楚') }}</strong>
+                <p class="panel-summary">{{ localizeStressText(primaryRecoveryAction?.detail || '当前还没有收敛出明确动作，先看传导链和最先受影响的环节。') }}</p>
                 <div class="action-row">
                   <button
                     type="button"
-                    class="inline-action"
+                    class="panel-button"
                     :disabled="!selectedCompany || isActionPending(`watchboard:${selectedCompany}`)"
                     @click="toggleWatchboardTracking()"
                   >
@@ -603,7 +575,7 @@ watch(selectedPeriod, async (period, previous) => {
                   </button>
                   <button
                     type="button"
-                    class="inline-action is-secondary"
+                    class="panel-button is-secondary"
                     :disabled="isActionPending(`task:${currentRunId || selectedCompany}:${activeStressStep}`)"
                     @click="createStressTask()"
                   >
@@ -614,6 +586,12 @@ watch(selectedPeriod, async (period, previous) => {
                     }}
                   </button>
                 </div>
+              </article>
+
+              <article class="stress-panel">
+                <span class="panel-kicker">为什么会这样</span>
+                <strong class="panel-title">{{ localizeStressText(activeWavefront?.headline || stressCommandSurface?.headline || '这轮冲击正在传导') }}</strong>
+                <p class="panel-summary">{{ focusExplanation }}</p>
                 <div v-if="stressRelatedRoutes.length || stressEvidenceLinks.length" class="route-links">
                   <RouterLink
                     v-for="item in [...stressRelatedRoutes.slice(0, 1), ...stressEvidenceLinks.slice(0, 1)]"
@@ -625,22 +603,9 @@ watch(selectedPeriod, async (period, previous) => {
                   </RouterLink>
                 </div>
                 <p v-if="actionError" class="panel-error">{{ actionError }}</p>
-              </div>
-
-              <div v-if="workflowTasks.length" class="task-list">
-                <RouterLink
-                  v-for="task in workflowTasks"
-                  :key="task.task_id"
-                  :to="task.route || { path: '/workspace', query: { company: selectedCompany, period: selectedPeriod, role: activeRole } }"
-                  class="task-item"
-                >
-                  <strong>{{ task.title }}</strong>
-                  <p>{{ task.summary }}</p>
-                  <span>{{ displayTaskStatus(task.status) }} · {{ task.priority || 'P1' }}</span>
-                </RouterLink>
-              </div>
-            </article>
-          </div>
+              </article>
+            </section>
+          </section>
         </section>
       </section>
     </div>
@@ -650,79 +615,62 @@ watch(selectedPeriod, async (period, previous) => {
 <style scoped>
 .stress-console {
   min-height: 100%;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 16px;
   width: 100%;
-  max-width: 1280px;
+  max-width: 1320px;
   margin: 0 auto;
 }
 
-.stress-header {
+.stress-state {
+  min-height: 420px;
   display: grid;
-  gap: 8px;
+  place-items: center;
+}
+
+.stress-empty p {
+  margin: 0;
+  color: rgba(191, 207, 228, 0.82);
+}
+
+.stress-shell {
+  display: grid;
+  gap: 16px;
+}
+
+.stress-topbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
   padding-bottom: 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.stress-heading,
-.stress-select,
-.panel-head,
-.scenario-shell,
-.action-focus,
-.reason-focus,
- .chain-step {
-  display: grid;
-}
-
-.stress-heading {
-  gap: 8px;
-}
-
-.stress-select span,
-.chain-step em,
-.action-focus span,
-.reason-focus span {
+.page-kicker,
+.panel-kicker,
+.control-field span,
+.chain-step em {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: rgba(120, 143, 172, 0.82);
 }
 
-.stress-heading h1,
-.result-head h2,
-.chain-step strong,
-.action-focus strong,
-.reason-focus strong {
-  margin: 0;
-  color: #f8fafc;
-  letter-spacing: -0.04em;
+.stress-topbar-right {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
-.stress-heading h1 {
-  font-size: clamp(24px, 2.4vw, 30px);
-  line-height: 1.02;
+.control-field {
+  display: grid;
+  gap: 6px;
 }
 
-.stress-heading p,
-.result-head p,
-.chain-step p,
-.action-focus p,
-.reason-focus p,
-.panel-head span {
-  margin: 0;
-  color: rgba(148, 163, 184, 0.9);
-  line-height: 1.7;
-  font-size: 13px;
-}
-
-.stress-select {
-  gap: 8px;
-}
-
-.stress-select select {
-  width: 100%;
+.control-field select {
+  min-width: 220px;
   min-height: 44px;
   padding: 0 14px;
   border-radius: 14px;
@@ -731,389 +679,246 @@ watch(selectedPeriod, async (period, previous) => {
   color: #eef2f7;
 }
 
-.stress-layout,
-.scenario-panel,
-.result-panel,
-.chain-panel,
-.action-panel,
-.stress-state {
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: linear-gradient(180deg, rgba(16, 17, 20, 0.98), rgba(12, 13, 17, 0.98));
-}
-
-.stress-state {
-  min-height: 320px;
-  display: grid;
-  place-items: center;
-  padding: 32px;
-}
-
-.stress-empty p {
-  margin: 0;
-  color: rgba(148, 163, 184, 0.9);
-}
-
-.stress-layout {
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 16px;
-  background: transparent;
-  border: none;
-}
-
-.scenario-panel,
-.result-panel {
-  min-height: 0;
-  padding: 16px;
-}
-
-.scenario-panel {
-  display: grid;
-  gap: 14px;
-}
-
-.scenario-panel-head {
-  display: grid;
-  gap: 6px;
-}
-
-.scenario-panel h2,
-.section-head strong {
-  margin: 0;
-  color: #f8fafc;
-  font-size: 16px;
-  letter-spacing: -0.02em;
-}
-
-.scenario-panel-head p {
-  margin: 0;
-  color: rgba(148, 163, 184, 0.82);
-  line-height: 1.6;
+.role-chip {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(18, 62, 45, 0.88);
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  color: #d9fff0;
   font-size: 13px;
 }
 
-.scenario-context {
+.stress-frame {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 18px;
 }
 
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
+.stress-side,
+.stress-main,
+.stress-grid,
+.preset-list,
+.chain-list {
+  display: grid;
+  gap: 16px;
 }
 
-.scenario-shell {
-  grid-template-columns: 1fr;
-  gap: 12px;
-  padding: 10px;
-  border-radius: 16px;
+.stress-panel,
+.stress-hero {
+  border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(8, 10, 14, 0.96);
+  background: linear-gradient(180deg, rgba(15, 16, 20, 0.98), rgba(11, 12, 17, 0.96));
+}
+
+.stress-panel {
+  padding: 20px 22px;
 }
 
 .scenario-input {
   width: 100%;
-  min-height: 140px;
+  min-height: 168px;
   resize: none;
-  border: none;
-  background: transparent;
+  border: 0;
+  margin-top: 10px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(7, 10, 18, 0.94);
   color: #eef2f7;
   font: inherit;
-  line-height: 1.6;
-  outline: none;
+  line-height: 1.65;
 }
 
-.scenario-submit {
-  min-height: 42px;
-  border-radius: 14px;
-  border: 1px solid rgba(52, 211, 153, 0.26);
-  background: rgba(18, 62, 45, 0.92);
-  color: #f0fdf4;
-  font-weight: 700;
-  cursor: pointer;
+.panel-button {
+  min-height: 52px;
+  margin-top: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(52, 211, 153, 0.22);
+  background: rgba(18, 62, 45, 0.88);
+  color: #effff6;
 }
 
-.scenario-submit:disabled,
-.preset-chip:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.panel-button.is-secondary {
+  background: rgba(255, 255, 255, 0.03);
+  color: #eef2f7;
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
-.preset-strip {
+.preset-button,
+.chain-step,
+.inline-link {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: #eef2f7;
+}
+
+.preset-button {
+  min-height: 76px;
+  padding: 0 16px;
+  text-align: left;
+}
+
+.stress-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 24px 26px;
+}
+
+.stress-hero-copy {
   display: grid;
   gap: 10px;
 }
 
-.preset-strip-label,
-.impact-chip span,
-.impact-chip small {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.preset-strip-label {
-  color: rgba(120, 143, 172, 0.78);
-}
-
-.preset-chip {
-  width: 100%;
-  min-height: 34px;
-  padding: 0 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.025);
-  color: #dbe7f3;
-  cursor: pointer;
-  line-height: 1;
-  text-align: left;
-}
-
-.result-panel {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 14px;
-}
-
-.result-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.result-head h2 {
-  font-size: clamp(20px, 2.1vw, 26px);
-  line-height: 1.14;
-  margin-top: 6px;
-}
-
-.severity-badge {
-  min-height: 34px;
-  padding: 0 12px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  font-size: 12px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.tone-risk {
-  background: rgba(69, 10, 10, 0.76);
-  color: #fecaca;
-  border: 1px solid rgba(244, 63, 94, 0.3);
-}
-
-.tone-warning {
-  background: rgba(120, 53, 15, 0.62);
-  color: #fde68a;
-  border: 1px solid rgba(245, 158, 11, 0.24);
-}
-
-.tone-safe {
-  background: rgba(6, 78, 59, 0.7);
-  color: #bbf7d0;
-  border: 1px solid rgba(16, 185, 129, 0.24);
-}
-
-.task-item strong {
+.stress-hero-copy h1,
+.impact-chip strong,
+.chain-step strong,
+.panel-title {
+  margin: 0;
   color: #f8fafc;
 }
 
-.panel-error,
-.task-item p,
-.task-item span {
+.stress-hero-copy h1 {
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: 0.95;
+  letter-spacing: -0.05em;
+}
+
+.stress-hero-copy p,
+.impact-chip small,
+.chain-step p,
+.panel-summary {
   margin: 0;
-  color: var(--muted);
-  line-height: 1.6;
+  color: rgba(191, 207, 228, 0.82);
+  line-height: 1.65;
 }
 
-.inline-link {
-  padding: 7px 14px;
+.severity-badge {
+  min-height: 44px;
+  padding: 0 18px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--muted);
-  font-size: 12px;
-  text-decoration: none;
-  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
 }
 
-.inline-link:hover {
-  color: #60a5fa;
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.28);
+.tone-risk {
+  border: 1px solid rgba(251, 113, 133, 0.2);
+  background: rgba(127, 29, 29, 0.66);
+  color: #fee2e2;
 }
 
-.inline-action {
-  min-height: 34px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(16, 185, 129, 0.22);
-  background: rgba(16, 185, 129, 0.1);
-  color: #d1fae5;
-  cursor: pointer;
+.tone-warning {
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  background: rgba(120, 53, 15, 0.66);
+  color: #fde68a;
 }
 
-.inline-action.is-secondary {
-  border-color: rgba(148, 163, 184, 0.18);
-  background: rgba(15, 23, 42, 0.72);
-  color: #dbe7f3;
-}
-
-.inline-action:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.tone-safe {
+  border: 1px solid rgba(52, 211, 153, 0.22);
+  background: rgba(18, 62, 45, 0.88);
+  color: #d9fff0;
 }
 
 .impact-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .impact-chip {
   display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border-radius: 14px;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.025);
 }
 
-.impact-chip span,
-.impact-chip small {
-  color: rgba(120, 143, 172, 0.78);
+.impact-chip span {
+  color: rgba(168, 179, 194, 0.76);
 }
 
-.impact-chip strong {
-  color: #f8fafc;
-  font-size: 18px;
-  line-height: 1.1;
+.stress-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.result-body {
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 348px;
-  gap: 14px;
+.stress-panel-wide {
+  grid-column: 1 / -1;
 }
 
-.action-row,
-.route-links,
-.task-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.task-list {
-  flex-direction: column;
-}
-
-.chain-panel,
-.action-panel {
-  min-height: 0;
-  padding: 16px;
-  gap: 12px;
-}
-
-.chain-steps {
-  display: grid;
-  gap: 12px;
+.chain-list {
+  margin-top: 12px;
 }
 
 .chain-step {
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 12px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.025);
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 94px;
+  padding: 18px;
+  text-align: left;
 }
 
 .chain-step.is-active {
-  border-color: rgba(96, 165, 250, 0.2);
-  background: rgba(17, 24, 39, 0.92);
+  border-color: rgba(96, 165, 250, 0.22);
+  background: rgba(21, 33, 58, 0.72);
 }
 
-.chain-step em {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: rgba(255, 255, 255, 0.04);
-  font-style: normal;
+.panel-title {
+  font-size: 22px;
+  line-height: 1.18;
+  margin-top: 12px;
 }
 
-.chain-step strong,
-.action-focus strong,
-.reason-focus strong {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 15px;
-  line-height: 1.45;
-}
-
-.action-panel {
-  align-content: start;
-}
-
-.action-focus,
-.reason-focus {
-  gap: 8px;
-  padding: 16px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.025);
-}
-
-.reason-focus {
-  border-color: rgba(96, 165, 250, 0.18);
-  background: rgba(10, 18, 32, 0.72);
-}
-
-.action-focus-compact {
+.action-row,
+.route-links {
+  display: flex;
   gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 
-.task-item {
-  display: grid;
-  gap: 6px;
-  padding: 14px;
-  border-radius: 16px;
+.inline-link {
+  min-height: 40px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
   text-decoration: none;
-  color: inherit;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-@media (max-width: 1120px) {
-  .workflow-strip,
-  .impact-strip,
-  .stress-layout,
-  .result-body {
-    grid-template-columns: 1fr;
-  }
+.panel-error {
+  color: #fda4af;
+  margin-top: 10px;
+}
 
-  .scenario-context {
+@media (max-width: 1180px) {
+  .stress-frame {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 860px) {
-  .stress-header,
-  .stress-controls,
-  .result-head {
+  .stress-topbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .stress-topbar-right,
+  .stress-grid,
+  .impact-strip {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  .stress-hero {
+    flex-direction: column;
   }
 }
 </style>

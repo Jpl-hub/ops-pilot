@@ -1,1306 +1,647 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
-import ErrorState from '@/components/ErrorState.vue'
-import { useWorkspaceRole } from '@/composables/useWorkspaceRole'
-import type { UserRole } from '@/lib/api'
 import { useSession } from '@/lib/session'
 import { persistWorkflowContext, resolveWorkflowContext } from '@/lib/workflowContext'
 import { useWorkspaceStore } from '@/stores/workspace'
+import type { UserRole } from '@/lib/api'
 
-type AnswerBlock = {
+type ResultSection = {
   title: string
-  paragraphs: string[]
-  bullets: string[]
+  lines: string[]
 }
 
-type SignalCard = {
-  label: string
-  title: string
-  detail: string
-  route: { path: string; query?: Record<string, string> } | null
-}
-
-type SurfaceLink = {
-  label: string
-  path: string
-  query?: Record<string, string>
-}
-
-type EvidenceCard = {
-  title: string
-  subtitle: string
-  items: Array<{
-    label: string
-    path: string
-    query?: Record<string, string>
-  }>
-}
-
-const route = useRoute()
+const store = useWorkspaceStore()
 const session = useSession()
-const workspace = useWorkspaceStore()
-const {
-  companies,
-  selectedCompany,
-  selectedPeriod,
-  query,
-  messages,
-  overview,
-  companyWorkspace,
-  availablePeriods,
-  loadingCompanies,
-  loadingOverview,
-  loadingCompanyWorkspace,
-  loadingTurn,
-  companiesError,
-  overviewError,
-  companyWorkspaceError,
-  turnError,
-} = storeToRefs(workspace)
+const route = useRoute()
+const router = useRouter()
 
-const appliedScenarioKey = ref('')
+const draftQuery = ref('')
 const bootstrapping = ref(false)
 const syncingFromRoute = ref(false)
-const workflowActionPending = ref('')
-const workflowActionError = ref('')
+const currentRole = computed(() => session.activeRole.value || 'investor')
 
-const currentRole = computed<UserRole>(() => session.activeRole.value || 'investor')
-const { roleCopy } = useWorkspaceRole(() => currentRole.value)
+const roleLabelMap: Record<UserRole, string> = {
+  investor: '投资者',
+  management: '管理层',
+  regulator: '监管风控',
+}
 
-const starterQueries = computed(
-  () => overview.value?.role_profile?.starter_queries || roleCopy.value.fallbackQueries,
-)
+const defaultQuestions = [
+  '这家公司当前最值得警惕的风险是什么？',
+  '把这家公司和同子行业头部公司做一下对比。',
+  '最新研报和真实财报有没有偏差？',
+]
 
-const roleLabel = computed(() => {
-  const map: Record<UserRole, string> = {
-    investor: '投资者',
-    management: '管理层',
-    regulator: '监管风控',
+const roleLabel = computed(() => roleLabelMap[currentRole.value] || '投资者')
+const companies = computed(() => store.companies)
+const periodOptions = computed(() => store.availablePeriods)
+const latestPayload = computed(() => store.latestPayload || {})
+const companyWorkspace = computed(() => store.companyWorkspace || null)
+const scoreSummary = computed(() => companyWorkspace.value?.score_summary || null)
+const watchboard = computed(() => companyWorkspace.value?.watchboard || null)
+const companyName = computed(() => companyWorkspace.value?.company_name || store.selectedCompany || '请选择公司')
+const reportPeriod = computed(() => companyWorkspace.value?.report_period || store.selectedPeriod || '')
+
+const resultSections = computed<ResultSection[]>(() => {
+  const sections = latestPayload.value?.answer_sections
+  if (Array.isArray(sections) && sections.length) {
+    return sections
+      .slice(0, 3)
+      .map((item: any) => ({
+        title: String(item?.title || '当前判断'),
+        lines: Array.isArray(item?.lines)
+          ? item.lines.map((line: unknown) => String(line || '').trim()).filter(Boolean)
+          : [],
+      }))
+      .filter((item) => item.lines.length)
   }
-  return map[currentRole.value] ?? '投资者'
+
+  const raw = String(latestPayload.value?.answer_markdown || '').trim()
+  if (!raw) return [{ title: '当前判断', lines: ['先围绕一个问题发起判断。'] }]
+
+  const lines = raw
+    .replace(/[*#>`-]/g, ' ')
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  return [{ title: '当前判断', lines: lines.slice(0, 3) }]
 })
 
-const latestAnswer = computed(() => {
-  const results = messages.value.filter((message) => message.kind === 'result')
-  return results.length ? results[results.length - 1].payload : null
+const summaryLine = computed(() => {
+  return resultSections.value[0]?.lines[0] || '先围绕一个问题发起判断。'
 })
 
-const workflowSteps = computed<any[]>(() => workspace.agentFlow || [])
-const latestActionCards = computed<any[]>(() => (latestAnswer.value?.action_cards || []).slice(0, 3))
-const latestEvidenceGroups = computed<any[]>(() => (latestAnswer.value?.evidence_groups || []).slice(0, 2))
-
-const answerBlocks = computed<AnswerBlock[]>(() =>
-  parseAnswerMarkdown(latestAnswer.value?.answer_markdown || '', latestAnswer.value?.answer_sections || []),
-)
-
-const hasCompanies = computed(() => companies.value.length > 0)
-const canRunQuery = computed(() => !!selectedCompany.value && !!query.value.trim() && !loadingTurn.value)
-const companyWorkspaceReady = computed(
-  () => !loadingCompanyWorkspace.value && !!companyWorkspace.value?.company_name,
-)
-
-const companySelectPlaceholder = computed(() => {
-  if (loadingCompanies.value) return '正在载入公司池'
-  if (companiesError.value) return '公司池加载失败'
-  if (!companies.value.length) return '当前无公司'
-  return '选择公司'
-})
-const periodOptions = computed(() =>
-  (availablePeriods.value || [])
-    .map((period) => {
-      const value = String(period || '').trim()
-      return value ? { value, label: value } : null
-    })
-    .filter(Boolean) as Array<{ value: string; label: string }>,
-)
-
-const currentStateLines = computed(() => {
-  const items = [
-    ...(companyWorkspace.value?.top_risks || []).slice(0, 2),
-    ...(companyWorkspace.value?.top_opportunities || []).slice(0, 1),
-  ]
-  return items.filter(Boolean)
-})
-
-const primaryActionCards = computed<any[]>(() => {
-  if (latestActionCards.value.length) return latestActionCards.value
-  return (companyWorkspace.value?.action_cards || []).slice(0, 3)
-})
-const watchboardActionLabel = computed(() =>
-  companyWorkspace.value?.watchboard?.tracked ? '移出持续跟踪' : '加入持续跟踪',
-)
-const watchboardSummary = computed(() => {
-  const watchboard = companyWorkspace.value?.watchboard
-  if (!selectedCompany.value) return '先选择公司，再决定是否持续跟踪。'
-  if (!watchboard?.tracked) return '当前未加入持续跟踪，适合把需要连续盯防的主体放进监测板。'
-  return `已加入持续跟踪 · ${watchboard.new_alerts || 0} 条新增预警 / ${watchboard.task_count || 0} 项在板任务`
-})
-
-const latestEvidenceCards = computed<EvidenceCard[]>(() =>
-  latestEvidenceGroups.value
-    .map((group: any) => ({
-      title: group.title || '证据',
-      subtitle: group.subtitle || '',
-      items: (group.items || [])
-        .slice(0, 2)
-        .map((item: any) => ({
-          label: describeEvidenceItem(item),
-          path: item?.path || (item?.chunk_id ? `/evidence/${item.chunk_id}` : ''),
-          query:
-            item?.query ||
-            (item?.chunk_id
-              ? {
-                  context: group.title || '证据',
-                  anchors: (group.anchor_terms || []).join('|'),
-                }
-              : undefined),
-        }))
-        .filter((item: any) => item.path),
-    }))
-    .filter((group) => group.subtitle || group.items.length),
-)
-
-const resultLinks = computed(() => {
-  const seen = new Set<string>()
-  const links: Array<{ label: string; path: string; query?: Record<string, string> }> = []
-  for (const step of workflowSteps.value) {
-    const stepRoute = normalizeRoute(step?.route)
-    if (!stepRoute?.path) continue
-    const key = `${stepRoute.path}-${JSON.stringify(stepRoute.query || {})}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    links.push({
-      label: step?.route?.label || step?.title || '继续下钻',
-      path: stepRoute.path,
-      query: stepRoute.query || {},
-    })
-  }
-  return links.slice(0, 2)
-})
-
-const pageLoadError = computed(
-  () => companiesError.value || overviewError.value || companyWorkspaceError.value || '',
-)
-
-const briefHeadline = computed(() => {
-  if (!selectedCompany.value) return '先选择公司，再发起一轮判断'
-  if (!companyWorkspace.value?.score_summary) return '正在回收这家公司的真实运行态'
-  if ((companyWorkspace.value?.alerts?.summary?.new || 0) > 0) {
-    return '当前有新增预警，适合先围绕最急的问题做判断'
-  }
-  if ((companyWorkspace.value?.tasks?.summary?.in_progress || 0) > 0) {
-    return '当前有在途动作，适合继续把这一轮判断推进完'
-  }
-  return '当前运行态已经就绪，可以直接围绕一个问题开始判断'
-})
-
-const surfaceTitle = computed(() => selectedCompany.value || '先选择公司')
-
-const surfaceSummary = computed(() => latestAnswer.value?.summary || briefHeadline.value)
-
-const latestUserQuery = computed(() => {
-  const queries = messages.value.filter((message) => message.kind === 'query')
-  return queries.length ? queries[queries.length - 1].text : query.value.trim()
-})
-
-const latestRunSummary = computed(() => {
-  const latestRun = (companyWorkspace.value?.recent_runs?.items || []).slice(0, 1)[0]
-  if (!latestRun) return ''
-  return `${formatRelativeTime(latestRun.created_at)} · ${latestRun.query || latestRun.title || '最近一次判断'}`
-})
-
-const researchSummary = computed(() => {
-  const research = companyWorkspace.value?.research
-  if (!research) return '当前没有可核验研报。'
-  if (research.status === 'ready') {
-    return `${research.institution || '机构'} · ${research.claim_matches || 0} 条匹配 / ${research.claim_mismatches || 0} 条分歧`
-  }
-  return research.detail || '当前没有可核验研报。'
-})
-
-const analysisStages = computed(() => [
+const statCards = computed(() => [
   {
-    index: '01',
-    title: '明确问题',
-    status: latestAnswer.value || loadingTurn.value ? 'completed' : 'pending',
+    label: '经营总分',
+    value: scoreSummary.value
+      ? `${scoreSummary.value.total_score ?? '--'}${scoreSummary.value.grade ? ` / ${scoreSummary.value.grade}` : ''}`
+      : '--',
   },
   {
-    index: '02',
-    title: '拉取关键数据',
-    status: latestAnswer.value || loadingTurn.value ? 'completed' : 'pending',
+    label: '风险标签',
+    value: `${scoreSummary.value?.risk_count ?? 0}`,
   },
   {
-    index: '03',
-    title: '回到原文',
-    status: latestEvidenceCards.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
-  },
-  {
-    index: '04',
-    title: '落到动作',
-    status: primaryActionCards.value.length ? 'completed' : loadingTurn.value ? 'running' : 'pending',
+    label: '机会标签',
+    value: `${scoreSummary.value?.opportunity_count ?? 0}`,
   },
 ])
 
-const scoreSummary = computed(() => companyWorkspace.value?.score_summary || null)
-const riskLines = computed(() => (companyWorkspace.value?.top_risks || []).filter(Boolean).slice(0, 3))
-const opportunityLines = computed(() => (companyWorkspace.value?.top_opportunities || []).filter(Boolean).slice(0, 3))
-const scoreCards = computed(() => {
-  const totalScore = Number(scoreSummary.value?.total_score)
-  const grade = String(scoreSummary.value?.grade || '').trim()
-  return [
-    {
-      label: '经营总分',
-      value: Number.isFinite(totalScore) ? `${totalScore.toFixed(2)} / ${grade || '--'}` : `-- / ${grade || '--'}`,
-    },
-    {
-      label: '风险标签',
-      value: String(scoreSummary.value?.risk_count ?? riskLines.value.length ?? 0),
-    },
-    {
-      label: '机会标签',
-      value: String(scoreSummary.value?.opportunity_count ?? opportunityLines.value.length ?? 0),
-    },
-  ]
-})
-const actionLead = computed(() => primaryActionCards.value[0] || null)
-const evidenceLead = computed(() => latestEvidenceCards.value[0] || null)
-const nextRouteLead = computed(() => continuationLinks.value[0] || null)
-const latestRunCardTitle = computed(() => (latestRunSummary.value ? '这一轮可以从这里接着看' : '先把这一轮判断跑起来'))
-const latestRunCardText = computed(() => latestRunSummary.value || researchSummary.value || '先从右侧问题开始，系统会把这一轮判断接到证据和模块。')
-
-const continuationLinks = computed<SurfaceLink[]>(() => {
-  const seen = new Set<string>()
-  const links: SurfaceLink[] = []
-  const pushLink = (link: SurfaceLink | null | undefined) => {
-    if (!link?.path) return
-    const key = `${link.path}-${JSON.stringify(link.query || {})}`
-    if (seen.has(key)) return
-    seen.add(key)
-    links.push(link)
-  }
-
-  resultLinks.value.forEach((item) => pushLink(item))
-
-  if (selectedCompany.value && companyWorkspace.value?.research?.report_title) {
-    pushLink({
-      label: '去核验这份研报',
-      path: '/verify',
-      query: buildCompanyRouteQuery({ report_title: companyWorkspace.value.research.report_title }),
-    })
-  }
-
-  return links.slice(0, 3)
+const riskLines = computed(() => {
+  const items = companyWorkspace.value?.top_risks?.slice(0, 3) || []
+  return items.length ? items : ['当前没有显著新增风险标签。']
 })
 
-const continuationSummary = computed(
-  () => latestRunSummary.value || researchSummary.value || '把这一轮判断接到证据和模块。',
-)
+const opportunityLines = computed(() => {
+  const items = companyWorkspace.value?.top_opportunities?.slice(0, 3) || []
+  return items.length ? items : ['当前没有显著机会标签。']
+})
 
-function parseAnswerMarkdown(markdown: string, fallbackSections: any[]): AnswerBlock[] {
-  const lines = markdown
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
+const quickQuestions = computed(() => {
+  const items = store.followUps.length
+    ? store.followUps
+    : store.overview?.role_profile?.starter_queries || defaultQuestions
+  return items.slice(0, 3)
+})
 
-  if (!lines.length) {
-    return fallbackSections.map((section: any) => ({
-      title: section.title || '分析结果',
-      paragraphs: [],
-      bullets: section.lines || [],
-    }))
+const actionTitle = computed(() => {
+  const firstAction = latestPayload.value?.action_cards?.[0]
+  if (firstAction?.title) return String(firstAction.title)
+  if (watchboard.value?.tracked) return '这轮判断已经接到持续跟踪'
+  return '把这一轮判断接到后续动作'
+})
+
+const actionBody = computed(() => {
+  const firstAction = latestPayload.value?.action_cards?.[0]
+  if (firstAction?.reason) return String(firstAction.reason)
+  if (firstAction?.action) return String(firstAction.action)
+  if (watchboard.value?.tracked) {
+    return `当前已纳入持续跟踪，新增预警 ${Number(watchboard.value.new_alerts || 0)} 条，相关任务 ${Number(watchboard.value.task_count || 0)} 项。`
   }
+  return '当前未加入持续跟踪，适合把需要继续盯防的主体放进监测板。'
+})
 
-  const blocks: AnswerBlock[] = []
-  let current: AnswerBlock = { title: '本轮结论', paragraphs: [], bullets: [] }
+const continuationCards = computed(() => [
+  {
+    label: '把这一轮判断接到证据和模块',
+    detail: companyWorkspace.value?.recent_runs?.items?.[0]?.query || '继续回到原文、图谱和经营诊断。',
+    to: '/graph',
+  },
+  {
+    label: '继续往下看',
+    detail: '把这轮判断带到图谱检索、观点核验或经营诊断。',
+    to: '/verify',
+  },
+])
 
-  for (const line of lines) {
-    if (line.startsWith('### ') || line.startsWith('## ')) {
-      if (current.paragraphs.length || current.bullets.length || blocks.length === 0) {
-        blocks.push(current)
-      }
-      current = { title: line.replace(/^#{2,3}\s+/, ''), paragraphs: [], bullets: [] }
-      continue
+const stageItems = computed(() => {
+  const flow = store.agentFlow
+  if (!flow.length) {
+    return ['明确问题', '拉取关键数据', '回到原文', '落到动作']
+  }
+  return flow.slice(0, 4).map((item: any) => String(item?.title || item?.agent_label || '当前步骤'))
+})
+
+async function bootstrapPage() {
+  if (bootstrapping.value) return
+  bootstrapping.value = true
+  try {
+    if (!store.messages.length) {
+      store.resetConversation('协同分析', '围绕问题直接判断')
     }
-    if (line.startsWith('- ') || line.startsWith('* ') || /^\d+\.\s+/.test(line)) {
-      current.bullets.push(line.replace(/^(-|\*|\d+\.)\s+/, ''))
-      continue
+    await store.loadCompanies()
+
+    const workflow = resolveWorkflowContext(route.query)
+    const roleQuery = readQuery(route.query.role)
+    if (roleQuery === 'investor' || roleQuery === 'management' || roleQuery === 'regulator') {
+      session.setActiveRole(roleQuery)
     }
-    current.paragraphs.push(line)
-  }
 
-  if (current.title || current.paragraphs.length || current.bullets.length) {
-    blocks.push(current)
-  }
+    syncingFromRoute.value = true
+    if (workflow.company) {
+      store.selectedCompany = workflow.company
+    } else if (!store.selectedCompany && store.companies.length) {
+      store.selectedCompany = store.companies[0]
+    }
+    if (workflow.period) {
+      store.selectedPeriod = workflow.period
+    }
+    syncingFromRoute.value = false
 
-  return blocks.filter((block) => block.paragraphs.length || block.bullets.length)
+    await store.loadOverview(currentRole.value)
+    if (!store.selectedPeriod) {
+      store.selectedPeriod = store.preferredPeriod || store.availablePeriods[0] || ''
+    }
+    if (store.selectedCompany) {
+      persistWorkflowContext({ company: store.selectedCompany, period: store.selectedPeriod })
+      await store.loadCompanyWorkspace(currentRole.value)
+    }
+  } finally {
+    bootstrapping.value = false
+  }
 }
 
-function renderInlineMarkdown(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/__(.+?)__/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-}
-
-function readQueryString(value: unknown) {
+function readQuery(value: unknown): string {
   const normalized = Array.isArray(value) ? value[0] : value
   return typeof normalized === 'string' ? normalized.trim() : ''
 }
 
-function parseRoleQuery(value: unknown): UserRole | null {
-  const normalized = readQueryString(value)
-  if (normalized === 'investor' || normalized === 'management' || normalized === 'regulator') {
-    return normalized
-  }
-  return null
+async function submitQuery(query?: string) {
+  const content = (query || draftQuery.value).trim()
+  if (!content || !store.selectedCompany) return
+  await store.sendQuery(currentRole.value, content)
+  draftQuery.value = ''
 }
 
-function resetWorkspaceConversation() {
-  workspace.resetConversation(roleCopy.value.title, roleCopy.value.label)
-}
-
-function formatRelativeTime(value?: string | null) {
-  if (!value) return '等待更新'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(parsed)
-}
-
-function normalizeRoute(routeLike: any) {
-  if (!routeLike?.path || String(routeLike.path).startsWith('/api')) return null
-  return {
-    path: String(routeLike.path),
-    query: routeLike.query || {},
+async function toggleWatchboard() {
+  if (!store.selectedCompany) return
+  if (watchboard.value?.tracked) {
+    await store.removeCurrentCompanyFromWatchboard(currentRole.value)
+  } else {
+    await store.addCurrentCompanyToWatchboard(currentRole.value)
   }
 }
 
-function buildCompanyRouteQuery(extra: Record<string, string | null | undefined> = {}) {
-  const query: Record<string, string> = {}
-  const company = selectedCompany.value || companyWorkspace.value?.company_name
-  const period = companyWorkspace.value?.report_period || selectedPeriod.value || overview.value?.preferred_period
-  if (company) {
-    query.company = company
-  }
-  if (period) {
-    query.period = period
-  }
-  Object.entries(extra).forEach(([key, value]) => {
-    const normalized = typeof value === 'string' ? value.trim() : ''
-    if (normalized) {
-      query[key] = normalized
-    }
+function openContinuation(path: string) {
+  router.push({
+    path,
+    query: {
+      company: store.selectedCompany,
+      period: store.selectedPeriod,
+      role: currentRole.value,
+    },
   })
-  return query
 }
-
-function resolveExecutionRoute(record: any) {
-  const companyName = record?.company_name || selectedCompany.value
-  const reportPeriod =
-    record?.report_period
-    || companyWorkspace.value?.report_period
-    || selectedPeriod.value
-    || overview.value?.preferred_period
-  const role = record?.user_role || currentRole.value
-  const metaRoute = normalizeRoute(record?.meta?.route)
-  if (metaRoute) return metaRoute
-  if (record?.run_id && record?.query) {
-    return companyName
-      ? { path: '/workspace', query: { company: companyName, period: reportPeriod, role, run_id: record.run_id } }
-      : { path: '/workspace', query: { role, run_id: record.run_id } }
-  }
-  if (record?.run_id && record?.intent) {
-    return companyName
-      ? { path: '/graph', query: { company: companyName, period: reportPeriod, role, run_id: record.run_id } }
-      : null
-  }
-  if (
-    record?.run_id
-    && (
-      record?.stream_type === 'claim_verify'
-      || record?.history_type === 'claim_verify'
-      || record?.meta?.report_title
-      || record?.meta?.source_name
-    )
-  ) {
-    return companyName
-      ? {
-          path: '/verify',
-          query: {
-            company: companyName,
-            period: reportPeriod,
-            role,
-            run_id: record.run_id,
-            report_title: record?.meta?.report_title || '',
-          },
-        }
-      : null
-  }
-  if (record?.run_id && record?.scenario) {
-    return companyName
-      ? { path: '/stress', query: { company: companyName, period: reportPeriod, role, run_id: record.run_id } }
-      : null
-  }
-  if (record?.run_id && (record?.headline || record?.status_label)) {
-    return companyName
-      ? { path: '/vision', query: { company: companyName, period: reportPeriod, role, run_id: record.run_id } }
-      : null
-  }
-  switch (record?.stream_type || record?.history_type || record?.module_key) {
-    case 'analysis_run':
-    case 'analysis':
-      return companyName
-        ? { path: '/workspace', query: { company: companyName, period: reportPeriod, role } }
-        : { path: '/workspace', query: { role } }
-    case 'graph_query':
-    case 'graph':
-      return companyName ? { path: '/graph', query: { company: companyName, period: reportPeriod, role } } : null
-    case 'stress_test':
-    case 'stress':
-      return companyName ? { path: '/stress', query: { company: companyName, period: reportPeriod, role } } : null
-    case 'vision_analyze':
-    case 'vision':
-      return companyName ? { path: '/vision', query: { company: companyName, period: reportPeriod, role } } : null
-    default:
-      return companyName ? { path: '/score', query: { company: companyName, period: reportPeriod } } : null
-  }
-}
-
-function describeEvidenceItem(item: any) {
-  const text =
-    item?.anchor_text ||
-    item?.snippet ||
-    item?.quote ||
-    item?.title ||
-    item?.text ||
-    item?.chunk_id ||
-    '打开原文'
-  return String(text).replace(/\s+/g, ' ').trim().slice(0, 72)
-}
-
-function displayModuleStatus(status?: string) {
-  const map: Record<string, string> = {
-    ready: '已就绪',
-    idle: '待运行',
-    running: '运行中',
-    blocked: '已阻断',
-    completed: '已完成',
-  }
-  return map[(status || '').toLowerCase()] || status || '待运行'
-}
-
-function moduleTone(status?: string) {
-  const normalized = (status || '').toLowerCase()
-  if (normalized === 'ready' || normalized === 'completed') return 'success'
-  if (normalized === 'running') return 'accent'
-  if (normalized === 'blocked') return 'risk'
-  return 'default'
-}
-
-function displayExecutionStatus(status?: string) {
-  const map: Record<string, string> = {
-    queued: '待处理',
-    new: '新增',
-    dispatched: '已派发',
-    in_progress: '处理中',
-    done: '已完成',
-    resolved: '已解决',
-    dismissed: '已忽略',
-    completed: '已完成',
-    tracked: '跟踪中',
-    blocked: '已阻断',
-  }
-  return map[(status || '').toLowerCase()] || status || '已记录'
-}
-
-function displayExecutionType(streamType?: string) {
-  const map: Record<string, string> = {
-    alert: '预警',
-    task: '任务',
-    watchboard: '监测',
-    document_upgrade: '文档升级',
-    claim_verify: '观点核验',
-    stress_test: '压力测试',
-    graph_query: '图谱检索',
-    vision_analyze: '文档复核',
-    analysis_run: '协同分析',
-  }
-  return map[streamType || ''] || '运行记录'
-}
-
-function describeExecutionMeta(record: any) {
-  const meta = record?.meta || {}
-  const details = [
-    meta.priority,
-    meta.owner,
-    meta.reason,
-    meta.note,
-    meta.report_title,
-    meta.source_name,
-    meta.scenario,
-    meta.severity,
-    meta.intent,
-    meta.headline,
-    meta.query_type,
-    meta.stage,
-  ]
-    .map((item) => String(item || '').trim())
-    .filter(Boolean)
-  if (details.length) {
-    return details.join(' · ')
-  }
-  return record?.created_at ? formatRelativeTime(record.created_at) : '继续打开这条运行记录。'
-}
-
-async function primeScenarioFromRoute() {
-  const targetRole = parseRoleQuery(route.query.role)
-  if (targetRole && session.activeRole.value !== targetRole) {
-    session.setActiveRole(targetRole)
-    return
-  }
-
-  const workflowContext = resolveWorkflowContext(route.query)
-  const prompt = readQueryString(route.query.prompt)
-  const targetRunId = readQueryString(route.query.run_id)
-  const targetCompany = workflowContext.company
-  const targetPeriod = workflowContext.period
-  let contextChanged = false
-
-  syncingFromRoute.value = true
-  try {
-    if (targetPeriod && selectedPeriod.value !== targetPeriod) {
-      selectedPeriod.value = targetPeriod
-      contextChanged = true
-    }
-    if (targetCompany && companies.value.includes(targetCompany) && selectedCompany.value !== targetCompany) {
-      selectedCompany.value = targetCompany
-      contextChanged = true
-    }
-  } finally {
-    syncingFromRoute.value = false
-  }
-
-  if (contextChanged) {
-    resetWorkspaceConversation()
-    await workspace.loadOverview(currentRole.value)
-    await workspace.loadCompanyWorkspace(currentRole.value)
-  }
-
-  if (targetRunId) {
-    const runKey = `run:${targetRunId}`
-    if (appliedScenarioKey.value === runKey && latestAnswer.value?.run_id === targetRunId) {
-      return
-    }
-    appliedScenarioKey.value = runKey
-    resetWorkspaceConversation()
-    await workspace.loadRunDetail(targetRunId, currentRole.value)
-    return
-  }
-
-  if (!prompt) return
-  query.value = prompt
-
-  const shouldAutoRun = readQueryString(route.query.auto_run) === '1'
-  const scenarioKey = `${route.fullPath}::${selectedCompany.value || ''}::${selectedPeriod.value || ''}`
-  if (!shouldAutoRun || !selectedCompany.value || loadingTurn.value || appliedScenarioKey.value === scenarioKey) {
-    return
-  }
-  appliedScenarioKey.value = scenarioKey
-  await runQuery(prompt)
-}
-
-async function runQuery(inputQuery?: string) {
-  if (inputQuery) query.value = inputQuery
-  await workspace.sendQuery(currentRole.value, query.value)
-}
-
-function pickStarterQuery(question: string) {
-  query.value = question
-}
-
-function handleComposerKeydown(event: KeyboardEvent) {
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && canRunQuery.value) {
-    event.preventDefault()
-    runQuery()
-  }
-}
-
-function workflowPendingKey(scope: string, value: string) {
-  return `${scope}:${value}`
-}
-
-function isWorkflowPending(scope: string, value: string) {
-  return workflowActionPending.value === workflowPendingKey(scope, value)
-}
-
-async function createTaskFromCard(card: any) {
-  if (!selectedCompany.value) return
-  const actionKey = workflowPendingKey('task-create', `${card?.title || 'task'}`)
-  workflowActionPending.value = actionKey
-  workflowActionError.value = ''
-  try {
-    await workspace.createTaskFromAction(card, currentRole.value)
-  } catch (error) {
-    workflowActionError.value = error instanceof Error ? error.message : '写入任务板失败'
-  } finally {
-    if (workflowActionPending.value === actionKey) {
-      workflowActionPending.value = ''
-    }
-  }
-}
-
-async function setTaskStatus(taskId: string, status: 'queued' | 'in_progress' | 'done' | 'blocked') {
-  const actionKey = workflowPendingKey('task-status', `${taskId}:${status}`)
-  workflowActionPending.value = actionKey
-  workflowActionError.value = ''
-  try {
-    await workspace.updateTaskStatus(taskId, status, currentRole.value)
-  } catch (error) {
-    workflowActionError.value = error instanceof Error ? error.message : '更新任务状态失败'
-  } finally {
-    if (workflowActionPending.value === actionKey) {
-      workflowActionPending.value = ''
-    }
-  }
-}
-
-async function toggleWatchboardTracking() {
-  if (!selectedCompany.value) return
-  const actionKey = workflowPendingKey('watchboard', selectedCompany.value)
-  workflowActionPending.value = actionKey
-  workflowActionError.value = ''
-  try {
-    if (companyWorkspace.value?.watchboard?.tracked) {
-      await workspace.removeCurrentCompanyFromWatchboard(currentRole.value)
-    } else {
-      await workspace.addCurrentCompanyToWatchboard(currentRole.value, `${roleLabel.value}持续跟踪`)
-    }
-  } catch (error) {
-    workflowActionError.value = error instanceof Error ? error.message : '更新持续跟踪失败'
-  } finally {
-    if (workflowActionPending.value === actionKey) {
-      workflowActionPending.value = ''
-    }
-  }
-}
-
-onMounted(async () => {
-  bootstrapping.value = true
-  const initialRole = parseRoleQuery(route.query.role)
-  if (initialRole && session.activeRole.value !== initialRole) session.setActiveRole(initialRole)
-  const initialWorkflowContext = resolveWorkflowContext(route.query)
-  const initialPeriod = initialWorkflowContext.period
-  syncingFromRoute.value = true
-  try {
-    if (initialPeriod) {
-      selectedPeriod.value = initialPeriod
-    }
-  } finally {
-    syncingFromRoute.value = false
-  }
-  resetWorkspaceConversation()
-  try {
-    await workspace.bootstrap(currentRole.value)
-    await primeScenarioFromRoute()
-  } catch {
-    // 错误已写入 store。
-  } finally {
-    bootstrapping.value = false
-  }
-})
 
 watch(
-  () => session.activeRole.value,
-  async () => {
-    bootstrapping.value = true
-    const workflowContext = resolveWorkflowContext(route.query)
-    const targetPeriod = workflowContext.period
-    syncingFromRoute.value = true
-    try {
-      if (targetPeriod) {
-        selectedPeriod.value = targetPeriod
-      }
-    } finally {
-      syncingFromRoute.value = false
-    }
-    resetWorkspaceConversation()
-    try {
-      await workspace.bootstrap(currentRole.value)
-      await primeScenarioFromRoute()
-    } catch {
-      // 错误已写入 store。
-    } finally {
-      bootstrapping.value = false
-    }
+  currentRole,
+  async (next, previous) => {
+    if (next === previous) return
+    store.resetConversation('协同分析', '围绕问题直接判断')
+    await bootstrapPage()
   },
 )
 
-watch(() => route.fullPath, async () => {
-  await primeScenarioFromRoute()
-})
+watch(
+  () => [route.query.company, route.query.period, route.query.role],
+  async () => {
+    await bootstrapPage()
+  },
+)
 
-watch(selectedCompany, async (company, previous) => {
-  if (!company || company === previous || loadingCompanies.value || syncingFromRoute.value || bootstrapping.value) return
-  resetWorkspaceConversation()
-  await workspace.loadCompanyWorkspace(currentRole.value)
-})
+watch(
+  () => [store.selectedCompany, store.selectedPeriod] as const,
+  async ([company, period], [previousCompany, previousPeriod]) => {
+    if (syncingFromRoute.value) return
+    if (!company || (company === previousCompany && period === previousPeriod)) return
+    persistWorkflowContext({ company, period })
+    if (period && period !== previousPeriod) {
+      await store.loadOverview(currentRole.value)
+    }
+    await store.loadCompanyWorkspace(currentRole.value)
+  },
+)
 
-watch(selectedPeriod, async (period, previous) => {
-  if (period === previous || syncingFromRoute.value || bootstrapping.value) return
-  resetWorkspaceConversation()
-  await workspace.loadOverview(currentRole.value)
-  await workspace.loadCompanyWorkspace(currentRole.value)
-})
-
-watch([selectedCompany, selectedPeriod], ([company, period]) => {
-  if (!company && !period) return
-  persistWorkflowContext({
-    company,
-    period,
-  })
+onMounted(async () => {
+  await bootstrapPage()
 })
 </script>
 
 <template>
-  <AppShell title="">
-    <div class="workspace-console">
-      <LoadingState v-if="loadingOverview || loadingCompanies || loadingCompanyWorkspace" class="workspace-empty" />
-      <ErrorState
-        v-else-if="pageLoadError"
-        class="workspace-empty"
-        title="协同分析暂时不可用"
-        :message="pageLoadError"
-      />
-      <section v-else class="workspace-shell">
-        <header class="workspace-topbar">
-          <div class="workspace-topbar-left">
-            <span class="workspace-kicker">协同分析</span>
+  <AppShell title="协同分析" compact>
+    <div class="workspace-shell">
+      <header class="workspace-topbar">
+        <div class="workspace-topbar-fields">
+          <label class="field">
+            <span>公司</span>
+            <select v-model="store.selectedCompany">
+              <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>报期</span>
+            <select v-model="store.selectedPeriod">
+              <option v-for="period in periodOptions" :key="period" :value="period">{{ period }}</option>
+            </select>
+          </label>
+          <span class="role-chip">{{ roleLabel }}</span>
+        </div>
+        <ol class="stage-strip">
+          <li v-for="(item, index) in stageItems" :key="item">
+            <span>{{ String(index + 1).padStart(2, '0') }}</span>
+            <strong>{{ item }}</strong>
+          </li>
+        </ol>
+      </header>
+
+      <div class="workspace-grid">
+        <section class="workspace-main">
+          <div class="hero-block">
+            <p class="eyebrow">先看当前状态</p>
+            <h1>{{ companyName }}</h1>
+            <p class="summary">{{ summaryLine }}</p>
+            <div class="meta-row">
+              <span>报期 {{ reportPeriod || '未选择' }}</span>
+            </div>
           </div>
 
-          <div class="workspace-topbar-right">
-            <label class="control-field">
-              <span>公司</span>
-              <select v-model="selectedCompany">
-                <option :value="''" disabled>{{ companySelectPlaceholder }}</option>
-                <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-              </select>
-            </label>
-
-            <label class="control-field" v-if="periodOptions.length">
-              <span>报期</span>
-              <select v-model="selectedPeriod">
-                <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
-              </select>
-            </label>
-
-            <span class="role-chip">{{ roleLabel }}</span>
+          <div class="stat-row">
+            <article v-for="item in statCards" :key="item.label" class="stat-panel">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </article>
           </div>
-        </header>
 
-        <section class="workspace-stage-strip">
-          <article v-for="stage in analysisStages" :key="stage.index" class="stage-chip" :class="`is-${stage.status}`">
-            <em>{{ stage.index }}</em>
-            <strong>{{ stage.title }}</strong>
+          <div class="signal-grid">
+            <article class="signal-panel">
+              <span>当前风险</span>
+              <ul>
+                <li v-for="item in riskLines" :key="item">{{ item }}</li>
+              </ul>
+            </article>
+            <article class="signal-panel">
+              <span>可继续放大</span>
+              <ul>
+                <li v-for="item in opportunityLines" :key="item">{{ item }}</li>
+              </ul>
+            </article>
+          </div>
+
+          <article v-for="section in resultSections" :key="section.title" class="result-panel">
+            <span>{{ section.title }}</span>
+            <ul>
+              <li v-for="line in section.lines" :key="line">{{ line }}</li>
+            </ul>
           </article>
         </section>
 
-        <section class="workspace-frame">
-          <div class="workspace-main">
-            <section class="surface-header">
-              <span class="surface-kicker">先看当前状态</span>
-              <h1>{{ surfaceTitle }}</h1>
-              <p>{{ surfaceSummary }}</p>
-              <div class="surface-pills">
-                <span class="surface-pill">报期 {{ companyWorkspace?.report_period || selectedPeriod || '待定' }}</span>
-              </div>
-            </section>
+        <aside class="workspace-side">
+          <section class="side-panel">
+            <span>直接发问</span>
+            <h2>先从这三个问题开始</h2>
+            <button
+              v-for="question in quickQuestions"
+              :key="question"
+              type="button"
+              class="question-button"
+              @click="submitQuery(question)"
+            >
+              {{ question }}
+            </button>
+          </section>
 
-            <section class="score-strip">
-              <article v-for="item in scoreCards" :key="item.label" class="score-card">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </article>
-            </section>
+          <section class="side-panel action-panel">
+            <span>持续跟踪</span>
+            <h2>{{ actionTitle }}</h2>
+            <p>{{ actionBody }}</p>
+            <button type="button" class="watch-button" @click="toggleWatchboard">
+              {{ watchboard?.tracked ? '移出持续跟踪' : '加入持续跟踪' }}
+            </button>
+          </section>
 
-            <section class="workspace-grid">
-              <article class="workspace-panel workspace-panel-wide">
-                <span class="panel-kicker">本轮判断</span>
-                <div v-if="loadingTurn" class="panel-loading">
-                  <strong>正在整理这一轮结果</strong>
-                  <p>真实服务正在回收数字、证据和下一步建议。</p>
-                </div>
-                <div v-else-if="latestAnswer" class="answer-stack">
-                  <article v-for="block in answerBlocks.slice(0, 2)" :key="block.title" class="answer-block">
-                    <h3>{{ block.title }}</h3>
-                    <p v-for="line in block.paragraphs" :key="line" v-html="renderInlineMarkdown(line)"></p>
-                    <ul v-if="block.bullets.length" class="answer-list">
-                      <li v-for="line in block.bullets" :key="line" v-html="renderInlineMarkdown(line)"></li>
-                    </ul>
-                  </article>
-                </div>
-                <div v-else class="answer-stack">
-                  <article class="answer-block">
-                    <h3>先看这一轮的核心判断</h3>
-                    <p>{{ surfaceSummary }}</p>
-                  </article>
-                </div>
-              </article>
+          <section class="side-panel">
+            <span>继续往下看</span>
+            <button
+              v-for="item in continuationCards"
+              :key="item.label"
+              type="button"
+              class="continuation-card"
+              @click="openContinuation(item.to)"
+            >
+              <strong>{{ item.label }}</strong>
+              <p>{{ item.detail }}</p>
+            </button>
+          </section>
+        </aside>
+      </div>
 
-              <article class="workspace-panel">
-                <span class="panel-kicker">当前风险</span>
-                <ul v-if="riskLines.length" class="answer-list">
-                  <li v-for="item in riskLines" :key="item">{{ item }}</li>
-                </ul>
-                <p v-else class="panel-muted">当前没有显著风险标签。</p>
-              </article>
-
-              <article class="workspace-panel">
-                <span class="panel-kicker">可继续放大</span>
-                <ul v-if="opportunityLines.length" class="answer-list">
-                  <li v-for="item in opportunityLines" :key="item">{{ item }}</li>
-                </ul>
-                <p v-else class="panel-muted">当前没有显著机会标签。</p>
-              </article>
-
-              <article class="workspace-panel workspace-panel-wide">
-                <span class="panel-kicker">这一轮可以从这里接着看</span>
-                <strong class="panel-title">{{ latestRunCardTitle }}</strong>
-                <p class="panel-summary">{{ latestRunCardText }}</p>
-              </article>
-            </section>
-          </div>
-
-          <aside class="workspace-side">
-            <article class="side-card">
-              <span class="panel-kicker">直接发问</span>
-              <strong class="side-title">先从这三个问题开始</strong>
-              <div class="prompt-list">
-                <button
-                  v-for="question in starterQueries.slice(0, 3)"
-                  :key="question"
-                  type="button"
-                  class="prompt-button"
-                  @click="pickStarterQuery(question)"
-                >
-                  {{ question }}
-                </button>
-              </div>
-            </article>
-
-            <article class="side-card">
-              <span class="panel-kicker">持续跟踪</span>
-              <strong class="side-title">把这一轮判断接到后续动作</strong>
-              <p>{{ watchboardSummary }}</p>
-              <button
-                type="button"
-                class="panel-button"
-                :disabled="!selectedCompany || isWorkflowPending('watchboard', selectedCompany)"
-                @click="toggleWatchboardTracking()"
-              >
-                {{
-                  selectedCompany && isWorkflowPending('watchboard', selectedCompany)
-                    ? '处理中...'
-                    : watchboardActionLabel
-                }}
-              </button>
-            </article>
-
-            <article class="side-card" v-if="actionLead || evidenceLead || nextRouteLead">
-              <span class="panel-kicker">继续往下看</span>
-              <div v-if="actionLead" class="side-detail">
-                <strong>{{ actionLead.title }}</strong>
-                <p>{{ actionLead.action || actionLead.reason }}</p>
-                <button
-                  type="button"
-                  class="panel-button is-secondary"
-                  :disabled="isWorkflowPending('task-create', actionLead.title || 'task')"
-                  @click="createTaskFromCard(actionLead)"
-                >
-                  {{ isWorkflowPending('task-create', actionLead.title || 'task') ? '写入中...' : '写入任务板' }}
-                </button>
-              </div>
-              <RouterLink
-                v-else-if="evidenceLead"
-                class="footer-link"
-                :to="{ path: evidenceLead.items[0]?.path || '/workspace', query: evidenceLead.items[0]?.query || {} }"
-              >
-                <strong>{{ evidenceLead.title }}</strong>
-                <span>{{ evidenceLead.subtitle }}</span>
-              </RouterLink>
-              <RouterLink
-                v-else-if="nextRouteLead"
-                class="footer-link"
-                :to="{ path: nextRouteLead.path, query: nextRouteLead.query || {} }"
-              >
-                <strong>{{ nextRouteLead.label }}</strong>
-              </RouterLink>
-            </article>
-          </aside>
-        </section>
-
-        <section class="composer-dock">
-          <textarea
-            v-model="query"
-            :disabled="loadingCompanies || !hasCompanies"
-            :placeholder="selectedCompany ? `输入你要围绕 ${selectedCompany} 继续判断的问题` : '先选择公司，再发起协同研判'"
-            rows="3"
-            @keydown="handleComposerKeydown"
-          />
-          <button type="button" class="composer-button" :disabled="!canRunQuery" @click="runQuery()">
-            {{ loadingTurn ? '处理中...' : '开始判断' }}
-          </button>
-        </section>
-        <p v-if="workflowActionError || turnError" class="panel-error composer-error">{{ workflowActionError || turnError }}</p>
-      </section>
+      <footer class="composer">
+        <textarea
+          v-model="draftQuery"
+          rows="2"
+          placeholder="输入你要围绕这家公司继续判断的问题"
+          @keydown.enter.exact.prevent="submitQuery()"
+        />
+        <button type="button" @click="submitQuery()">开始判断</button>
+      </footer>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
-.workspace-console {
-  width: 100%;
-  max-width: 1320px;
-  min-height: 100%;
-  margin: 0 auto;
-}
-
-.workspace-empty {
-  min-height: 420px;
-  display: grid;
-  place-items: center;
-}
-
 .workspace-shell {
-  display: grid;
-  gap: 16px;
-  min-height: calc(100vh - 64px);
+  min-height: 100vh;
+  padding: 24px 28px 28px;
+  background: #0c1116;
+  color: #eef2f7;
+}
+
+.workspace-topbar,
+.workspace-main,
+.workspace-side > .side-panel,
+.composer {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(16, 19, 25, 0.92);
 }
 
 .workspace-topbar {
   display: flex;
-  align-items: flex-end;
   justify-content: space-between;
-  gap: 18px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  align-items: flex-start;
+  gap: 28px;
+  padding: 20px 24px;
+  border-radius: 26px;
 }
 
-.workspace-kicker,
-.panel-kicker,
-.control-field span,
-.stage-chip em {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(120, 143, 172, 0.82);
-}
-
-.workspace-topbar-right {
+.workspace-topbar-fields {
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.control-field {
-  display: grid;
-  gap: 6px;
-}
-
-.control-field select {
-  min-width: 220px;
-  min-height: 44px;
-  padding: 0 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
-  color: #eef2f7;
-}
-
-.role-chip {
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  display: inline-flex;
   align-items: center;
-  background: rgba(18, 62, 45, 0.88);
-  border: 1px solid rgba(52, 211, 153, 0.18);
-  color: #d9fff0;
-  font-size: 13px;
-}
-
-.workspace-stage-strip {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.stage-chip {
-  min-height: 48px;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.stage-chip strong,
-.surface-header h1,
-.score-card strong,
-.answer-block h3,
-.panel-title,
-.side-title,
-.footer-link strong {
-  margin: 0;
-  color: #f8fafc;
-}
-
-.stage-chip strong {
-  font-size: 14px;
-}
-
-.stage-chip.is-completed {
-  border-color: rgba(52, 211, 153, 0.22);
-}
-
-.stage-chip.is-running {
-  border-color: rgba(96, 165, 250, 0.24);
-}
-
-.workspace-frame {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.78fr);
-  gap: 18px;
-}
-
-.workspace-main,
-.workspace-side,
-.workspace-grid,
-.surface-header,
-.score-strip,
-.side-card,
-.answer-block {
-  display: grid;
-  gap: 14px;
-}
-
-.surface-header {
-  gap: 8px;
-}
-
-.surface-header h1 {
-  font-size: clamp(30px, 4vw, 54px);
-  line-height: 0.95;
-  letter-spacing: -0.05em;
-}
-
-.surface-header p,
-.panel-summary,
-.panel-muted,
-.side-card p,
-.answer-block p,
-.footer-link span {
-  margin: 0;
-  color: rgba(209, 219, 230, 0.78);
-  line-height: 1.65;
-}
-
-.surface-pills {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.surface-pill {
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.04);
-  color: #dfe7f2;
-}
-
-.score-strip {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.score-card,
-.workspace-panel,
-.side-card,
-.composer-dock {
-  border-radius: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: linear-gradient(180deg, rgba(15, 16, 20, 0.98), rgba(11, 12, 17, 0.96));
-}
-
-.score-card,
-.workspace-panel,
-.side-card {
-  padding: 20px 22px;
-}
-
-.score-card {
-  gap: 8px;
-}
-
-.score-card span {
-  color: rgba(168, 179, 194, 0.76);
-}
-
-.score-card strong {
-  font-size: 22px;
-}
-
-.workspace-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.workspace-panel-wide {
-  grid-column: 1 / -1;
-}
-
-.answer-stack {
-  display: grid;
   gap: 16px;
 }
 
-.answer-block {
-  gap: 10px;
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 200px;
 }
 
-.answer-block h3,
-.panel-title,
-.side-title {
-  font-size: 20px;
+.field span,
+.eyebrow,
+.result-panel span,
+.side-panel > span,
+.stat-panel span,
+.signal-panel > span {
+  color: rgba(168, 179, 194, 0.76);
+  font-size: 13px;
+}
+
+.field select {
+  height: 68px;
+  padding: 0 20px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(18, 22, 29, 0.96);
+  color: #f8fafc;
+  font-size: 18px;
+}
+
+.role-chip {
+  margin-top: 27px;
+  display: inline-flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 999px;
+  background: rgba(33, 84, 60, 0.72);
+  color: #d4ffe9;
+  font-weight: 600;
+}
+
+.stage-strip {
+  display: flex;
+  gap: 14px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.stage-strip li {
+  display: grid;
+  gap: 6px;
+  min-width: 132px;
+  padding: 14px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(120, 255, 196, 0.12);
+  background: rgba(16, 24, 20, 0.72);
+}
+
+.stage-strip li span {
+  color: #7cf0bd;
+  font-size: 12px;
+}
+
+.stage-strip li strong {
+  font-size: 15px;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.workspace-main {
+  display: grid;
+  gap: 22px;
+  padding: 28px;
+  border-radius: 30px;
+}
+
+.hero-block h1 {
+  margin: 10px 0 0;
+  font-size: 62px;
+  line-height: 0.96;
+}
+
+.summary {
+  margin: 16px 0 0;
+  max-width: 880px;
+  font-size: 28px;
   line-height: 1.18;
 }
 
-.answer-list {
-  margin: 0;
-  padding-left: 20px;
-  display: grid;
-  gap: 10px;
-  color: #eef2f7;
-}
-
-.workspace-side {
-  align-content: start;
-}
-
-.prompt-list,
-.side-detail {
-  display: grid;
+.meta-row {
+  margin-top: 18px;
+  display: flex;
   gap: 12px;
 }
 
-.prompt-button {
-  width: 100%;
-  min-height: 52px;
-  padding: 0 18px;
+.meta-row span {
+  padding: 10px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.05);
   color: #eef2f7;
-  text-align: left;
 }
 
-.panel-button,
-.composer-button {
-  min-height: 52px;
-  border-radius: 18px;
-  border: 1px solid rgba(52, 211, 153, 0.22);
-  background: rgba(18, 62, 45, 0.88);
-  color: #effff6;
-}
-
-.panel-button.is-secondary {
-  min-height: 42px;
-  border-radius: 14px;
-}
-
-.footer-link {
+.stat-row,
+.signal-grid {
   display: grid;
-  gap: 4px;
-  text-decoration: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
 }
 
-.composer-dock {
+.signal-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stat-panel,
+.signal-panel,
+.result-panel {
+  padding: 24px 26px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(17, 20, 27, 0.96);
+}
+
+.stat-panel strong {
+  margin-top: 12px;
+  display: block;
+  font-size: 30px;
+}
+
+.signal-panel ul,
+.result-panel ul {
+  margin: 16px 0 0;
+  padding-left: 22px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 200px;
+  gap: 12px;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.workspace-side {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+}
+
+.side-panel {
+  display: grid;
   gap: 14px;
-  padding: 18px;
+  padding: 24px;
+  border-radius: 26px;
 }
 
-.composer-dock textarea {
+.side-panel h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.question-button,
+.continuation-card,
+.watch-button {
   width: 100%;
-  min-height: 112px;
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 0;
-  background: rgba(7, 10, 18, 0.94);
-  color: #edf2f7;
-  resize: vertical;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(17, 20, 27, 0.95);
+  color: #eef2f7;
+  border-radius: 22px;
 }
 
-.panel-error {
-  color: #fda4af;
+.question-button {
+  padding: 18px 20px;
+  font-size: 20px;
 }
 
-.panel-loading {
+.action-panel p,
+.continuation-card p {
+  margin: 0;
+  color: rgba(216, 224, 235, 0.82);
+  line-height: 1.6;
+}
+
+.watch-button {
+  padding: 18px 20px;
+  text-align: center;
+  font-size: 24px;
+  background: rgba(42, 96, 69, 0.88);
+}
+
+.continuation-card {
   display: grid;
-  gap: 8px;
+  gap: 10px;
+  padding: 18px 20px;
 }
 
-.panel-loading strong {
-  color: #f8fafc;
+.continuation-card strong {
+  font-size: 20px;
 }
 
-@media (max-width: 1240px) {
-  .workspace-frame {
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 18px;
+  margin-top: 24px;
+  padding: 18px;
+  border-radius: 28px;
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 110px;
+  resize: none;
+  border: 0;
+  outline: none;
+  border-radius: 20px;
+  background: rgba(17, 20, 27, 0.96);
+  color: #eef2f7;
+  padding: 18px 20px;
+  font-size: 22px;
+  line-height: 1.5;
+}
+
+.composer button {
+  border: 0;
+  border-radius: 22px;
+  background: rgba(42, 96, 69, 0.92);
+  color: #f2fff8;
+  font-size: 32px;
+  font-weight: 700;
+}
+
+@media (max-width: 1400px) {
+  .workspace-grid {
     grid-template-columns: 1fr;
   }
 
   .workspace-side {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 920px) {
-  .workspace-topbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .workspace-topbar-right,
-  .workspace-stage-strip,
-  .score-strip,
-  .workspace-grid,
-  .workspace-side,
-  .composer-dock {
-    grid-template-columns: 1fr;
-    flex-direction: column;
-    justify-content: flex-start;
-  }
-
-  .workspace-frame {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 </style>

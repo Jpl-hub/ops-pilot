@@ -570,152 +570,134 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 <template>
   <AppShell title="">
     <div class="graph-console">
-      <section class="graph-header">
-        <div class="graph-heading">
-          <h1>图谱检索</h1>
-          <p>{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
-        </div>
-
-        <div class="graph-controls">
-          <label class="graph-select">
-            <span>公司</span>
-            <select v-model="selectedCompany">
-              <option v-if="!companies.length" value="">暂无公司</option>
-              <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-            </select>
-          </label>
-          <label class="graph-select">
-            <span>报期</span>
-            <select v-model="selectedPeriod">
-              <option value="">默认主周期</option>
-              <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
-            </select>
-          </label>
-        </div>
-      </section>
-
-      <section class="graph-query-strip">
-        <div class="query-strip-main">
-          <div>
-            <h2>{{ graphIntent }}</h2>
-            <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '直接沿这条链继续追下去。' }}</p>
+      <section class="graph-shell">
+        <header class="graph-topbar">
+          <div class="graph-topbar-left">
+            <span class="page-kicker">图谱检索</span>
           </div>
-        </div>
+          <div class="graph-topbar-right">
+            <label class="control-field">
+              <span>公司</span>
+              <select v-model="selectedCompany">
+                <option v-if="!companies.length" value="">暂无公司</option>
+                <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+              </select>
+            </label>
+            <label class="control-field">
+              <span>报期</span>
+              <select v-model="selectedPeriod">
+                <option value="">默认主周期</option>
+                <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
+              </select>
+            </label>
+            <span class="role-chip">{{ activeRoleLabel }}</span>
+          </div>
+        </header>
 
-      </section>
-
-      <section class="graph-intent-dock">
-        <textarea
-          v-model="graphIntentDraft"
-          class="intent-textarea"
-          :disabled="graphState.loading.value || !selectedCompany"
-          :placeholder="selectedCompany ? '输入你要追问的传导问题，例如：价格下跌如何传到盈利和风险' : '当前无可检索企业，请先完成公司池接入'"
-        />
-        <button class="intent-submit" :disabled="graphState.loading.value || !canSubmitIntent" @click="submitIntent">
-          {{ graphState.loading.value ? '检索中...' : '开始检索' }}
-        </button>
-      </section>
-
-      <LoadingState v-if="overviewState.loading.value || graphState.loading.value" class="graph-state" />
-      <ErrorState v-else-if="graphState.error.value" :message="String(graphState.error.value)" class="graph-state" />
-      <section v-else-if="!hasCompanies" class="graph-state graph-empty">
-        <p>当前无可检索企业，请先完成正式公司池和图谱数据接入。</p>
-      </section>
-
-      <template v-else>
-        <section class="graph-stage" ref="graphStageRef">
-          <svg class="graph-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <defs>
-              <filter id="graph-link-glow" x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur stdDeviation="0.45" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-              <linearGradient id="graph-link-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="rgba(96,165,250,0.16)" />
-                <stop offset="55%" stop-color="rgba(103,232,249,0.24)" />
-                <stop offset="100%" stop-color="rgba(94,234,212,0.18)" />
-              </linearGradient>
-              <linearGradient id="graph-link-gradient-active" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="rgba(125,211,252,0.58)" />
-                <stop offset="50%" stop-color="rgba(110,231,255,0.84)" />
-                <stop offset="100%" stop-color="rgba(167,243,208,0.64)" />
-              </linearGradient>
-            </defs>
-            <g v-for="link in graphCanvasLinks" :key="link!.id">
-              <path :d="link!.pathData" class="graph-link-glow" :class="{ 'is-active': link!.isActive }" />
-              <path
-                :d="link!.pathData"
-                class="graph-link"
-                :class="{ 'is-active': link!.isActive }"
-                :filter="link!.isActive ? 'url(#graph-link-glow)' : undefined"
-              />
-            </g>
-          </svg>
-
-          <button
-            v-for="node in graphCanvasNodes"
-            :key="node.id"
-            class="graph-node"
-            :class="[`node-${node.kind}`, { 'is-focal': node.isFocal, 'is-selected': node.isSelected }]"
-            :style="{ left: `${node.x}%`, top: `${node.y}%` }"
-            @click="selectedNodeId = node.id"
-            @pointerdown="beginDrag(node.id, $event)"
-          >
-            <span class="node-pill" :class="`kind-${node.kind}`"></span>
-            <span class="node-name">{{ node.label }}</span>
+        <section class="graph-query-dock">
+          <textarea
+            v-model="graphIntentDraft"
+            class="intent-textarea"
+            :disabled="graphState.loading.value || !selectedCompany"
+            :placeholder="selectedCompany ? '输入你要追问的传导问题，例如：价格下跌如何传到盈利和风险' : '当前无可检索企业，请先完成公司池接入'"
+          />
+          <button class="intent-submit" :disabled="graphState.loading.value || !canSubmitIntent" @click="submitIntent">
+            {{ graphState.loading.value ? '检索中...' : '开始检索' }}
           </button>
-
-          <div v-if="!graphCanvasNodes.length" class="stage-empty">
-            <p>输入问题后开始检索。</p>
-          </div>
         </section>
 
-        <section class="graph-footer">
-          <div class="path-dock">
-            <div class="path-dock-head">
-              <strong>沿这条主链继续追</strong>
+        <LoadingState v-if="overviewState.loading.value || graphState.loading.value" class="graph-state" />
+        <ErrorState v-else-if="graphState.error.value" :message="String(graphState.error.value)" class="graph-state" />
+        <section v-else-if="!hasCompanies" class="graph-state graph-empty">
+          <p>当前无可检索企业，请先完成正式公司池和图谱数据接入。</p>
+        </section>
+
+        <section v-else class="graph-frame">
+          <div class="graph-canvas-panel">
+            <div class="graph-canvas-head">
+              <span class="panel-kicker">当前问题</span>
+              <strong>{{ graphIntent }}</strong>
+              <p>{{ currentFrame?.detail || graphCommandSurface?.headline || '直接沿这条链继续追下去。' }}</p>
             </div>
 
-            <div class="path-track">
+            <section class="graph-stage" ref="graphStageRef">
+              <svg class="graph-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <defs>
+                  <filter id="graph-link-glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur stdDeviation="0.45" result="blur" />
+                    <feMerge>
+                      <feMergeNode in="blur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                </defs>
+                <g v-for="link in graphCanvasLinks" :key="link!.id">
+                  <path :d="link!.pathData" class="graph-link-glow" :class="{ 'is-active': link!.isActive }" />
+                  <path
+                    :d="link!.pathData"
+                    class="graph-link"
+                    :class="{ 'is-active': link!.isActive }"
+                    :filter="link!.isActive ? 'url(#graph-link-glow)' : undefined"
+                  />
+                </g>
+              </svg>
+
               <button
-                v-for="(item, idx) in inferencePath"
-                :key="item.step"
-                class="path-step"
-                :class="{ 'is-active': item.step === activePathId || idx <= activePathStep }"
-                @click="activePathStep = idx"
+                v-for="node in graphCanvasNodes"
+                :key="node.id"
+                class="graph-node"
+                :class="[`node-${node.kind}`, { 'is-focal': node.isFocal, 'is-selected': node.isSelected }]"
+                :style="{ left: `${node.x}%`, top: `${node.y}%` }"
+                @click="selectedNodeId = node.id"
+                @pointerdown="beginDrag(node.id, $event)"
               >
-                <strong>{{ item.title }}</strong>
-                <p>{{ item.detail }}</p>
+                <span class="node-pill" :class="`kind-${node.kind}`"></span>
+                <span class="node-name">{{ node.label }}</span>
               </button>
-            </div>
+
+              <div v-if="!graphCanvasNodes.length" class="stage-empty">
+                <p>输入问题后开始检索。</p>
+              </div>
+            </section>
           </div>
 
-          <div class="graph-side-stack">
-            <div v-if="selectedNode" class="graph-node-focus">
-              <span class="graph-node-kind">{{ displayNodeType(selectedNode.type) }}</span>
-              <strong>{{ selectedNode.label }}</strong>
-              <p>{{ selectedNode.detail }}</p>
-              <div v-if="pathEvidenceLinks.length" class="selected-node-links">
+          <aside class="graph-side">
+            <article class="graph-side-card" v-if="selectedNode">
+              <span class="panel-kicker">当前节点</span>
+              <strong class="panel-title">{{ selectedNode.label }}</strong>
+              <p class="panel-summary">{{ selectedNode.detail }}</p>
+              <div v-if="pathEvidenceLinks.length" class="side-links">
                 <RouterLink
                   v-for="item in pathEvidenceLinks"
                   :key="`${item.label}-${item.path}`"
                   :to="{ path: item.path, query: item.query || {} }"
-                  class="selected-node-link"
+                  class="side-link"
                 >
                   {{ item.label }}
                 </RouterLink>
               </div>
-            </div>
+            </article>
+
+            <article class="graph-side-card" v-if="inferencePath.length">
+              <span class="panel-kicker">沿这条主链继续追</span>
+              <div class="path-track">
+                <button
+                  v-for="(item, idx) in inferencePath"
+                  :key="item.step"
+                  class="path-step"
+                  :class="{ 'is-active': item.step === activePathId || idx === activePathStep }"
+                  @click="activePathStep = idx"
+                >
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.detail }}</p>
+                </button>
+              </div>
+            </article>
 
             <article class="graph-side-card">
-              <div class="card-head">
-                <strong>继续往下看</strong>
-              </div>
-              <p class="panel-copy">{{ watchboardSummary }}</p>
-              <div class="selected-node-links">
+              <span class="panel-kicker">继续往下看</span>
+              <p class="panel-summary">{{ watchboardSummary }}</p>
+              <div class="side-actions">
                 <button
                   v-if="selectedCompany"
                   type="button"
@@ -743,48 +725,39 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                   }}
                 </button>
               </div>
-              <div v-if="graphRelatedRoutes.length" class="selected-node-links">
+              <div v-if="graphRelatedRoutes.length || graphEvidenceLinks.length" class="side-links">
                 <RouterLink
-                  v-for="item in graphRelatedRoutes.slice(0, 2)"
+                  v-for="item in [...graphRelatedRoutes.slice(0, 2), ...graphEvidenceLinks.slice(0, 2)]"
                   :key="`${item.path}-${item.label}`"
                   :to="{ path: item.path, query: item.query || {} }"
-                  class="selected-node-link"
-                >
-                  {{ item.label }}
-                </RouterLink>
-              </div>
-              <div v-if="graphEvidenceLinks.length" class="selected-node-links">
-                <RouterLink
-                  v-for="item in graphEvidenceLinks.slice(0, 2)"
-                  :key="`${item.path}-${item.label}`"
-                  :to="{ path: item.path, query: item.query || {} }"
-                  class="selected-node-link"
+                  class="side-link"
                 >
                   {{ item.label }}
                 </RouterLink>
               </div>
               <p v-if="actionError" class="panel-error">{{ actionError }}</p>
             </article>
-          </div>
+          </aside>
         </section>
-
-      </template>
+      </section>
     </div>
   </AppShell>
 </template>
 
 <style scoped>
 .graph-console {
-  min-height: 100%;
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  gap: 16px;
   width: 100%;
-  max-width: 1280px;
+  max-width: 1320px;
+  min-height: 100%;
   margin: 0 auto;
 }
 
-.graph-header {
+.graph-shell {
+  display: grid;
+  gap: 16px;
+}
+
+.graph-topbar {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -793,61 +766,32 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.graph-heading {
-  display: grid;
-  gap: 8px;
-}
-
-.graph-select span,
-.bottom-head span {
+.page-kicker,
+.panel-kicker,
+.control-field span,
+.path-step strong {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+  color: rgba(120, 143, 172, 0.82);
 }
 
-.graph-heading h1,
-.query-strip-main h2,
-.graph-node-focus strong {
-  margin: 0;
-  color: #f8fafc;
-  letter-spacing: -0.05em;
-}
-
-.graph-heading h1 {
-  font-size: clamp(24px, 2.4vw, 30px);
-  line-height: 1.02;
-}
-
-.graph-heading p,
-.query-strip-main p,
-.graph-node-focus p,
-.path-step p {
-  margin: 0;
-  color: rgba(148, 163, 184, 0.9);
-  line-height: 1.7;
-  font-size: 13px;
-}
-
-.graph-controls {
+.graph-topbar-right {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-end;
+  gap: 12px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
-.graph-select {
+.control-field {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
-.graph-select span,
-.bottom-head span {
-  color: rgba(120, 143, 172, 0.84);
-}
-
-.graph-select select {
-  min-width: 180px;
+.control-field select {
+  min-width: 220px;
   min-height: 44px;
   padding: 0 14px;
   border-radius: 14px;
@@ -856,196 +800,121 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   color: #eef2f7;
 }
 
-.graph-query-strip,
-.graph-intent-dock,
-.graph-stage,
-.graph-footer,
-.path-dock,
-.graph-state {
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: linear-gradient(180deg, rgba(16, 17, 20, 0.98), rgba(12, 13, 17, 0.98));
-}
-
-.graph-query-strip {
-  display: flex;
+.role-chip {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
+  background: rgba(18, 62, 45, 0.88);
+  border: 1px solid rgba(52, 211, 153, 0.18);
+  color: #d9fff0;
+  font-size: 13px;
 }
 
-.query-strip-main {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.query-strip-main h2 {
-  font-size: clamp(16px, 1.6vw, 18px);
-  line-height: 1.12;
-}
-
-.graph-intent-dock {
+.graph-query-dock {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 118px;
-  gap: 12px;
-  padding: 6px 10px;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(15, 16, 20, 0.98), rgba(11, 12, 17, 0.96));
 }
 
 .intent-textarea {
   width: 100%;
-  min-height: 48px;
-  resize: none;
-  border: none;
-  background: transparent;
+  min-height: 112px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 0;
+  background: rgba(7, 10, 18, 0.94);
+  color: #edf2f7;
+  resize: vertical;
+}
+
+.intent-submit,
+.panel-action {
+  min-height: 52px;
+  border-radius: 18px;
+  border: 1px solid rgba(52, 211, 153, 0.22);
+  background: rgba(18, 62, 45, 0.88);
+  color: #effff6;
+}
+
+.panel-action.is-secondary {
+  background: rgba(255, 255, 255, 0.03);
   color: #eef2f7;
-  font: inherit;
-  line-height: 1.6;
-  outline: none;
-}
-
-.intent-submit {
-  border-radius: 14px;
-  border: 1px solid rgba(52, 211, 153, 0.26);
-  background: rgba(18, 62, 45, 0.92);
-  color: #f0fdf4;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.intent-submit:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .graph-state {
-  min-height: 320px;
+  min-height: 420px;
   display: grid;
   place-items: center;
-  padding: 32px;
 }
 
 .graph-empty p {
   margin: 0;
-  color: rgba(148, 163, 184, 0.9);
+  color: rgba(191, 207, 228, 0.82);
+}
+
+.graph-frame {
+  display: grid;
+  grid-template-columns: minmax(0, 1.32fr) 340px;
+  gap: 18px;
+}
+
+.graph-canvas-panel,
+.graph-side-card {
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(15, 16, 20, 0.98), rgba(11, 12, 17, 0.96));
+}
+
+.graph-canvas-panel {
+  padding: 20px 22px 22px;
+}
+
+.graph-canvas-head,
+.graph-side,
+.path-track,
+.side-links {
+  display: grid;
+  gap: 14px;
+}
+
+.graph-canvas-head strong,
+.panel-title,
+.path-step strong,
+.node-name {
+  color: #f8fafc;
+}
+
+.graph-canvas-head strong {
+  font-size: 28px;
+  line-height: 1.12;
+}
+
+.graph-canvas-head p,
+.panel-summary,
+.path-step p,
+.stage-empty p {
+  margin: 0;
+  color: rgba(191, 207, 228, 0.82);
+  line-height: 1.65;
 }
 
 .graph-stage {
   position: relative;
   min-height: 520px;
-  overflow: hidden;
+  margin-top: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
   background:
-    radial-gradient(circle at 20% 16%, rgba(52, 211, 153, 0.06), transparent 24%),
-    radial-gradient(circle at 82% 18%, rgba(96, 165, 250, 0.06), transparent 26%),
-    linear-gradient(180deg, rgba(7, 9, 13, 0.98), rgba(5, 7, 10, 0.98));
-}
-
-.selected-node-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 2px;
-}
-
-.selected-node-link {
-  min-height: 32px;
-  padding: 0 10px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #dbe7f3;
-  text-decoration: none;
-  font-size: 12px;
-}
-
-.selected-node-link.is-muted {
-  color: rgba(148, 163, 184, 0.84);
-}
-
-.graph-side-stack {
-  display: grid;
-  gap: 12px;
-  align-content: start;
-}
-
-.graph-side-card {
-  display: grid;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.card-head strong,
-.mini-item strong {
-  color: #f8fafc;
-}
-
-.panel-copy,
-.mini-item span,
-.panel-error {
-  margin: 0;
-  color: rgba(148, 163, 184, 0.9);
-  line-height: 1.6;
-}
-
-.panel-action {
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(52, 211, 153, 0.24);
-  background: rgba(18, 62, 45, 0.78);
-  color: #ecfdf5;
-  cursor: pointer;
-  font: inherit;
-}
-
-.panel-action.is-secondary {
-  border-color: rgba(148, 163, 184, 0.18);
-  background: rgba(15, 23, 42, 0.72);
-  color: #dbe7f3;
-}
-
-.panel-action:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.mini-list {
-  display: grid;
-  gap: 10px;
-}
-
-.mini-item {
-  display: grid;
-  gap: 4px;
-  text-decoration: none;
-  color: inherit;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.mini-item:first-child {
-  padding-top: 0;
-  border-top: none;
-}
-
-
-.run-item-copy {
-  display: grid;
-  gap: 4px;
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.06), transparent 28%),
+    linear-gradient(180deg, rgba(6, 8, 13, 0.92), rgba(8, 10, 16, 0.94));
+  overflow: hidden;
 }
 
 .graph-svg {
@@ -1055,263 +924,148 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   height: 100%;
 }
 
-.graph-link-glow,
+.graph-link-glow {
+  fill: none;
+  stroke: rgba(96, 165, 250, 0.12);
+  stroke-width: 0.46;
+}
+
 .graph-link {
   fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke: rgba(103, 232, 249, 0.24);
+  stroke-width: 0.28;
 }
 
-.graph-link-glow {
-  stroke: rgba(125, 211, 252, 0);
-  stroke-width: 0.22;
-  opacity: 0;
-  transition: opacity 0.2s ease, stroke 0.2s ease;
-}
-
+.graph-link.is-active,
 .graph-link-glow.is-active {
-  stroke: rgba(110, 231, 255, 0.06);
-  opacity: 0.28;
-}
-
-.graph-link {
-  stroke: url(#graph-link-gradient);
-  stroke-width: 0.07;
-  opacity: 0.22;
-  transition: opacity 0.2s ease, stroke 0.2s ease, stroke-width 0.2s ease;
-}
-
-.graph-link.is-active {
-  stroke: url(#graph-link-gradient-active);
-  stroke-width: 0.12;
-  opacity: 0.72;
+  stroke: rgba(125, 211, 252, 0.62);
 }
 
 .graph-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  min-width: 82px;
-  max-width: 116px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  padding: 7px 8px 7px 9px;
-  border-radius: 10px;
+  min-width: 160px;
+  max-width: 220px;
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(9, 11, 16, 0.92);
-  backdrop-filter: blur(14px);
-  cursor: grab;
-  text-align: left;
-  z-index: 2;
-}
-
-.graph-node:active {
-  cursor: grabbing;
-}
-
-.graph-node.is-focal {
-  box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.18), 0 16px 30px rgba(0, 0, 0, 0.3);
+  background: rgba(15, 16, 20, 0.92);
+  color: #eef2f7;
 }
 
 .graph-node.is-selected {
-  border-color: rgba(94, 234, 212, 0.42);
-  box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.2), 0 18px 38px rgba(0, 0, 0, 0.36);
-}
-
-.node-company {
-  border-color: rgba(16, 185, 129, 0.2);
-}
-
-.node-period {
-  border-color: rgba(59, 130, 246, 0.2);
-}
-
-.node-risk {
-  border-color: rgba(244, 63, 94, 0.2);
-}
-
-.node-alert {
-  border-color: rgba(251, 191, 36, 0.2);
-}
-
-.node-task {
-  border-color: rgba(96, 165, 250, 0.2);
-}
-
-.node-signal {
-  border-color: rgba(34, 211, 238, 0.2);
-}
-
-.node-watch,
-.node-stream,
-.node-evidence,
-.node-support {
-  border-color: rgba(148, 163, 184, 0.16);
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(21, 33, 58, 0.78);
 }
 
 .node-pill {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 999px;
-  margin-bottom: 3px;
+  flex: 0 0 auto;
 }
 
-.node-pill.kind-company {
-  background: #34d399;
-}
-
-.node-pill.kind-period,
-.node-pill.kind-task {
-  background: #60a5fa;
-}
-
-.node-pill.kind-risk {
-  background: #f43f5e;
-}
-
-.node-pill.kind-alert {
-  background: #f59e0b;
-}
-
-.node-pill.kind-signal {
-  background: #22d3ee;
-}
-
-.node-pill.kind-watch,
-.node-pill.kind-stream,
-.node-pill.kind-evidence,
-.node-pill.kind-support {
-  background: #94a3b8;
-}
-
-.node-name {
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.3;
-  color: #f8fafc;
-}
+.kind-company,
+.node-company .node-pill { background: #5eead4; }
+.kind-period,
+.node-period .node-pill { background: #93c5fd; }
+.kind-risk,
+.node-risk .node-pill { background: #fb7185; }
+.kind-signal,
+.node-signal .node-pill { background: #fbbf24; }
+.kind-watch,
+.node-watch .node-pill { background: #34d399; }
+.kind-stream,
+.node-stream .node-pill { background: #818cf8; }
+.kind-evidence,
+.node-evidence .node-pill { background: #c084fc; }
+.kind-support,
+.node-support .node-pill { background: #94a3b8; }
 
 .stage-empty {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  color: rgba(148, 163, 184, 0.88);
 }
 
-.path-dock {
-  padding: 12px 14px;
-}
-
-.graph-footer {
+.graph-side {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
-  gap: 12px;
-  padding: 12px;
+  gap: 16px;
 }
 
-.graph-node-focus {
-  display: grid;
-  gap: 8px;
-  align-content: start;
-  padding: 12px 14px;
+.graph-side-card {
+  padding: 20px 22px;
+}
+
+.panel-title {
+  margin: 12px 0 0;
+  font-size: 22px;
+  line-height: 1.18;
+}
+
+.path-step,
+.side-link {
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.graph-node-focus strong {
-  font-size: 18px;
-  line-height: 1.05;
-}
-
-.graph-node-kind {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(132, 244, 202, 0.82);
-}
-
-.path-dock-head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.path-dock-head strong {
-  color: #f8fafc;
-  font-size: 14px;
-  letter-spacing: -0.02em;
-}
-
-.path-track {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  color: #eef2f7;
 }
 
 .path-step {
-  min-width: 148px;
-  padding: 10px 11px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
-  text-align: left;
-  cursor: pointer;
   display: grid;
   gap: 6px;
-}
-
-.path-step strong {
-  color: #f8fafc;
-}
-
-.path-step p {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin: 0;
-  color: rgba(203, 213, 225, 0.82);
-  line-height: 1.55;
+  min-height: 88px;
+  padding: 16px;
+  text-align: left;
 }
 
 .path-step.is-active {
-  border-color: rgba(94, 234, 212, 0.22);
-  background: rgba(18, 62, 45, 0.84);
+  border-color: rgba(96, 165, 250, 0.22);
+  background: rgba(21, 33, 58, 0.72);
 }
 
-@media (max-width: 1100px) {
-  .graph-footer {
+.side-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.side-link {
+  min-height: 40px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.panel-error {
+  color: #fda4af;
+  margin-top: 10px;
+}
+
+@media (max-width: 1180px) {
+  .graph-frame {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 860px) {
-  .graph-header,
-  .graph-controls,
-  .graph-query-strip,
-  .query-strip-main,
-  .graph-intent-dock,
-  .query-strip-actions {
+  .graph-topbar {
     flex-direction: column;
-    grid-template-columns: 1fr;
     align-items: stretch;
   }
 
-  .graph-stage {
-    min-height: 500px;
-  }
-
-  .graph-node {
-    min-width: 104px;
-    max-width: 138px;
-    padding: 8px 10px;
+  .graph-topbar-right,
+  .graph-query-dock {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    justify-content: flex-start;
   }
 }
 </style>
