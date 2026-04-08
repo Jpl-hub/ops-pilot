@@ -270,13 +270,6 @@ const latestRunSummary = computed(() => {
   return `${formatRelativeTime(latestRun.created_at)} · ${latestRun.query || latestRun.title || '最近一次判断'}`
 })
 
-const latestUserQuery = computed(() => {
-  const latestQuery = [...messages.value].reverse().find((message) => message.kind === 'query') as
-    | { text: string }
-    | undefined
-  return latestQuery?.text || query.value.trim() || ''
-})
-
 const researchSummary = computed(() => {
   const research = companyWorkspace.value?.research
   if (!research) return '当前没有可核验研报。'
@@ -862,16 +855,11 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
           <section class="main-surface">
             <header class="surface-head">
               <div class="surface-headline">
-                <span class="surface-kicker">{{ latestAnswer ? '协同判断' : '先看当前状态' }}</span>
-                <strong>围绕当前问题直接判断</strong>
+                <span class="surface-kicker">先看当前状态</span>
+                <strong>{{ surfaceTitle }}</strong>
                 <p class="surface-summary">{{ surfaceSummary }}</p>
               </div>
             </header>
-
-            <section v-if="latestUserQuery" class="query-bubble">
-              <span class="focus-label">当前问题</span>
-              <strong>{{ latestUserQuery }}</strong>
-            </section>
 
             <div v-if="loadingTurn" class="surface-loading">
               <strong>正在整理这一轮结果</strong>
@@ -891,7 +879,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                   <section class="flow-surface">
                     <div class="section-head">
                       <span>这一轮判断</span>
-                      <strong>先把结论说清楚</strong>
+                      <strong>{{ surfaceTitle }}</strong>
                     </div>
                     <template v-if="latestAnswer">
                       <section class="answer-surface">
@@ -919,8 +907,8 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
                   <section v-if="latestEvidenceCards.length" class="flow-surface">
                     <div class="section-head">
-                      <span>回到原文</span>
-                      <strong>先看最关键的证据</strong>
+                      <span>这一次可以从这里接着看</span>
+                      <strong>{{ latestRunSummary || '把判断接到证据和模块' }}</strong>
                     </div>
                     <div class="evidence-stack">
                       <article v-for="group in latestEvidenceCards" :key="group.title" class="evidence-row">
@@ -960,6 +948,26 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                         {{ question }}
                       </button>
                     </div>
+                  </section>
+
+                  <section class="flow-surface">
+                    <div class="section-head">
+                      <span>输入问题</span>
+                      <strong>围绕当前公司直接判断</strong>
+                    </div>
+                    <div class="composer-shell">
+                      <textarea
+                        v-model="query"
+                        :disabled="loadingCompanies || !hasCompanies"
+                        :placeholder="selectedCompany ? `输入你要围绕 ${selectedCompany} 继续判断的问题` : '先选择公司，再发起协同研判'"
+                        rows="3"
+                        @keydown="handleComposerKeydown"
+                      />
+                      <button type="button" class="composer-submit" :disabled="!canRunQuery" @click="runQuery()">
+                        {{ loadingTurn ? '处理中…' : '开始判断' }}
+                      </button>
+                    </div>
+                    <p v-if="turnError" class="composer-error">{{ turnError }}</p>
                   </section>
 
                   <section class="flow-surface">
@@ -1035,34 +1043,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
           </section>
         </section>
 
-        <footer class="board-composer">
-          <div class="composer-prompts">
-            <button
-              v-for="question in starterQueries.slice(0, 3)"
-              :key="question"
-              type="button"
-              class="prompt-chip"
-              @click="pickStarterQuery(question)"
-            >
-              {{ question }}
-            </button>
-          </div>
-
-          <div class="composer-shell">
-            <textarea
-              v-model="query"
-              :disabled="loadingCompanies || !hasCompanies"
-              :placeholder="selectedCompany ? `输入你要围绕 ${selectedCompany} 继续判断的问题` : '先选择公司，再发起协同研判'"
-              rows="2"
-              @keydown="handleComposerKeydown"
-            />
-            <button type="button" class="composer-submit" :disabled="!canRunQuery" @click="runQuery()">
-              {{ loadingTurn ? '处理中…' : '开始判断' }}
-            </button>
-          </div>
-
-          <p v-if="turnError" class="composer-error">{{ turnError }}</p>
-        </footer>
       </section>
     </div>
   </AppShell>
@@ -1139,8 +1119,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 }
 
 .stage-topbar,
-.analysis-strip,
-.board-composer {
+.analysis-strip {
   padding-left: 20px;
   padding-right: 20px;
 }
@@ -1275,18 +1254,18 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 }
 
 .surface-head strong {
-  font-size: clamp(20px, 2vw, 24px);
-  line-height: 1.08;
+  font-size: clamp(22px, 2.4vw, 28px);
+  line-height: 1.06;
   letter-spacing: -0.04em;
-  max-width: 880px;
+  max-width: 640px;
 }
 
 .surface-summary {
   margin: 0;
-  max-width: 920px;
+  max-width: 760px;
   color: rgba(203, 213, 225, 0.82);
-  font-size: 15px;
-  line-height: 1.72;
+  font-size: 16px;
+  line-height: 1.65;
 }
 
 .surface-meta {
@@ -1330,24 +1309,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   font-size: 22px;
 }
 
-.query-bubble {
-  justify-self: end;
-  max-width: 760px;
-  display: grid;
-  gap: 10px;
-  padding: 20px 24px;
-  border-radius: 24px;
-  border: 1px solid rgba(80, 122, 255, 0.26);
-  background: rgba(16, 31, 71, 0.72);
-}
-
-.query-bubble strong {
-  color: #eef4ff;
-  font-size: 18px;
-  line-height: 1.55;
-  font-weight: 600;
-}
-
 .answer-block {
   display: grid;
   gap: 10px;
@@ -1385,7 +1346,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 }
 
 .workspace-grid {
-  grid-template-columns: minmax(0, 1.28fr) minmax(320px, 0.72fr);
+  grid-template-columns: minmax(0, 1.14fr) minmax(340px, 0.86fr);
   align-items: start;
 }
 
@@ -1546,37 +1507,25 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   cursor: not-allowed;
 }
 
-.board-composer {
-  display: grid;
-  gap: 10px;
-  padding-top: 12px;
-  padding-bottom: 18px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.composer-prompts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .prompt-chip {
-  min-height: 32px;
-  padding: 0 12px;
+  min-height: 48px;
+  padding: 0 16px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.025);
   color: #dbe7f3;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: center;
 }
 
 .composer-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px;
-  gap: 10px;
-  padding: 8px;
-  border-radius: 16px;
+  grid-template-columns: minmax(0, 1fr) 168px;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
 }
@@ -1589,8 +1538,8 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   color: #eef2f7;
   font: inherit;
   line-height: 1.55;
-  min-height: 54px;
-  padding: 10px 8px 0;
+  min-height: 108px;
+  padding: 12px 10px 6px;
   outline: none;
 }
 
@@ -1622,11 +1571,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
   .surface-head strong {
     font-size: clamp(18px, 8vw, 24px);
-  }
-
-  .query-bubble {
-    justify-self: stretch;
-    max-width: none;
   }
 
   .action-row,

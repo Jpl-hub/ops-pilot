@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { post, type UserRole } from '@/lib/api'
+import { post } from '@/lib/api'
 import { useSession } from '@/lib/session'
 import { buildWorkflowQuery } from '@/lib/workflowContext'
 
@@ -16,12 +16,6 @@ defineProps<{
 const router = useRouter()
 const route = useRoute()
 const session = useSession()
-const roleOptions: Array<{ value: UserRole; label: string }> = [
-  { value: 'investor', label: '投资者' },
-  { value: 'management', label: '管理层' },
-  { value: 'regulator', label: '监管风控' },
-]
-
 const navItems = [
   { to: '/brain', label: '新能源产业大脑', auth: true },
   { to: '/workspace', label: '协同分析', auth: true },
@@ -113,29 +107,9 @@ function buildNavTarget(path: string) {
           <strong>{{ routeContext.title }}</strong>
         </div>
 
-        <div v-if="session.isAuthenticated.value" class="app-role-box">
-          <span class="app-muted-label">当前视角</span>
-          <label class="app-role-select">
-            <select
-              :value="session.activeRole.value"
-              @change="session.setActiveRole(($event.target as HTMLSelectElement).value as UserRole)"
-            >
-              <option v-for="item in roleOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-            </select>
-          </label>
-        </div>
-
-        <div class="app-user-box">
-          <template v-if="session.isAuthenticated.value">
-            <RouterLink to="/profile" class="app-footer-link">
-              {{ session.currentUser.value?.display_name || '个人档案' }}
-            </RouterLink>
-            <button type="button" class="app-footer-link is-button" @click="logout">退出</button>
-          </template>
-          <template v-else>
-            <RouterLink to="/login" class="app-footer-link">登录</RouterLink>
-            <RouterLink to="/register" class="app-footer-link">注册</RouterLink>
-          </template>
+        <div class="app-footer-row">
+          <span class="app-footer-role">{{ session.activeRole.value === 'management' ? '管理层' : session.activeRole.value === 'regulator' ? '监管风控' : '投资者' }}</span>
+          <button v-if="session.isAuthenticated.value" type="button" class="app-footer-link is-button" @click="logout">退出</button>
         </div>
       </div>
     </aside>
@@ -247,7 +221,7 @@ function buildNavTarget(path: string) {
 .app-sidebar-footer {
   margin-top: auto;
   display: grid;
-  gap: 14px;
+  gap: 10px;
   padding-top: 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -262,7 +236,7 @@ function buildNavTarget(path: string) {
 }
 
 .app-context-card strong {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.35;
   color: #eef2f7;
 }
@@ -275,28 +249,20 @@ function buildNavTarget(path: string) {
   color: rgba(120, 143, 172, 0.78);
 }
 
-.app-role-box,
-.app-user-box {
-  display: grid;
-  gap: 8px;
+.app-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.app-role-select select {
-  width: 100%;
-  min-height: 44px;
-  padding: 0 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
-  color: #eef2f7;
-}
-
-.app-user-box {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.app-footer-role {
+  color: rgba(203, 213, 225, 0.82);
+  font-size: 12px;
 }
 
 .app-footer-link {
-  min-height: 38px;
+  min-height: 32px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(255, 255, 255, 0.02);
@@ -359,10 +325,6 @@ function buildNavTarget(path: string) {
     width: 100%;
     height: auto;
     max-height: none;
-  }
-
-  .app-user-box {
-    grid-template-columns: 1fr;
   }
 }
 </style>
