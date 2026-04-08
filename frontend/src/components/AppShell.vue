@@ -16,26 +16,45 @@ defineProps<{
 const router = useRouter()
 const route = useRoute()
 const session = useSession()
-const navItems = [
-  { to: '/brain', label: '新能源产业大脑', auth: true },
-  { to: '/workspace', label: '协同分析', auth: true },
-  { to: '/graph', label: '图谱检索', auth: true },
-  { to: '/stress', label: '压力推演', auth: true },
-  { to: '/risk', label: '风险预警', auth: true },
-  { to: '/score', label: '经营诊断', auth: true },
-  { to: '/verify', label: '观点核验', auth: true },
-  { to: '/vision', label: '文档复核', auth: true },
+const navSections = [
+  {
+    title: '一、全局数据监控',
+    items: [{ to: '/brain', label: '新能源产业大脑', note: '高频流式数据与事件监控', auth: true }],
+  },
+  {
+    title: '二、管理者：运营评估与推演',
+    items: [
+      { to: '/workspace', label: '协同分析', note: '围绕问题直接判断', auth: true },
+      { to: '/score', label: '经营诊断', note: '企业体征与行业对标', auth: true },
+      { to: '/stress', label: '压力推演', note: '冲击路径与应对动作', auth: true },
+      { to: '/graph', label: '图谱检索', note: '顺着证据继续下钻', auth: true },
+    ],
+  },
+  {
+    title: '三、监管机构：合规与风险筛查',
+    items: [
+      { to: '/verify', label: '观点核验', note: '研报与财报一致性', auth: true },
+      { to: '/vision', label: '文档复核', note: '原文结构与提取结果', auth: true },
+    ],
+  },
 ]
 
-const visibleNavItems = computed(() =>
-  navItems.filter((item) => !item.auth || session.isAuthenticated.value),
+const visibleNavSections = computed(() =>
+  navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => !item.auth || session.isAuthenticated.value),
+    }))
+    .filter((section) => section.items.length),
 )
+
+const flatNavItems = computed(() => visibleNavSections.value.flatMap((section) => section.items))
 
 const activeNavLabel = computed(() => {
   if (route.path.startsWith('/evidence/')) {
     return '原文证据'
   }
-  return navItems.find((item) => item.to === route.path)?.label || '协同分析'
+  return flatNavItems.value.find((item) => item.to === route.path)?.label || '协同分析'
 })
 
 const routeContext = computed(() => {
@@ -91,14 +110,18 @@ function buildNavTarget(path: string) {
       </RouterLink>
 
       <nav class="app-nav">
-        <RouterLink
-          v-for="item in visibleNavItems"
-          :key="item.to"
-          :to="buildNavTarget(item.to)"
-          class="app-nav-item"
-        >
-          <strong>{{ item.label }}</strong>
-        </RouterLink>
+        <section v-for="section in visibleNavSections" :key="section.title" class="app-nav-group">
+          <span class="app-nav-group-title">{{ section.title }}</span>
+          <RouterLink
+            v-for="item in section.items"
+            :key="item.to"
+            :to="buildNavTarget(item.to)"
+            class="app-nav-item"
+          >
+            <strong>{{ item.label }}</strong>
+            <span>{{ item.note }}</span>
+          </RouterLink>
+        </section>
       </nav>
 
       <div class="app-sidebar-footer">
@@ -183,16 +206,30 @@ function buildNavTarget(path: string) {
 
 .app-nav {
   display: grid;
-  gap: 10px;
+  gap: 18px;
   padding-top: 2px;
 }
 
+.app-nav-group {
+  display: grid;
+  gap: 10px;
+}
+
+.app-nav-group-title {
+  padding: 0 8px;
+  color: rgba(168, 179, 194, 0.74);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .app-nav-item {
-  display: flex;
-  align-items: center;
+  display: grid;
+  gap: 4px;
+  align-content: center;
   width: 100%;
-  min-height: 52px;
-  padding: 0 14px;
+  min-height: 72px;
+  padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid transparent;
   background: transparent;
@@ -202,9 +239,15 @@ function buildNavTarget(path: string) {
 }
 
 .app-nav-item strong {
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.25;
   color: #eef2f7;
+}
+
+.app-nav-item span {
+  color: rgba(168, 179, 194, 0.72);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .app-nav-item:hover {

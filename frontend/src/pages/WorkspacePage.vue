@@ -17,19 +17,6 @@ type AnswerBlock = {
   bullets: string[]
 }
 
-type QuickMetric = {
-  label: string
-  value: string | number
-  hint?: string
-  unit?: string
-}
-
-type FocusColumn = {
-  label: string
-  items: string[]
-  empty: string
-}
-
 type SignalCard = {
   label: string
   title: string
@@ -103,7 +90,6 @@ const latestAnswer = computed(() => {
 })
 
 const workflowSteps = computed<any[]>(() => workspace.agentFlow || [])
-const insightNumbers = computed<any[]>(() => (latestAnswer.value?.insight_cards || []).slice(0, 3))
 const latestActionCards = computed<any[]>(() => (latestAnswer.value?.action_cards || []).slice(0, 3))
 const latestEvidenceGroups = computed<any[]>(() => (latestAnswer.value?.evidence_groups || []).slice(0, 2))
 
@@ -132,56 +118,18 @@ const periodOptions = computed(() =>
     .filter(Boolean) as Array<{ value: string; label: string }>,
 )
 
-const companySnapshotMetrics = computed<QuickMetric[]>(() => {
-  const summary = companyWorkspace.value?.score_summary
-  if (!summary) return []
-  return [
-    {
-      label: '经营总分',
-      value: summary.total_score,
-      unit: ` / ${summary.grade}`,
-      hint: summary.subindustry ? `${summary.subindustry} · ${summary.subindustry_percentile} 分位` : '当前主周期',
-    },
-    {
-      label: '风险标签',
-      value: summary.risk_count,
-      hint: '需要先处理的问题数',
-    },
-    {
-      label: '机会标签',
-      value: summary.opportunity_count,
-      hint: '可以继续放大的亮点',
-    },
+const currentStateLines = computed(() => {
+  const items = [
+    ...(companyWorkspace.value?.top_risks || []).slice(0, 2),
+    ...(companyWorkspace.value?.top_opportunities || []).slice(0, 1),
   ]
+  return items.filter(Boolean)
 })
-
-const decisionMetrics = computed(() => {
-  if (insightNumbers.value.length) return insightNumbers.value
-  return companySnapshotMetrics.value.map((item) => ({
-    label: item.label,
-    value: item.value,
-    unit: item.unit || '',
-  }))
-})
-
-const focusColumns = computed<FocusColumn[]>(() => [
-  {
-    label: '当前风险',
-    items: (companyWorkspace.value?.top_risks || []).slice(0, 3),
-    empty: '当前没有额外高风险标签。',
-  },
-  {
-    label: '可继续放大',
-    items: (companyWorkspace.value?.top_opportunities || []).slice(0, 3),
-    empty: '当前没有显著机会标签。',
-  },
-])
 
 const primaryActionCards = computed<any[]>(() => {
   if (latestActionCards.value.length) return latestActionCards.value
   return (companyWorkspace.value?.action_cards || []).slice(0, 3)
 })
-const liveTasks = computed<any[]>(() => (companyWorkspace.value?.tasks?.items || []).slice(0, 4))
 const watchboardActionLabel = computed(() =>
   companyWorkspace.value?.watchboard?.tracked ? '移出持续跟踪' : '加入持续跟踪',
 )
@@ -233,16 +181,6 @@ const resultLinks = computed(() => {
   }
   return links.slice(0, 2)
 })
-
-const workspaceStatus = computed(() =>
-  [
-    companyWorkspace.value?.report_period || overview.value?.preferred_period
-      ? `报期 ${companyWorkspace.value?.report_period || overview.value?.preferred_period}`
-      : '',
-    companyWorkspace.value?.watchboard?.tracked ? '已加入持续跟踪' : '',
-    companyWorkspace.value?.research?.status === 'ready' ? '可直接核验研报' : '',
-  ].filter(Boolean),
-)
 
 const pageLoadError = computed(
   () => companiesError.value || overviewError.value || companyWorkspaceError.value || '',
@@ -326,6 +264,10 @@ const continuationLinks = computed<SurfaceLink[]>(() => {
   return links.slice(0, 3)
 })
 
+const continuationSummary = computed(
+  () => latestRunSummary.value || researchSummary.value || '把这一轮判断接到证据和模块。',
+)
+
 function parseAnswerMarkdown(markdown: string, fallbackSections: any[]): AnswerBlock[] {
   const lines = markdown
     .split(/\r?\n/)
@@ -363,10 +305,6 @@ function parseAnswerMarkdown(markdown: string, fallbackSections: any[]): AnswerB
   }
 
   return blocks.filter((block) => block.paragraphs.length || block.bullets.length)
-}
-
-function displayMetricValue(item: any) {
-  return item?.unit ? `${item.value}${item.unit}` : `${item?.value ?? '--'}`
 }
 
 function renderInlineMarkdown(value: string) {
@@ -867,18 +805,11 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
             </div>
 
             <div v-else-if="latestAnswer || companyWorkspaceReady" class="surface-stack">
-              <section v-if="decisionMetrics.length" class="metric-pills">
-                <article v-for="item in decisionMetrics" :key="item.label" class="metric-pill">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ displayMetricValue(item) }}</strong>
-                </article>
-              </section>
-
               <section class="workspace-grid">
                 <div class="workspace-column">
-                  <section class="flow-surface">
+                  <section class="flow-surface judgement-surface">
                     <div class="section-head">
-                      <span>这一轮判断</span>
+                      <span>先看当前判断</span>
                       <strong>{{ surfaceTitle }}</strong>
                     </div>
                     <template v-if="latestAnswer">
@@ -893,24 +824,21 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                       </section>
                     </template>
                     <template v-else>
-                      <section class="focus-band">
-                        <article v-for="column in focusColumns" :key="column.label" class="focus-panel">
-                          <span class="focus-label">{{ column.label }}</span>
-                          <ul v-if="column.items.length" class="focus-list">
-                            <li v-for="item in column.items" :key="item">{{ item }}</li>
-                          </ul>
-                          <p v-else class="inline-empty">{{ column.empty }}</p>
-                        </article>
+                      <section class="plain-status">
+                        <p>{{ surfaceSummary }}</p>
+                        <ul v-if="currentStateLines.length" class="focus-list">
+                          <li v-for="item in currentStateLines" :key="item">{{ item }}</li>
+                        </ul>
                       </section>
                     </template>
                   </section>
 
-                  <section v-if="latestEvidenceCards.length" class="flow-surface">
+                  <section v-if="latestEvidenceCards.length || continuationLinks.length" class="flow-surface">
                     <div class="section-head">
                       <span>这一次可以从这里接着看</span>
-                      <strong>{{ latestRunSummary || '把判断接到证据和模块' }}</strong>
+                      <strong>{{ continuationSummary }}</strong>
                     </div>
-                    <div class="evidence-stack">
+                    <div v-if="latestEvidenceCards.length" class="evidence-stack">
                       <article v-for="group in latestEvidenceCards" :key="group.title" class="evidence-row">
                         <div class="evidence-copy">
                           <strong>{{ group.title }}</strong>
@@ -928,11 +856,21 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                         </div>
                       </article>
                     </div>
+                    <div v-if="continuationLinks.length" class="continuation-links is-inline">
+                      <RouterLink
+                        v-for="item in continuationLinks"
+                        :key="`${item.path}-${item.label}`"
+                        :to="{ path: item.path, query: item.query || {} }"
+                        class="surface-link"
+                      >
+                        {{ item.label }}
+                      </RouterLink>
+                    </div>
                   </section>
                 </div>
 
                 <aside class="workspace-column side-column">
-                  <section class="flow-surface">
+                  <section class="flow-surface compact-surface">
                     <div class="section-head">
                       <span>直接发问</span>
                       <strong>先从这几个问题开始</strong>
@@ -950,7 +888,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                     </div>
                   </section>
 
-                  <section class="flow-surface">
+                  <section class="flow-surface compact-surface">
                     <div class="section-head">
                       <span>输入问题</span>
                       <strong>围绕当前公司直接判断</strong>
@@ -970,7 +908,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                     <p v-if="turnError" class="composer-error">{{ turnError }}</p>
                   </section>
 
-                  <section class="flow-surface">
+                  <section class="flow-surface compact-surface">
                     <div class="section-head">
                       <span>持续跟踪</span>
                       <strong>把这一轮判断接到后续动作</strong>
@@ -991,13 +929,13 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                     <p v-if="workflowActionError" class="composer-error">{{ workflowActionError }}</p>
                   </section>
 
-                  <section v-if="primaryActionCards.length" class="flow-surface">
+                  <section v-if="primaryActionCards.length" class="flow-surface compact-surface">
                     <div class="section-head">
                       <span>下一步</span>
-                      <strong>先把动作说清楚</strong>
+                      <strong>先把这一轮判断接到动作</strong>
                     </div>
                     <div class="action-list">
-                      <article v-for="item in primaryActionCards" :key="item.title" class="action-row">
+                      <article v-for="item in primaryActionCards.slice(0, 2)" :key="item.title" class="action-row">
                         <div class="action-copy">
                           <em>{{ item.priority || '动作' }}</em>
                           <strong>{{ item.title }}</strong>
@@ -1012,25 +950,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                           {{ isWorkflowPending('task-create', item.title || 'task') ? '写入中…' : '写入任务板' }}
                         </button>
                       </article>
-                    </div>
-                  </section>
-
-                  <section v-if="latestRunSummary || researchSummary || continuationLinks.length" class="flow-surface">
-                    <div class="section-head">
-                      <span>继续往下看</span>
-                      <strong>把这一轮判断接到证据和模块</strong>
-                    </div>
-                    <p v-if="latestRunSummary">{{ latestRunSummary }}</p>
-                    <p>{{ researchSummary }}</p>
-                    <div v-if="continuationLinks.length" class="continuation-links">
-                      <RouterLink
-                        v-for="item in continuationLinks"
-                        :key="`${item.path}-${item.label}`"
-                        :to="{ path: item.path, query: item.query || {} }"
-                        class="surface-link"
-                      >
-                        {{ item.label }}
-                      </RouterLink>
                     </div>
                   </section>
                 </aside>
@@ -1336,8 +1255,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 }
 
 .workspace-grid,
-.metric-pills,
-.focus-band,
 .continuation-links,
 .rail-prompts,
 .evidence-links {
@@ -1346,7 +1263,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 }
 
 .workspace-grid {
-  grid-template-columns: minmax(0, 1.14fr) minmax(340px, 0.86fr);
+  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
   align-items: start;
 }
 
@@ -1355,16 +1272,8 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   gap: 16px;
 }
 
-.metric-pills {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.focus-band {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.metric-pill,
-.focus-panel,
+.judgement-surface,
+.compact-surface,
 .snapshot-note,
 .answer-surface,
 .flow-surface,
@@ -1374,8 +1283,8 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   background: rgba(255, 255, 255, 0.025);
 }
 
-.metric-pill,
-.focus-panel,
+.judgement-surface,
+.compact-surface,
 .snapshot-note,
 .answer-surface,
 .flow-surface {
@@ -1384,17 +1293,14 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   padding: 18px;
 }
 
-.metric-pill strong {
-  font-size: 22px;
-  line-height: 1.05;
-  letter-spacing: -0.04em;
-}
-
-.focus-panel,
 .snapshot-note,
 .answer-surface,
 .flow-surface {
   align-content: start;
+}
+
+.compact-surface {
+  gap: 12px;
 }
 
 .section-head {
@@ -1419,6 +1325,17 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
 .answer-surface {
   gap: 18px;
+}
+
+.plain-status {
+  display: grid;
+  gap: 12px;
+}
+
+.plain-status p {
+  margin: 0;
+  color: rgba(203, 213, 225, 0.86);
+  line-height: 1.7;
 }
 
 .action-list,
@@ -1465,6 +1382,10 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
 .continuation-links {
   grid-template-columns: 1fr;
+}
+
+.continuation-links.is-inline {
+  margin-top: 6px;
 }
 
 .surface-link {
@@ -1564,8 +1485,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
 @media (max-width: 1240px) {
   .workspace-grid,
-  .metric-pills,
-  .focus-band {
+  .continuation-links {
     grid-template-columns: 1fr;
   }
 
