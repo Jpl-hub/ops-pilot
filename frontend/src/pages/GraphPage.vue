@@ -574,7 +574,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
         <div class="graph-heading">
           <h1>图谱检索</h1>
           <p>{{ selectedCompany || '选择公司' }}<span v-if="selectedPeriod"> · {{ selectedPeriod }}</span></p>
-          <span class="graph-role-pill">{{ activeRoleLabel }}</span>
         </div>
 
         <div class="graph-controls">
@@ -603,32 +602,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
           </div>
         </div>
 
-        <div v-if="selectedCompany" class="query-strip-actions">
-          <button
-            type="button"
-            class="panel-action"
-            :disabled="isActionPending(`watchboard:${selectedCompany}`)"
-            @click="toggleWatchboardTracking()"
-          >
-            {{
-              isActionPending(`watchboard:${selectedCompany}`)
-                ? '处理中...'
-                : watchboardActionLabel
-            }}
-          </button>
-          <button
-            type="button"
-            class="panel-action is-secondary"
-            :disabled="isActionPending(`task:${currentRunId || selectedCompany}:${activeGraphFocus?.step || selectedNode?.id || 'graph'}`)"
-            @click="createGraphTask()"
-          >
-            {{
-              isActionPending(`task:${currentRunId || selectedCompany}:${activeGraphFocus?.step || selectedNode?.id || 'graph'}`)
-                ? '写入中...'
-                : '写入任务板'
-            }}
-          </button>
-        </div>
       </section>
 
       <section class="graph-intent-dock">
@@ -739,24 +712,40 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 
             <article class="graph-side-card">
               <div class="card-head">
-                <strong>工作流状态</strong>
-                <span class="subtle-copy">{{ companyWorkspace?.watchboard?.tracked ? '已跟踪' : '未跟踪' }}</span>
+                <strong>继续往下看</strong>
               </div>
               <p class="panel-copy">{{ watchboardSummary }}</p>
-              <div v-if="workflowTasks.length" class="mini-list">
-                <RouterLink
-                  v-for="task in workflowTasks"
-                  :key="task.task_id"
-                  :to="task.route || { path: '/workspace', query: { company: selectedCompany, period: selectedPeriod, role: activeRole } }"
-                  class="mini-item"
+              <div class="selected-node-links">
+                <button
+                  v-if="selectedCompany"
+                  type="button"
+                  class="panel-action"
+                  :disabled="isActionPending(`watchboard:${selectedCompany}`)"
+                  @click="toggleWatchboardTracking()"
                 >
-                  <strong>{{ task.title }}</strong>
-                  <span>{{ displayTaskStatus(task.status) }} · {{ task.priority || 'P1' }}</span>
-                </RouterLink>
+                  {{
+                    isActionPending(`watchboard:${selectedCompany}`)
+                      ? '处理中...'
+                      : watchboardActionLabel
+                  }}
+                </button>
+                <button
+                  v-if="selectedCompany"
+                  type="button"
+                  class="panel-action is-secondary"
+                  :disabled="isActionPending(`task:${currentRunId || selectedCompany}:${activeGraphFocus?.step || selectedNode?.id || 'graph'}`)"
+                  @click="createGraphTask()"
+                >
+                  {{
+                    isActionPending(`task:${currentRunId || selectedCompany}:${activeGraphFocus?.step || selectedNode?.id || 'graph'}`)
+                      ? '写入中...'
+                      : '写入任务板'
+                  }}
+                </button>
               </div>
               <div v-if="graphRelatedRoutes.length" class="selected-node-links">
                 <RouterLink
-                  v-for="item in graphRelatedRoutes"
+                  v-for="item in graphRelatedRoutes.slice(0, 2)"
                   :key="`${item.path}-${item.label}`"
                   :to="{ path: item.path, query: item.query || {} }"
                   class="selected-node-link"
@@ -766,7 +755,7 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
               </div>
               <div v-if="graphEvidenceLinks.length" class="selected-node-links">
                 <RouterLink
-                  v-for="item in graphEvidenceLinks"
+                  v-for="item in graphEvidenceLinks.slice(0, 2)"
                   :key="`${item.path}-${item.label}`"
                   :to="{ path: item.path, query: item.query || {} }"
                   class="selected-node-link"
@@ -775,27 +764,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
                 </RouterLink>
               </div>
               <p v-if="actionError" class="panel-error">{{ actionError }}</p>
-            </article>
-
-            <article v-if="recentRuns.length" class="graph-side-card">
-              <div class="card-head">
-                <strong>最近图谱检索</strong>
-                <span class="subtle-copy">{{ activeRoleLabel }}</span>
-              </div>
-              <button
-                v-for="item in recentRuns"
-                :key="item.run_id"
-                type="button"
-                class="run-item-button"
-                :class="{ 'is-active': currentRunId === item.run_id }"
-                @click="openGraphRun(item.run_id)"
-              >
-                <div class="run-item-copy">
-                  <strong>{{ item.intent }}</strong>
-                  <p>{{ item.report_period || selectedPeriod || '默认主周期' }}</p>
-                </div>
-                <span>{{ formatTimestamp(item.created_at) }}</span>
-              </button>
             </article>
           </div>
         </section>
@@ -868,19 +836,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   flex-wrap: wrap;
 }
 
-.graph-role-pill {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  min-height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(96, 165, 250, 0.18);
-  background: rgba(37, 99, 235, 0.12);
-  color: #dbeafe;
-  font-size: 12px;
-}
-
 .graph-select {
   display: grid;
   gap: 8px;
@@ -925,13 +880,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   align-items: center;
   gap: 12px;
   min-width: 0;
-}
-
-.query-strip-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
 .query-strip-main h2 {
@@ -1041,16 +989,12 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
 }
 
 .card-head strong,
-.mini-item strong,
-.run-item-copy strong {
+.mini-item strong {
   color: #f8fafc;
 }
 
 .panel-copy,
-.subtle-copy,
 .mini-item span,
-.run-item-copy p,
-.run-item-button span,
 .panel-error {
   margin: 0;
   color: rgba(148, 163, 184, 0.9);
@@ -1098,25 +1042,6 @@ watch([selectedCompany, selectedPeriod], ([company, period]) => {
   border-top: none;
 }
 
-.run-item-button {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
-}
-
-.run-item-button.is-active {
-  border-color: rgba(16, 185, 129, 0.28);
-  background: rgba(16, 185, 129, 0.08);
-}
 
 .run-item-copy {
   display: grid;
